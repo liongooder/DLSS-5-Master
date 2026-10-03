@@ -1,0 +1,89 @@
+DLSS 5 Master
+============
+
+DLSS 5 Master installs and removes ReShade + RenoDX neural rendering routes
+(Native, Multipass, Feeder), OptiScaler, and swaps upscaler DLLs in your games.
+
+Every change it makes to a game is recorded in the "_DLSS5Master_Backup"
+folder inside that game, and "Restore originals" puts the game back exactly
+as it was. Uninstalling DLSS 5 Master does NOT restore your games - use
+"Restore originals" on each game first if you want them back to stock.
+
+Games with anti-cheat: injected DLLs can get you banned in online modes.
+Use at your own risk.
+
+
+Third-party notices
+-------------------
+
+Bundled with this installer (unmodified, SHA-256 pinned):
+
+- MFGAdaUnlock-RenoDx 1.4.1 (renodx-mfgunlock.addon64) -
+  https://github.com/mavismmg/MFGAdaUnlock-RenoDx
+
+  MIT License
+
+  Copyright (c) 2026 ImDreamt
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
+- ReShade 6.8.0 with add-on support (payload\reshade\ReShade32.dll,
+  ReShade64.dll) - https://reshade.me, Copyright 2014 Patrick Mours.
+  BSD-3-Clause; full text in licenses\ReShade-LICENSE.md. Includes the
+  ReShade.fxh / ReShadeUI.fxh shader headers in payload\feeder\reshade-shaders.
+
+- RenoDX DLSS5 add-on 6.5.3 and DLSS Tool SF 26.0928.0205
+  (payload\renodx\) - https://github.com/clshortfuse/renodx,
+  Copyright (c) 2025 Carlos Lopez Jr. MIT; full text in
+  licenses\RenoDX-LICENSE.txt.
+
+- DLSS5-Feeder 1.17.0 (payload\feeder\) -
+  https://github.com/jlrouzies-fr/DLSS5-Feeder,
+  Copyright (c) 2026 Jean-Laurent Rouzies. MIT; full text in
+  payload\feeder\licenses\DLSS5-Feeder-LICENSE.txt.
+
+- vort_Shaders (payload\feeder\reshade-shaders) -
+  https://github.com/vortigern11/vort_Shaders, Copyright (c) 2023
+  vortigern11. MIT; full text in payload\feeder\licenses\VORT-LICENSE.txt.
+
+- NVIDIA DLSS Super Resolution, Frame Generation, Ray Reconstruction and
+  neural rendering runtimes, and NVIDIA Streamline 2.13 (payload\runtime\) -
+  Copyright (c) NVIDIA Corporation. Distributed under NVIDIA's license terms
+  in payload\runtime\nvngx_dlss.license.txt, reflex.license.txt and
+  nis.license.txt. These files are NVIDIA's property.
+
+- OptiScaler NR pre-SR multipass 0.8.3 RTX 40 MFG
+  (payload\optiscaler\OptiScaler-NR-v0.8.3-rtx40-mfg.zip, the unmodified
+  release file) - GPL-3.0; the licence text is the LICENSE file inside the zip.
+  Source code: https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass
+  (tag v0.8.3). The zip also contains AMD FidelityFX and Intel XeSS libraries
+  under the licences in its Licenses folder.
+
+Not bundled; downloaded at install time from their authors' release pages and
+verified by SHA-256:
+
+- OptiScaler NR pre-SR multipass 0.8.3 (standard) -
+  https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0)
+- OptiScaler DLSS-NR - https://github.com/Dagherbou/OptiScaler_DLSSNR (GPL-3.0)
+- OptiScaler DLSS-NR pre-SR multipass -
+  https://github.com/jlrouzies-fr/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0)
+
+
+This application uses the Windows App SDK and .NET runtime, (c) Microsoft
+Corporation, redistributed under their respective licenses.

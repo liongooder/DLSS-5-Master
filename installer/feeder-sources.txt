@@ -1,0 +1,16 @@
+Third-party files in this folder (payload\feeder), shipped by DLSS 5 Master unmodified:
+
+DLSS5-Feeder 1.17.0 (dlss5-feed.addon64, dlss5-feed.addon32, dlss5-feed-host64.exe,
+  DLSS5_Feed.fx, Verify-DLSS5Feeder.ps1) - https://github.com/jlrouzies-fr/DLSS5-Feeder
+  MIT; licence text in DLSS5-Feeder-LICENSE.txt.
+
+vort_Shaders, commit b410b9f0c0fbb83c8cb42164aaf1655fab386f4a (vort_Motion.fx, Includes\vort_*.fxh,
+  Textures\vort_*.png) - https://github.com/vortigern11/vort_Shaders
+  MIT; licence text in VORT-LICENSE.txt.
+
+ReShade shader headers, commit ee30868391d4ad103db60489820102d8fd40e3c1 (ReShade.fxh, ReShadeUI.fxh)
+  - https://github.com/crosire/reshade-shaders
+  BSD-3-Clause; see ReShade-LICENSE.md in the DLSS 5 Master install folder's licenses folder.
+
+The RenoDX add-ons used with the Feeder route are in payload\renodx and are listed in
+THIRD-PARTY-NOTICES.txt in the DLSS 5 Master install folder.
