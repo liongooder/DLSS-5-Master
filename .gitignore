@@ -1,0 +1,22 @@
+bin/
+obj/
+publish/
+dist/
+signed/
+*.user
+*.suo
+.vs/
+*.log
+src/DLSS5Master/addons/
+src/DLSS5Master/payload/
+
+# private draft, not for GitHub
+SignPath-application.md
+
+# local copy of the bundled runtime payload (not redistributed via git)
+vendor/
+# clean-room working notes (kept local)
+docs/cleanroom/
+
+# CI workflow kept local until the payload can be fetched in CI
+.github/workflows/

@@ -1,0 +1,377 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window x:Class="DLSS5Master.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="using:DLSS5Master.Views"
+        Title="DLSS 5 Master">
+
+  <Grid x:Name="Root" Background="#FF060B12">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+
+    <!-- Brand artwork behind every page (set from Assets\Background.jpg in code). -->
+    <Image x:Name="BackgroundArt" Grid.RowSpan="2" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+    <!-- ===== Title / top bar ===== -->
+    <Grid x:Name="TitleBar" Height="84" Padding="20,0,150,0" ColumnSpacing="16" Background="#66040A10">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="Auto" />
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+      </Grid.ColumnDefinitions>
+      <Image x:Name="HeaderLogo" Height="68" VerticalAlignment="Center" Stretch="Uniform" />
+
+
+      <SelectorBar x:Name="Tabs" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" SelectionChanged="Tabs_SelectionChanged">
+        <SelectorBarItem x:Name="TabGames" Text="GAMES" IsSelected="True" />
+        <SelectorBarItem x:Name="TabSettings" Text="SETTINGS" />
+        <SelectorBarItem x:Name="TabAbout" Text="ABOUT" />
+      </SelectorBar>
+
+      <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+      <StackPanel x:Name="GameTools" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <AutoSuggestBox x:Name="SearchBox" Width="220" PlaceholderText="Search games" QueryIcon="Find" TextChanged="SearchBox_TextChanged" />
+        <ComboBox x:Name="FilterBox" Width="150" SelectedIndex="0" SelectionChanged="FilterBox_SelectionChanged">
+          <ComboBoxItem Content="All games" />
+          <ComboBoxItem Content="Has DLSS" />
+          <ComboBoxItem Content="Installed here" />
+          <ComboBoxItem Content="Modded elsewhere" />
+        </ComboBox>
+        <Button ToolTipService.ToolTip="Add a game by its .exe" Click="AddGame_Click">
+          <FontIcon Glyph="&#xE710;" FontSize="14" />
+        </Button>
+        <Button ToolTipService.ToolTip="Rescan library" Click="Refresh_Click">
+          <FontIcon Glyph="&#xE72C;" FontSize="14" />
+        </Button>
+      </StackPanel>
+      </StackPanel>
+    </Grid>
+
+    <!-- ===== Games page ===== -->
+    <Grid x:Name="GamesPage" Grid.Row="1">
+      <GridView x:Name="GameGrid" Padding="24,8,24,24" IsItemClickEnabled="True" SelectionMode="None" ItemClick="GameGrid_ItemClick">
+        <GridView.ItemTemplate>
+          <DataTemplate x:DataType="views:GameItem">
+            <StackPanel Width="190" Margin="6" Spacing="8" Background="Transparent">
+              <StackPanel.ContextFlyout>
+                <MenuFlyout>
+                  <MenuFlyoutItem Text="Change artwork…" Click="ChangeArtwork_Click" Tag="{x:Bind}">
+                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xEB9F;" /></MenuFlyoutItem.Icon>
+                  </MenuFlyoutItem>
+                  <MenuFlyoutItem Text="Refresh artwork" Click="RefreshArtwork_Click" Tag="{x:Bind}">
+                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE72C;" /></MenuFlyoutItem.Icon>
+                  </MenuFlyoutItem>
+                  <MenuFlyoutItem Text="Use default artwork" Click="DefaultArtwork_Click" Tag="{x:Bind}">
+                    <MenuFlyoutItem.Icon><FontIcon Glyph="&#xE777;" /></MenuFlyoutItem.Icon>
+                  </MenuFlyoutItem>
+                </MenuFlyout>
+              </StackPanel.ContextFlyout>
+              <Grid Height="270" CornerRadius="14" BorderThickness="1" BorderBrush="{StaticResource RowBorder}" Background="#CC0D1824">
+                <TextBlock Text="{x:Bind Initials}" Visibility="{x:Bind PlaceholderVisibility, Mode=OneWay}" FontSize="44" FontWeight="Black"
+                           Foreground="#40FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                <Image Source="{x:Bind Poster, Mode=OneWay}" Stretch="UniformToFill" />
+                <Border Visibility="{x:Bind BadgeVisibility, Mode=OneWay}" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8"
+                        Background="#E0101410" CornerRadius="8" Padding="8,3" BorderThickness="1" BorderBrush="{ThemeResource AccentFillColorDefaultBrush}">
+                  <TextBlock Text="{x:Bind Badge, Mode=OneWay}" FontSize="11" Foreground="{StaticResource AccentText}" MaxWidth="160" TextTrimming="CharacterEllipsis" />
+                </Border>
+              </Grid>
+              <StackPanel Spacing="1">
+                <TextBlock Text="{x:Bind Name}" HorizontalAlignment="Center" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" />
+                <TextBlock Text="{x:Bind Subtitle, Mode=OneWay}" HorizontalAlignment="Center" FontSize="11" Foreground="{StaticResource MutedText}" TextTrimming="CharacterEllipsis" />
+              </StackPanel>
+            </StackPanel>
+          </DataTemplate>
+        </GridView.ItemTemplate>
+      </GridView>
+      <StackPanel x:Name="LoadingPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+        <ProgressRing IsActive="True" Width="40" Height="40" />
+        <TextBlock x:Name="LoadingText" Text="Finding your games…" Foreground="{StaticResource MutedText}" HorizontalAlignment="Center" />
+      </StackPanel>
+      <TextBlock x:Name="ScanStatus" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,28,8" FontSize="11" Foreground="{StaticResource MutedText}" />
+    </Grid>
+
+    <!-- ===== Settings page ===== -->
+    <ScrollViewer x:Name="SettingsPage" Grid.Row="1" Visibility="Collapsed">
+      <StackPanel MaxWidth="860" Margin="24,8,24,32" Spacing="14">
+        <Border Style="{StaticResource Card}">
+          <StackPanel Spacing="10">
+            <TextBlock Text="ADD-ON UPDATES" Style="{StaticResource SectionTitle}" />
+            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
+                       Text="Newer add-on versions come from their authors' GitHub releases and are checked against GitHub's published SHA-256 before use. An update applies to new installs; games already set up keep their version until you reinstall them." />
+            <Border Style="{StaticResource Card}" Padding="0">
+              <StackPanel x:Name="UpdateRows" />
+            </Border>
+            <StackPanel Orientation="Horizontal" Spacing="12">
+              <Button x:Name="CheckUpdatesButton" Content="Check now" Click="CheckUpdates_Click" />
+              <CheckBox x:Name="AutoCheckBox" Content="Check once a day" Click="UpdateOptions_Click" />
+              <CheckBox x:Name="PreReleaseBox" Content="Include beta / pre-release versions" Click="UpdateOptions_Click" />
+            </StackPanel>
+            <TextBlock x:Name="UpdateStatus" FontSize="12" Foreground="{StaticResource MutedText}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource Card}">
+          <StackPanel Spacing="10">
+            <TextBlock Text="NVIDIA RUNTIME (nvngx_dlss*.dll, sl.*.dll)" Style="{StaticResource SectionTitle}" />
+            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}" Text="DLSS, Frame Generation, Ray Reconstruction, neural rendering and Streamline runtimes are included with DLSS 5 Master. Leave empty to use them, or pick a folder that holds other versions." />
+            <Grid ColumnSpacing="8">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+              <TextBox x:Name="RuntimeFolderBox" PlaceholderText="Automatic" IsReadOnly="True" />
+              <Button Grid.Column="1" Content="Browse…" Click="PickRuntime_Click" />
+              <Button Grid.Column="2" Content="Automatic" Click="ClearRuntime_Click" />
+            </Grid>
+            <TextBlock x:Name="RuntimeStatus" FontSize="12" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource Card}">
+          <StackPanel Spacing="10">
+            <TextBlock Text="RESHADE WITH ADD-ON SUPPORT" Style="{StaticResource SectionTitle}" />
+            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}" Text="ReShade 6.8 with add-on support is included with DLSS 5 Master. Leave empty to use it, or pick a ReShade_Setup_x.y.z_Addon.exe from reshade.me to use another version." />
+            <Grid ColumnSpacing="8">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+              <TextBox x:Name="ReShadeSourceBox" PlaceholderText="Automatic" IsReadOnly="True" />
+              <Button Grid.Column="1" Content="Pick setup…" Click="PickReShade_Click" />
+              <Button Grid.Column="2" Content="Automatic" Click="ClearReShade_Click" />
+            </Grid>
+            <TextBlock x:Name="ReShadeStatus" FontSize="12" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource Card}">
+          <StackPanel Spacing="10">
+            <TextBlock Text="LIBRARY FOLDERS" Style="{StaticResource SectionTitle}" />
+            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}" Text="Steam, Epic, GOG, Ubisoft and Xbox games are found automatically. Add folders where every sub-folder is a game (repacks, standalone games)." />
+            <ListView x:Name="FolderList" SelectionMode="Single" MaxHeight="200" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Content="Add folder…" Click="AddFolder_Click" />
+              <Button Content="Remove selected" Click="RemoveFolder_Click" />
+              <Button Content="Show hidden games again" Click="UnhideAll_Click" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource Card}">
+          <StackPanel Spacing="10">
+            <TextBlock Text="DLL LIBRARY" Style="{StaticResource SectionTitle}" />
+            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}" Text="DLSS, Frame Gen, Ray Reconstruction, FSR and XeSS builds you import here are offered by the Swap button in every game." />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Content="Import DLLs…" Click="ImportDlls_Click" />
+              <Button Content="Open library folder" Click="OpenDllLibrary_Click" />
+              <Button Content="Open activity log" Click="OpenLog_Click" />
+            </StackPanel>
+            <TextBlock x:Name="DllLibraryStatus" FontSize="12" Foreground="{StaticResource MutedText}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- ===== About page ===== -->
+    <ScrollViewer x:Name="AboutPage" Grid.Row="1" Visibility="Collapsed">
+      <StackPanel MaxWidth="860" Margin="24,8,24,32" Spacing="14">
+        <Border Style="{StaticResource Card}">
+          <StackPanel Spacing="8">
+            <Image x:Name="AboutLogo" Height="150" HorizontalAlignment="Left" Stretch="Uniform" Margin="0,0,0,6" />
+            <TextBlock Text="DLSS 5 Master 0.2.7" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
+                       Text="One place for ReShade + RenoDX neural rendering routes (Native, Multipass, Feeder), OptiScaler, and per-game DLL swapping. Every change is recorded in _DLSS5Master_Backup inside the game folder, and Restore originals puts the game back exactly as it was." />
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource Card}">
+          <StackPanel Spacing="10">
+            <TextBlock Text="FEEDBACK" Style="{StaticResource SectionTitle}" />
+            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
+                       Text="Found a bug or have an idea? Open an issue on GitHub. Your app version, Windows version and graphics card are filled in for you; add the game name and what happened. You can attach activity.log from the log folder." />
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Button Content="Report a problem" Style="{StaticResource AccentButtonStyle}" Click="ReportProblem_Click" />
+              <Button Content="Suggest a feature" Click="SuggestFeature_Click" />
+              <Button Content="Open log folder" Click="OpenLogFolder_Click" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource Card}">
+          <StackPanel Spacing="10">
+            <TextBlock Text="SUPPORT" Style="{StaticResource SectionTitle}" />
+            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
+                       Text="DLSS 5 Master is free. If it saved you time, you can support its development." />
+            <StackPanel Orientation="Horizontal" Spacing="28">
+              <StackPanel Spacing="10" VerticalAlignment="Center">
+                <ContentControl x:Name="AboutCoffeeHost" HorizontalAlignment="Left" />
+                <TextBlock Text="buymeacoffee.com/Liongooder" Foreground="{StaticResource MutedText}" IsTextSelectionEnabled="True" />
+              </StackPanel>
+              <StackPanel Spacing="6">
+                <Border Background="White" CornerRadius="12" Padding="8">
+                  <Image x:Name="CoffeeQr" Width="140" Height="140" />
+                </Border>
+                <TextBlock Text="Scan with your phone" FontSize="12" HorizontalAlignment="Center" Foreground="{StaticResource MutedText}" />
+              </StackPanel>
+            </StackPanel>
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource Card}">
+          <StackPanel Spacing="8">
+            <TextBlock Text="THIRD-PARTY NOTICES" Style="{StaticResource SectionTitle}" />
+            <TextBlock TextWrapping="Wrap" IsTextSelectionEnabled="True" x:Name="NoticesText" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+
+    <!-- ===== Game panel (overlay) ===== -->
+    <Grid x:Name="GameOverlay" Grid.RowSpan="2" Visibility="Collapsed" Background="{StaticResource OverlayBackground}" Tapped="GameOverlay_Tapped">
+      <Border x:Name="GamePanel" MaxWidth="980" Margin="40,30" Background="{StaticResource PanelBackground}" CornerRadius="22"
+              BorderBrush="{StaticResource RowBorder}" BorderThickness="1" Tapped="GamePanel_Tapped">
+        <Grid>
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+
+          <!-- header -->
+          <Grid Padding="28,22,22,10" ColumnSpacing="12">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto" />
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Border Width="54" Height="78" CornerRadius="8" Background="#FF0D1824">
+              <Image x:Name="PanelPoster" Stretch="UniformToFill" />
+            </Border>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="6">
+              <TextBlock x:Name="PanelTitle" FontSize="24" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+              <StackPanel x:Name="PanelChips" Orientation="Horizontal" Spacing="6" />
+            </StackPanel>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+              <Button ToolTipService.ToolTip="Rescan this game" Click="Rescan_Click"><FontIcon Glyph="&#xE72C;" FontSize="14" /></Button>
+              <Button ToolTipService.ToolTip="Hide this game" Click="HideGame_Click"><FontIcon Glyph="&#xED1A;" FontSize="14" /></Button>
+              <Button ToolTipService.ToolTip="Close" Click="ClosePanel_Click" Background="#40FF5050"><FontIcon Glyph="&#xE711;" FontSize="14" /></Button>
+            </StackPanel>
+          </Grid>
+
+          <!-- body -->
+          <ScrollViewer Grid.Row="1" Padding="28,6,28,10">
+            <StackPanel Spacing="16" Padding="0,0,14,0">
+              <StackPanel>
+                <TextBlock Text="Executable" Style="{StaticResource FieldLabel}" />
+                <Grid ColumnSpacing="8">
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                  <ComboBox x:Name="ExeBox" HorizontalAlignment="Stretch" SelectionChanged="ExeBox_SelectionChanged" />
+                  <Button Grid.Column="1" Content="Change .exe" Click="ChangeExe_Click" />
+                </Grid>
+              </StackPanel>
+
+              <StackPanel>
+                <TextBlock Text="Rendering API" Style="{StaticResource FieldLabel}" />
+                <ComboBox x:Name="ApiBox" HorizontalAlignment="Stretch" SelectionChanged="ApiBox_SelectionChanged" />
+              </StackPanel>
+
+              <Grid ColumnSpacing="14">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                <StackPanel>
+                  <TextBlock Text="Rendering backend" Style="{StaticResource FieldLabel}" />
+                  <ComboBox x:Name="BackendBox" HorizontalAlignment="Stretch" SelectionChanged="BackendBox_SelectionChanged">
+                    <ComboBoxItem Content="ReShade (RenoDX)" />
+                    <ComboBoxItem Content="OptiScaler" />
+                  </ComboBox>
+                </StackPanel>
+                <StackPanel Grid.Column="1">
+                  <TextBlock x:Name="RouteLabel" Text="Installation route" Style="{StaticResource FieldLabel}" />
+                  <ComboBox x:Name="RouteBox" HorizontalAlignment="Stretch" SelectionChanged="RouteBox_SelectionChanged" />
+                  <ComboBox x:Name="OptiBuildBox" HorizontalAlignment="Stretch" Visibility="Collapsed" SelectionChanged="OptiBuildBox_SelectionChanged" />
+                </StackPanel>
+              </Grid>
+
+              <TextBlock x:Name="RouteDescription" TextWrapping="Wrap" Foreground="{StaticResource MutedText}" />
+              <InfoBar x:Name="RouteWarning" IsClosable="False" Severity="Warning" />
+
+              <!-- ReShade options -->
+              <StackPanel x:Name="ReShadeOptions" Spacing="10">
+                <StackPanel x:Name="ProxyPanel">
+                  <TextBlock Text="ReShade DLL name" Style="{StaticResource FieldLabel}" />
+                  <ComboBox x:Name="ProxyBox" Width="260" SelectedIndex="0">
+                    <ComboBoxItem Content="dxgi.dll (default)" Tag="dxgi.dll" />
+                    <ComboBoxItem Content="d3d11.dll (DX11 games that skip dxgi)" Tag="d3d11.dll" />
+                  </ComboBox>
+                </StackPanel>
+                <CheckBox x:Name="AddDlssBox" Content="Add nvngx_dlss.dll beside the game if it has none" />
+                <StackPanel>
+                  <CheckBox x:Name="MfgBox" Content="MFG unlock for RTX 40 — DLSS multi frame generation 3x/4x (MFGAdaUnlock 1.4.1)" />
+                  <TextBlock x:Name="MfgNote" Margin="28,0,0,0" FontSize="12" Foreground="{StaticResource MutedText}" TextWrapping="Wrap" />
+                </StackPanel>
+              </StackPanel>
+
+              <!-- OptiScaler options -->
+              <Border x:Name="OptiOptions" Style="{StaticResource Card}" Visibility="Collapsed">
+                <StackPanel Spacing="12">
+                  <Grid ColumnSpacing="14">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <StackPanel>
+                      <TextBlock Text="OptiScaler DLL name" Style="{StaticResource FieldLabel}" />
+                      <ComboBox x:Name="OptiHookBox" HorizontalAlignment="Stretch" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1">
+                      <TextBlock Text="OptiScaler menu key" Style="{StaticResource FieldLabel}" />
+                      <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <ComboBox x:Name="MenuKeyBox" HorizontalAlignment="Stretch" />
+                        <Button x:Name="ApplyKeyButton" Grid.Column="1" Content="Apply now" Click="ApplyKey_Click" ToolTipService.ToolTip="Change the key in the installed OptiScaler.ini" />
+                      </Grid>
+                    </StackPanel>
+                  </Grid>
+                  <Grid x:Name="CustomOptiPanel" ColumnSpacing="8" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <TextBox x:Name="CustomOptiBox" PlaceholderText="Folder with OptiScaler.dll + OptiScaler.ini (extracted official release)" IsReadOnly="True" />
+                    <Button Grid.Column="1" Content="Browse…" Click="PickCustomOpti_Click" />
+                  </Grid>
+                </StackPanel>
+              </Border>
+
+              <CheckBox x:Name="AntiCheatBox" Visibility="Collapsed" Content="This game has anti-cheat. I understand injected DLLs can get me banned online." />
+
+              <!-- status table -->
+              <Border Style="{StaticResource Card}" Padding="0">
+                <StackPanel x:Name="StatusRows" />
+              </Border>
+
+              <!-- upscaler DLLs -->
+              <StackPanel Spacing="8">
+                <TextBlock Text="UPSCALER DLLS" Style="{StaticResource SectionTitle}" />
+                <Border Style="{StaticResource Card}" Padding="0">
+                  <StackPanel x:Name="DllRows" />
+                </Border>
+              </StackPanel>
+
+              <!-- log -->
+              <StackPanel Spacing="8">
+                <TextBlock Text="ACTIVITY" Style="{StaticResource SectionTitle}" />
+                <TextBox x:Name="LogBox" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="90" MaxHeight="220"
+                         FontFamily="Cascadia Mono, Consolas" FontSize="12" ScrollViewer.VerticalScrollBarVisibility="Auto" />
+              </StackPanel>
+            </StackPanel>
+          </ScrollViewer>
+
+          <!-- footer -->
+          <Grid Grid.Row="2" Padding="28,14,28,22" ColumnSpacing="10" BorderBrush="{StaticResource RowBorder}" BorderThickness="0,1,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto" />
+              <ColumnDefinition Width="Auto" />
+              <ColumnDefinition Width="Auto" />
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Button ToolTipService.ToolTip="Open game folder" Click="OpenFolder_Click" Height="40"><FontIcon Glyph="&#xE8B7;" FontSize="16" /></Button>
+            <Button Grid.Column="1" Click="Launch_Click" Height="40">
+              <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE768;" FontSize="14" Foreground="{StaticResource AccentText}" /><TextBlock Text="Launch" /></StackPanel>
+            </Button>
+            <Button x:Name="RestoreButton" Grid.Column="2" Content="Restore originals" Click="Restore_Click" Height="40" />
+            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" VerticalAlignment="Center">
+              <ProgressRing x:Name="BusyRing" IsActive="False" Width="20" Height="20" />
+              <TextBlock x:Name="BusyText" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" MaxWidth="320" TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+            <Button x:Name="InstallButton" Grid.Column="4" Content="Complete Installation" Style="{StaticResource AccentButtonStyle}"
+                    Height="44" Padding="26,0" FontWeight="SemiBold" Click="Install_Click" />
+          </Grid>
+        </Grid>
+      </Border>
+    </Grid>
+  </Grid>
+</Window>
