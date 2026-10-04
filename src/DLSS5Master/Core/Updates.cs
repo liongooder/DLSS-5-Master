@@ -67,7 +67,7 @@ public static partial class Updates
         new("renodx-dlss5", "RenoDX DLSS5 add-on", "RankFTW/rhi-repo", "renodx-dlss5-", @"^renodx-dlss5_.*\.zip$",
             UpdateKind.ZipFile, "renodx-dlss5.addon64", "6.5.3", new DateTime(2026, 9, 19, 17, 9, 53, DateTimeKind.Utc)),
         new("renodx-dlss", "RenoDX DLSS Tool (multipass)", "RankFTW/rhi-repo", "renodx-dlss-SF-", @"^renodx-dlss_SF_.*\.zip$",
-            UpdateKind.ZipFile, "renodx-dlss.addon64", "SF 26.0928.0205", new DateTime(2026, 9, 29, 14, 22, 19, DateTimeKind.Utc)),
+            UpdateKind.ZipFile, "renodx-dlss.addon64", "SF 26.1003.2350", new DateTime(2026, 10, 4, 7, 59, 13, DateTimeKind.Utc)),
         new("mfgunlock", "MFG unlock (MFGAdaUnlock)", "mavismmg/MFGAdaUnlock-RenoDx", null, @"^renodx-mfgunlock\.addon64$",
             UpdateKind.File, null, "1.4.1", new DateTime(2026, 10, 2, 20, 34, 23, DateTimeKind.Utc)),
         new("feeder", "DLSS5 Feeder", "jlrouzies-fr/DLSS5-Feeder", null, @"^DLSS5-Feeder-.*\.zip$",
