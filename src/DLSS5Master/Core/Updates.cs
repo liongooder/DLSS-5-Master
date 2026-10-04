@@ -42,6 +42,17 @@ public sealed class UpdateState
     public bool AutoCheck { get; set; } = true;
     public Dictionary<string, ReleaseInfo> Latest { get; set; } = new();
     public Dictionary<string, ActiveUpdate> Active { get; set; } = new();
+    /// <summary>The newest DLSS 5 Master release seen on GitHub (any version, newer or not).</summary>
+    public AppRelease? App { get; set; }
+}
+
+public sealed class AppRelease
+{
+    public string Version { get; set; } = "";
+    public string Page { get; set; } = "";
+    public string Url { get; set; } = "";
+    public string Sha256 { get; set; } = "";
+    public long Size { get; set; }
 }
 
 /// <summary>
