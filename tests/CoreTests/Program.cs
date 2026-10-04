@@ -346,5 +346,33 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     finally { ForeignInstalls.OtherAppRecordsDir = saved; Directory.Delete(tmp, true); }
 }
 
+// ---------------------------------------------------------------- ReShade that no app recorded: moved aside, never deleted
+{
+    var realReShade = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, @"..\..\..\..\..\src\DLSS5Master\payload\reshade\ReShade64.dll"));
+    if (File.Exists(realReShade))
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), "d5m-unrec-" + Guid.NewGuid().ToString("N")[..8]);
+        var bin = Path.Combine(tmp, "Bin");
+        Directory.CreateDirectory(Path.Combine(bin, "reshade-shaders", "Shaders"));
+        File.WriteAllText(Path.Combine(bin, "Game.exe"), "exe");
+        File.WriteAllText(Path.Combine(bin, "game-own.dll"), "keep");
+        File.Copy(realReShade, Path.Combine(bin, "dxgi.dll"));
+        File.WriteAllText(Path.Combine(bin, "ReShade.ini"), "x");
+        File.WriteAllText(Path.Combine(bin, "renodx-dlss.addon64"), "x");
+        File.WriteAllText(Path.Combine(bin, "reshade-shaders", "Shaders", "a.fx"), "x");
+        var items = ForeignInstalls.UnrecordedReShadeFiles(bin, "dxgi.dll");
+        Check("unrecorded: lists ReShade files only", items.Count == 4 && !items.Any(i => i.EndsWith("game-own.dll")), string.Join(",", items.Select(Path.GetFileName)));
+        var dest = await ForeignInstalls.MoveAsideUnrecordedReShadeAsync(tmp, Path.Combine(bin, "Game.exe"), "dxgi.dll", _ => { });
+        Check("unrecorded: moved out of the game", !File.Exists(Path.Combine(bin, "dxgi.dll")) && !Directory.Exists(Path.Combine(bin, "reshade-shaders"))
+              && File.Exists(Path.Combine(bin, "game-own.dll")) && File.Exists(Path.Combine(bin, "Game.exe")));
+        Check("unrecorded: kept in backup", File.Exists(Path.Combine(dest, "Bin", "dxgi.dll")) && File.Exists(Path.Combine(dest, "Bin", "reshade-shaders", "Shaders", "a.fx"))
+              && File.Exists(Path.Combine(dest, "README.txt")));
+        File.WriteAllText(Path.Combine(bin, "dxgi.dll"), "not reshade");
+        Check("unrecorded: non-ReShade dxgi ignored", ForeignInstalls.UnrecordedReShadeFiles(bin, "dxgi.dll").Count == 0);
+        Directory.Delete(tmp, true);
+    }
+    else Check("unrecorded: payload ReShade64.dll present for test", false, realReShade);
+}
+
 Console.WriteLine($"{passed} passed, {failed} failed");
 return failed == 0 ? 0 : 1;

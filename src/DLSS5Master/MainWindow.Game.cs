@@ -23,6 +23,7 @@ public sealed partial class MainWindow
     private static Brush Res(string key) => (Brush)Application.Current.Resources[key];
 
     private Button? _removeOtherButton;
+    private Button? _removeReShadeButton;
 
     /// <summary>Fills the OptiScaler build list (updated builds first) and labels the MFG option with the version in use.</summary>
     private void RefreshOptiBuildList()
@@ -40,6 +41,8 @@ public sealed partial class MainWindow
     {
         _removeOtherButton = new Button { Content = "Remove it" };
         _removeOtherButton.Click += RemoveOther_Click;
+        _removeReShadeButton = new Button { Content = "Remove ReShade" };
+        _removeReShadeButton.Click += RemoveUnrecordedReShade_Click;
         RefreshOptiBuildList();
         foreach (var h in Installers.OptiHookNames) OptiHookBox.Items.Add(h);
         foreach (var (name, code) in Installers.MenuKeys) MenuKeyBox.Items.Add(new ComboBoxItem { Content = name, Tag = code });
@@ -221,13 +224,17 @@ public sealed partial class MainWindow
             bool otherApp = _scan.OtherAppBackup || _scan.OtherAppRecord;
             if (otherApp)
                 warning = "Another app has an install in this game. Remove it before installing with DLSS 5 Master.";
+            // ReShade that nobody recorded (installed by hand or by an older tool): offer to move it out of the game.
+            bool unrecorded = !otherApp && _scan.Manifest is null && _scan.ReShade.Installed && _scan.ReShade.File is not null;
+            if (unrecorded && warning is null)
+                warning = $"ReShade {_scan.ReShade.Version} is already in this game, and no app has a record of it. Remove it to start clean, or install over it.";
             if (warning is null && _components.RuntimeDir is null && !(opti && (OptiBuildBox.SelectedItem as ComboBoxItem)?.Tag is OptiBuild { NeuralRendering: false }))
                 warning = "No NVIDIA runtime folder found. Set it in Settings.";
             if (warning is null && SelectedApi == RenderApi.Unknown)
                 warning = "The renderer could not be detected. Choose the Rendering API by hand.";
             RouteWarning.Message = warning ?? "";
             RouteWarning.IsOpen = warning is not null;
-            RouteWarning.ActionButton = otherApp ? _removeOtherButton : null;
+            RouteWarning.ActionButton = otherApp ? _removeOtherButton : unrecorded && warning is not null && warning.StartsWith("ReShade ") ? _removeReShadeButton : null;
             InstallButton.IsEnabled = !_busy && SelectedExe is not null && (opti ? chosen?.Unavailable is null : RouteBox.SelectedItem is not null);
             InstallButton.Content = _scan.Manifest is null ? "Complete Installation" : "Reinstall";
         }
@@ -533,6 +540,47 @@ public sealed partial class MainWindow
         LogBox.Text = "";
         SetBusy(true, "Removing…");
         try { await ForeignInstalls.RemoveAllAsync(dir, SelectedExe?.Path, Log); }
+        catch (Exception ex) { Log("✖ " + ex.Message); }
+        finally { SetBusy(false); }
+        var log = LogBox.Text;
+        await RescanAsync();
+        LogBox.Text = log;
+    }
+
+    /// <summary>Move a ReShade install that no app recorded out of the game, into a dated folder in _DLSS5Master_Backup.</summary>
+    private async void RemoveUnrecordedReShade_Click(object sender, RoutedEventArgs e)
+    {
+        if (_scan is null || _busy || SelectedExe is null || _scan.ReShade.File is not { } hook) return;
+        var dir = _scan.Dir;
+        var exe = SelectedExe.Path;
+        var exeDir = Path.GetDirectoryName(exe)!;
+        var items = await Task.Run(() => ForeignInstalls.UnrecordedReShadeFiles(exeDir, hook));
+        if (items.Count == 0) return;
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Root.XamlRoot,
+            Title = "Remove ReShade from this game?",
+            Content = new ScrollViewer
+            {
+                MaxHeight = 320,
+                Content = new TextBlock
+                {
+                    TextWrapping = TextWrapping.Wrap,
+                    Text = $"No app has a record of this ReShade install, so DLSS 5 Master moves its files out of {_game?.Name ?? "the game"} " +
+                           "instead of deleting them. They go to _DLSS5Master_Backup\\removed in the game folder, so you can put them back.\n\n" +
+                           string.Join("\n", items.Select(i => "• " + Path.GetFileName(i) + (Directory.Exists(i) ? "\\" : ""))) +
+                           "\n\nThe game's own files are not touched.",
+                }
+            },
+            PrimaryButtonText = "Remove ReShade",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        LogBox.Text = "";
+        SetBusy(true, "Removing ReShade…");
+        try { await ForeignInstalls.MoveAsideUnrecordedReShadeAsync(dir, exe, hook, Log); }
         catch (Exception ex) { Log("✖ " + ex.Message); }
         finally { SetBusy(false); }
         var log = LogBox.Text;

@@ -185,6 +185,70 @@ public static class ForeignInstalls
         }
     }
 
+    // ------------------------------------------------------------------ ReShade that no tool recorded
+
+    /// <summary>
+    /// ReShade's own files next to the game's executable, for a ReShade install that no tool has a record of
+    /// (put there by hand or by an older tool): the hook DLL (only when it identifies itself as ReShade), ReShade's
+    /// .ini/.log files, the reshade-shaders folder, ReShade add-ons (*.addon64 / *.addon32) and nvngx_dlssnr.dll
+    /// (the neural rendering runtime those add-ons load; games do not ship it). The game's own files are never listed.
+    /// </summary>
+    public static List<string> UnrecordedReShadeFiles(string exeDir, string hookFile)
+    {
+        var list = new List<string>();
+        var hook = Path.Combine(exeDir, hookFile);
+        if (!File.Exists(hook) || !Pe.VersionMentions(hook, "ReShade")) return list;
+        list.Add(hook);
+        foreach (var pattern in new[] { "ReShade*.ini", "ReShade*.log", "*.addon64", "*.addon32", "nvngx_dlssnr.dll" })
+            list.AddRange(Directory.EnumerateFiles(exeDir, pattern));
+        var shaders = Path.Combine(exeDir, "reshade-shaders");
+        if (Directory.Exists(shaders)) list.Add(shaders);
+        return list.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>
+    /// Moves the files of an unrecorded ReShade install into _DLSS5Master_Backup\removed\&lt;time&gt;\ (same relative
+    /// paths), so the game no longer loads ReShade and nothing is lost. Returns that folder.
+    /// </summary>
+    public static Task<string> MoveAsideUnrecordedReShadeAsync(string gameDir, string exePath, string hookFile, Action<string> log) => Task.Run(() =>
+    {
+        Installers.AssertGameClosed(exePath);
+        var exeDir = Path.GetDirectoryName(exePath)!;
+        var items = UnrecordedReShadeFiles(exeDir, hookFile);
+        if (items.Count == 0) throw new InstallException("No ReShade found next to the game's executable. Nothing was changed.");
+        var dest = Path.Combine(gameDir, Journal.BackupDir, "removed", DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+        var root = Root(gameDir);
+        var moved = new List<(string From, string To)>();
+        try
+        {
+            foreach (var item in items)
+            {
+                var to = Path.Combine(dest, Path.GetRelativePath(root, item));
+                Directory.CreateDirectory(Path.GetDirectoryName(to)!);
+                if (Directory.Exists(item)) Directory.Move(item, to);
+                else { File.SetAttributes(item, FileAttributes.Normal); File.Move(item, to); }
+                moved.Add((item, to));
+            }
+        }
+        catch (Exception e)
+        {
+            // Put back whatever was already moved, so the game is never left half done.
+            foreach (var (from, to) in Enumerable.Reverse(moved))
+                try { if (Directory.Exists(to)) Directory.Move(to, from); else File.Move(to, from); } catch { }
+            throw new InstallException($"Could not move {Path.GetFileName(items[moved.Count])} ({e.Message}). Nothing was changed.");
+        }
+        File.WriteAllLines(Path.Combine(dest, "README.txt"), new[]
+        {
+            "DLSS 5 Master moved these ReShade files out of the game on " + DateTime.Now.ToString("g") + ".",
+            "No app had a record of this ReShade install. To put it back, move the folders in here back into the game folder.",
+            "",
+        }.Concat(moved.Select(m => Path.GetRelativePath(root, m.From))));
+        log($"Moved {moved.Count} ReShade item(s) out of the game into {Path.GetRelativePath(root, dest)}.");
+        log("If the game's own DLSS files were changed by that install, use Steam's \"Verify integrity of game files\" to get the originals back.");
+        AppPaths.Log($"[{Path.GetFileName(root.TrimEnd('\\'))}] moved aside unrecorded ReShade: {moved.Count} item(s) -> {dest}");
+        return dest;
+    });
+
     // ------------------------------------------------------------------ removal
 
     /// <summary>A short summary for the confirmation dialog.</summary>
