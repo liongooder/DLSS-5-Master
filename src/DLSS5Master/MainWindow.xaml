@@ -215,6 +215,10 @@
       </StackPanel>
     </ScrollViewer>
 
+    <!-- ===== New DLSS 5 Master version (shown over every page) ===== -->
+    <InfoBar x:Name="AppUpdateBar" Grid.Row="1" VerticalAlignment="Top" HorizontalAlignment="Center" MaxWidth="860" Margin="24,4,24,0"
+             Severity="Informational" IsOpen="False" Title="Update available" />
+
     <!-- ===== Game panel (overlay) ===== -->
     <Grid x:Name="GameOverlay" Grid.RowSpan="2" Visibility="Collapsed" Background="{StaticResource OverlayBackground}" Tapped="GameOverlay_Tapped">
       <Border x:Name="GamePanel" MaxWidth="980" Margin="40,30" Background="{StaticResource PanelBackground}" CornerRadius="22"

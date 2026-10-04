@@ -15,6 +15,14 @@ public sealed partial class MainWindow
     private async Task AutoCheckUpdatesAsync()
     {
         MarkSettingsTab();
+        ShowAppUpdateBar();
+        if (Updates.State.AutoCheck)
+        {
+            // The app itself is checked on every start (one small request); add-ons once a day.
+            try { await Updates.CheckAppAsync(); }
+            catch (Exception e) { AppPaths.Log("App update check failed: " + e.Message); }
+            ShowAppUpdateBar();
+        }
         if (!Updates.CheckDue) return;
         _updating = true;
         if (SettingsPage.Visibility == Visibility.Visible) UpdateStatus.Text = "Checking for updates…";
@@ -91,8 +99,9 @@ public sealed partial class MainWindow
         UpdateStatus.Text = "Checking GitHub…";
         try
         {
-            await Updates.CheckAsync();
+            await Task.WhenAll(Updates.CheckAsync(), Updates.CheckAppAsync());
             RefreshUpdatesPanel();
+            ShowAppUpdateBar();
         }
         catch (Exception ex) { UpdateStatus.Text = "Could not check for updates: " + ex.Message; }
         finally
@@ -111,6 +120,52 @@ public sealed partial class MainWindow
         Updates.Save();
         if (preChanged) CheckUpdates_Click(sender, e);   // the list of candidate versions changes
         await Task.CompletedTask;
+    }
+
+    private bool _appUpdating;
+
+    /// <summary>Shows the "new DLSS 5 Master version" bar when GitHub has a newer release than this one.</summary>
+    private void ShowAppUpdateBar()
+    {
+        if (_appUpdating) return;
+        if (Updates.AppUpdateAvailable is not { } rel) { AppUpdateBar.IsOpen = false; return; }
+        AppUpdateBar.Title = $"DLSS 5 Master {rel.Version} is available";
+        AppUpdateBar.Message = $"You have {Updates.CurrentAppVersion}. The update downloads {rel.Size / 1048576} MB, installs itself and restarts the app. Your games and settings are kept.";
+        var update = new Button { Content = "Update now", Style = (Style)Application.Current.Resources["AccentButtonStyle"] };
+        update.Click += async (_, _) => await InstallAppUpdateAsync(rel);
+        AppUpdateBar.ActionButton = update;
+        AppUpdateBar.Content = Uri.TryCreate(rel.Page, UriKind.Absolute, out var page) ? new HyperlinkButton { Content = "What's new", NavigateUri = page } : null;
+        AppUpdateBar.IsClosable = true;
+        AppUpdateBar.IsOpen = true;
+    }
+
+    private async Task InstallAppUpdateAsync(AppRelease rel)
+    {
+        if (_appUpdating) return;
+        if (_busy) { AppUpdateBar.Message = "Wait for the current install to finish, then update."; return; }
+        _appUpdating = true;
+        AppUpdateBar.Severity = InfoBarSeverity.Informational;
+        AppUpdateBar.ActionButton = null;
+        AppUpdateBar.IsClosable = false;
+        AppUpdateBar.Content = null;
+        var progress = new Progress<string>(t => AppUpdateBar.Message = t);
+        try
+        {
+            await Updates.InstallAppUpdateAsync(rel, progress);
+            AppUpdateBar.Message = $"Installing {rel.Version}. DLSS 5 Master will close and start again by itself.";
+            await Task.Delay(1500);
+            Application.Current.Exit();
+        }
+        catch (Exception ex)
+        {
+            _appUpdating = false;
+            AppUpdateBar.Severity = InfoBarSeverity.Error;
+            AppUpdateBar.Message = "The update did not complete: " + ex.Message;
+            var retry = new Button { Content = "Try again" };
+            retry.Click += async (_, _) => await InstallAppUpdateAsync(rel);
+            AppUpdateBar.ActionButton = retry;
+            AppUpdateBar.IsClosable = true;
+        }
     }
 
     private async Task ApplyUpdateAsync(UpdateSource src)
