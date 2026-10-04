@@ -31,6 +31,13 @@
       </SelectorBar>
 
       <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+      <!-- New DLSS 5 Master version: shown only when GitHub has one. -->
+      <Button x:Name="AppUpdateButton" Visibility="Collapsed" VerticalAlignment="Center" Style="{StaticResource AccentButtonStyle}" Click="AppUpdateButton_Click">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <FontIcon Glyph="&#xE896;" FontSize="14" />
+          <TextBlock x:Name="AppUpdateText" Text="Update" />
+        </StackPanel>
+      </Button>
       <StackPanel x:Name="GameTools" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
         <AutoSuggestBox x:Name="SearchBox" Width="220" PlaceholderText="Search games" QueryIcon="Find" TextChanged="SearchBox_TextChanged" />
         <ComboBox x:Name="FilterBox" Width="150" SelectedIndex="0" SelectionChanged="FilterBox_SelectionChanged">
@@ -170,7 +177,7 @@
         <Border Style="{StaticResource Card}">
           <StackPanel Spacing="8">
             <Image x:Name="AboutLogo" Height="150" HorizontalAlignment="Left" Stretch="Uniform" Margin="0,0,0,6" />
-            <TextBlock Text="DLSS 5 Master 0.2.9" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Text="DLSS 5 Master 0.3.0" FontSize="20" FontWeight="SemiBold" />
             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
                        Text="One place for ReShade + RenoDX neural rendering routes (Native, Multipass, Feeder), OptiScaler, and per-game DLL swapping. Every change is recorded in _DLSS5Master_Backup inside the game folder, and Restore originals puts the game back exactly as it was." />
           </StackPanel>
@@ -214,10 +221,6 @@
         </Border>
       </StackPanel>
     </ScrollViewer>
-
-    <!-- ===== New DLSS 5 Master version (shown over every page) ===== -->
-    <InfoBar x:Name="AppUpdateBar" Grid.Row="1" VerticalAlignment="Top" HorizontalAlignment="Center" MaxWidth="860" Margin="24,4,24,0"
-             Severity="Informational" IsOpen="False" Title="Update available" />
 
     <!-- ===== Game panel (overlay) ===== -->
     <Grid x:Name="GameOverlay" Grid.RowSpan="2" Visibility="Collapsed" Background="{StaticResource OverlayBackground}" Tapped="GameOverlay_Tapped">

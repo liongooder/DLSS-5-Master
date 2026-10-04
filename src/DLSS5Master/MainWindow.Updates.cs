@@ -124,47 +124,76 @@ public sealed partial class MainWindow
 
     private bool _appUpdating;
 
-    /// <summary>Shows the "new DLSS 5 Master version" bar when GitHub has a newer release than this one.</summary>
+    /// <summary>Shows the "Update x.y.z" button in the top bar when GitHub has a newer release than this one.</summary>
     private void ShowAppUpdateBar()
     {
         if (_appUpdating) return;
-        if (Updates.AppUpdateAvailable is not { } rel) { AppUpdateBar.IsOpen = false; return; }
-        AppUpdateBar.Title = $"DLSS 5 Master {rel.Version} is available";
-        AppUpdateBar.Message = $"You have {Updates.CurrentAppVersion}. The update downloads {rel.Size / 1048576} MB, installs itself and restarts the app. Your games and settings are kept.";
-        var update = new Button { Content = "Update now", Style = (Style)Application.Current.Resources["AccentButtonStyle"] };
-        update.Click += async (_, _) => await InstallAppUpdateAsync(rel);
-        AppUpdateBar.ActionButton = update;
-        AppUpdateBar.Content = Uri.TryCreate(rel.Page, UriKind.Absolute, out var page) ? new HyperlinkButton { Content = "What's new", NavigateUri = page } : null;
-        AppUpdateBar.IsClosable = true;
-        AppUpdateBar.IsOpen = true;
+        if (Updates.AppUpdateAvailable is not { } rel) { AppUpdateButton.Visibility = Visibility.Collapsed; return; }
+        AppUpdateText.Text = $"Update {rel.Version}";
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(AppUpdateButton, $"Update DLSS 5 Master to {rel.Version}");
+        ToolTipService.SetToolTip(AppUpdateButton, $"DLSS 5 Master {rel.Version} is available (you have {Updates.CurrentAppVersion})");
+        AppUpdateButton.IsEnabled = true;
+        AppUpdateButton.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>The top-bar button: details first, then download, install and restart.</summary>
+    private async void AppUpdateButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_appUpdating || Updates.AppUpdateAvailable is not { } rel) return;
+        var body = new StackPanel { Spacing = 12 };
+        body.Children.Add(new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            Text = $"You have {Updates.CurrentAppVersion}. The update downloads {rel.Size / 1048576} MB, checks it, installs it and restarts DLSS 5 Master by itself. Your games and settings are kept.",
+        });
+        if (Uri.TryCreate(rel.Page, UriKind.Absolute, out var page))
+            body.Children.Add(new HyperlinkButton { Content = "What's new in " + rel.Version, NavigateUri = page, Padding = new Thickness(0) });
+        if (_busy)
+            body.Children.Add(new TextBlock { Text = "An install is running in a game. Wait for it to finish first.", Foreground = Res("WarnText"), TextWrapping = TextWrapping.Wrap });
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Root.XamlRoot,
+            Title = $"Update to DLSS 5 Master {rel.Version}?",
+            Content = body,
+            PrimaryButtonText = "Update now",
+            IsPrimaryButtonEnabled = !_busy,
+            CloseButtonText = "Later",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        if (await dialog.ShowAsync() == ContentDialogResult.Primary) await InstallAppUpdateAsync(rel);
     }
 
     private async Task InstallAppUpdateAsync(AppRelease rel)
     {
-        if (_appUpdating) return;
-        if (_busy) { AppUpdateBar.Message = "Wait for the current install to finish, then update."; return; }
+        if (_appUpdating || _busy) return;
         _appUpdating = true;
-        AppUpdateBar.Severity = InfoBarSeverity.Informational;
-        AppUpdateBar.ActionButton = null;
-        AppUpdateBar.IsClosable = false;
-        AppUpdateBar.Content = null;
-        var progress = new Progress<string>(t => AppUpdateBar.Message = t);
+        AppUpdateButton.IsEnabled = false;
+        AppUpdateText.Text = "Updating…";
+        var progress = new Progress<string>(t =>
+        {
+            var pct = System.Text.RegularExpressions.Regex.Match(t, @"\d+%");
+            AppUpdateText.Text = pct.Success ? $"Downloading {pct.Value}" : t.StartsWith("Checking") ? "Checking…" : "Installing…";
+            ToolTipService.SetToolTip(AppUpdateButton, t);
+        });
         try
         {
             await Updates.InstallAppUpdateAsync(rel, progress);
-            AppUpdateBar.Message = $"Installing {rel.Version}. DLSS 5 Master will close and start again by itself.";
+            AppUpdateText.Text = "Restarting…";
             await Task.Delay(1500);
             Application.Current.Exit();
         }
         catch (Exception ex)
         {
             _appUpdating = false;
-            AppUpdateBar.Severity = InfoBarSeverity.Error;
-            AppUpdateBar.Message = "The update did not complete: " + ex.Message;
-            var retry = new Button { Content = "Try again" };
-            retry.Click += async (_, _) => await InstallAppUpdateAsync(rel);
-            AppUpdateBar.ActionButton = retry;
-            AppUpdateBar.IsClosable = true;
+            AppUpdateButton.IsEnabled = true;
+            AppUpdateText.Text = "Retry update";
+            ToolTipService.SetToolTip(AppUpdateButton, "The update did not complete: " + ex.Message);
+            await new ContentDialog
+            {
+                XamlRoot = Root.XamlRoot, Title = "The update did not complete",
+                Content = new TextBlock { Text = ex.Message + "\n\nNothing was changed. Press Retry update to try again.", TextWrapping = TextWrapping.Wrap },
+                CloseButtonText = "OK",
+            }.ShowAsync();
         }
     }
 
