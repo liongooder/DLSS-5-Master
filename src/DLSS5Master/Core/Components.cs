@@ -63,9 +63,9 @@ public sealed class Components
          "renodx-dlss5.addon64", "342341f669f1d64e0c70c8593a07a2fab5075e073dfae97c331c9a6776260a0a", "renodx-dlss5-6.5.3");
 
     private static readonly (string Url, string ZipSha, string Inner, string InnerSha, string Cache) MultipassPin =
-        ("https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss-SF-26.0928.0205/renodx-dlss_SF_26.0928.0205.zip",
-         "6091f47a2248854eb1779b2c3b97939f1fbe53adbae7d1642ada236fcc0b6f52",
-         "renodx-dlss.addon64", "083c002027996af25db4d1d67ca98bb6772c5cc6f28b6ea3dbc506867a97f187", "renodx-dlss-SF-26.0928.0205");
+        ("https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss-SF-26.1003.2350/renodx-dlss_SF_26.1003.2350.zip",
+         "34ef92d6742bf6d05df42ff81c04b70f5138b0a0a970a93f1a04295ac83f7f0f",
+         "renodx-dlss.addon64", "1310119c87e4ab5ad0af41511411bd4608ff3c3030a29196ae0e4bba32c84585", "renodx-dlss-SF-26.1003.2350");
 
     private const string FeederUrl = "https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v1.17.0/DLSS5-Feeder-1.17.0.zip";
     private const string FeederSha = "11a96b36ae89ef75b3cff0e03849db35591143fe4df171986502905809469e12";

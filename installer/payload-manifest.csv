@@ -17,7 +17,7 @@ runtime\sl.reflex.dll,streamline\sl.reflex.dll,ecf12973cdcec2ffced2ea77b1c7e45f4
 reshade\ReShade32.dll,reshade-vulkan\ReShade32.dll,da430e0a9c6eecefa0d1b27d05e16c426fb5d04e808b194d914eaac4b31bc0f8
 reshade\ReShade64.dll,reshade-vulkan\ReShade64.dll,0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7
 renodx\renodx-dlss5.addon64,renodx-dlss5.addon64,342341f669f1d64e0c70c8593a07a2fab5075e073dfae97c331c9a6776260a0a
-renodx\renodx-dlss.addon64,https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss-SF-26.0928.0205/renodx-dlss_SF_26.0928.0205.zip,083c002027996af25db4d1d67ca98bb6772c5cc6f28b6ea3dbc506867a97f187
+renodx\renodx-dlss.addon64,https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss-SF-26.1003.2350/renodx-dlss_SF_26.1003.2350.zip,1310119c87e4ab5ad0af41511411bd4608ff3c3030a29196ae0e4bba32c84585
 feeder\dlss5-feed-host64.exe,feeder\dlss5-feed-host64.exe,c835754277a0590780d846443f314a83a30e2d2815ee0b2f7c18f1a24f252936
 feeder\dlss5-feed.addon32,feeder\dlss5-feed.addon32,bfe24218be719cf5b91d829283953432907922333280931b755d83ac793fd8b2
 feeder\dlss5-feed.addon64,feeder\dlss5-feed.addon64,6854d012eac307021cd31c978bafd42f1e22c5b7b2922c80e0a0010d428a3fd7
