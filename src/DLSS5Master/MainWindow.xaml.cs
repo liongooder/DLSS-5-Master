@@ -37,6 +37,10 @@ public sealed partial class MainWindow : Window
         tb.ButtonHoverBackgroundColor = Windows.UI.Color.FromArgb(255, 24, 40, 56);
         tb.ButtonPressedBackgroundColor = Windows.UI.Color.FromArgb(255, 34, 58, 80);
         TitleBar.SizeChanged += (_, _) => UpdateTitleBarRegions();
+        // The tab row re-centres when a label changes ("SETTINGS ●"); keep its clickable area in step.
+        Tabs.SizeChanged += (_, _) => UpdateTitleBarRegions();
+        GameTools.SizeChanged += (_, _) => UpdateTitleBarRegions();
+        Tabs.LayoutUpdated += (_, _) => { if (Tabs.ActualOffset != _tabsOffset) { _tabsOffset = Tabs.ActualOffset; UpdateTitleBarRegions(); } };
         GameOverlay.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => UpdateTitleBarRegions());
         GameTools.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => UpdateTitleBarRegions());
         GameGrid.ItemsSource = _visible;
@@ -58,6 +62,7 @@ public sealed partial class MainWindow : Window
     }
 
     private nint Hwnd => WinRT.Interop.WindowNative.GetWindowHandle(this);
+    private System.Numerics.Vector3 _tabsOffset;
 
     /// <summary>
     /// The header is the window's drag area. Keep room for the caption buttons on the right, and let clicks
@@ -74,7 +79,7 @@ public sealed partial class MainWindow : Window
         double captionBottom = AppWindow.TitleBar.Height / scale;
         void Add(FrameworkElement e, bool belowCaption = false)
         {
-            if (e.Visibility != Visibility.Visible || e.ActualWidth <= 0) return;
+            if (e.Visibility != Visibility.Visible || e.ActualWidth <= 0 || !e.IsHitTestVisible) return;
             var r = e.TransformToVisual(null).TransformBounds(new Windows.Foundation.Rect(0, 0, e.ActualWidth, e.ActualHeight));
             if (belowCaption && r.Y < captionBottom) { r.Height -= captionBottom - r.Y; r.Y = captionBottom; }
             if (r.Height <= 0) return;
@@ -320,34 +325,49 @@ public sealed partial class MainWindow : Window
     private void Tabs_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
     {
         var tab = sender.SelectedItem;
-        GamesPage.Visibility = tab == TabGames ? Visibility.Visible : Visibility.Collapsed;
-        GameTools.Visibility = GamesPage.Visibility;
+        // The games grid stays laid out while hidden (hiding it with Collapsed re-measures every poster on return).
+        bool games = tab == TabGames;
+        GamesPage.Opacity = games ? 1 : 0;
+        GamesPage.IsHitTestVisible = games;
+        // Hide the search tools without giving up their space: collapsing them re-centred the tabs, which then
+        // jumped sideways under the mouse on every switch.
+        GameTools.Opacity = games ? 1 : 0;
+        GameTools.IsHitTestVisible = games;
+        UpdateTitleBarRegions();
         SettingsPage.Visibility = tab == TabSettings ? Visibility.Visible : Visibility.Collapsed;
         AboutPage.Visibility = tab == TabAbout ? Visibility.Visible : Visibility.Collapsed;
-        if (tab == TabSettings) { RefreshSettingsPage(); RefreshUpdatesPanel(); }
+        if (tab == TabSettings) { RefreshUpdatesPanel(); _ = RefreshSettingsPage(); }
     }
 
     // ------------------------------------------------------------------ settings page
 
-    private void RefreshSettingsPage()
+    /// <summary>Fills the Settings page. File checks (versions, ReShade add-on support) run off the UI thread.</summary>
+    private async Task RefreshSettingsPage()
     {
         RuntimeFolderBox.Text = _settings.RuntimeFolder;
-        var rt = _components.RuntimeDir;
-        var files = _components.RuntimeFiles();
+        ReShadeSourceBox.Text = _settings.ReShadeSource;
+        FolderList.ItemsSource = _settings.ExtraFolders.ToList();
         static string Where(string path) =>
             path.StartsWith(Components.BundledPayload, StringComparison.OrdinalIgnoreCase) ? "the copies included with DLSS 5 Master" : path;
-        RuntimeStatus.Text = rt is null
-            ? "Not found. Reinstall DLSS 5 Master, or pick a folder containing nvngx_dlssnr.dll."
-            : $"Using {Where(rt)}\n" + string.Join("   ", files.Keys.Where(k => k.StartsWith("nvngx")).OrderBy(k => k).Select(k => $"{k} {Pe.GetFileVersion(files[k])}"));
+
+        var (rt, runtimeText, rs, reshadeText, libCount) = await Task.Run(() =>
+        {
+            var rt = _components.RuntimeDir;
+            var files = _components.RuntimeFiles();
+            var runtimeText = rt is null
+                ? "Not found. Reinstall DLSS 5 Master, or pick a folder containing nvngx_dlssnr.dll."
+                : $"Using {Where(rt)}\n" + string.Join("   ", files.Keys.Where(k => k.StartsWith("nvngx")).OrderBy(k => k).Select(k => $"{k} {Pe.GetFileVersion(files[k])}"));
+            var rs = _components.ReShadeDll(64);
+            var reshadeText = rs is null ? "Not found. Pick a ReShade_Setup_*_Addon.exe." : $"Using ReShade {Pe.GetFileVersion(rs)} ({Where(rs)})";
+            int libCount = 0;
+            try { libCount = Directory.Exists(AppPaths.DllLibrary) ? Directory.EnumerateFiles(AppPaths.DllLibrary, "*.dll", SearchOption.AllDirectories).Count() : 0; } catch { }
+            return (rt, runtimeText, rs, reshadeText, libCount);
+        });
+
+        RuntimeStatus.Text = runtimeText;
         RuntimeStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[rt is null ? "WarnText" : "AccentText"];
-
-        ReShadeSourceBox.Text = _settings.ReShadeSource;
-        var rs = _components.ReShadeDll(64);
-        ReShadeStatus.Text = rs is null ? "Not found. Pick a ReShade_Setup_*_Addon.exe." : $"Using ReShade {Pe.GetFileVersion(rs)} ({Where(rs)})";
+        ReShadeStatus.Text = reshadeText;
         ReShadeStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[rs is null ? "WarnText" : "AccentText"];
-
-        FolderList.ItemsSource = _settings.ExtraFolders.ToList();
-        var libCount = Directory.Exists(AppPaths.DllLibrary) ? Directory.EnumerateFiles(AppPaths.DllLibrary, "*.dll", SearchOption.AllDirectories).Count() : 0;
         DllLibraryStatus.Text = $"{libCount} DLL build(s) in {AppPaths.DllLibrary}";
     }
 
@@ -365,10 +385,10 @@ public sealed partial class MainWindow : Window
         if (dir is null) return;
         _settings.RuntimeFolder = dir;
         _settings.Save();
-        RefreshSettingsPage();
+        _ = RefreshSettingsPage();
     }
 
-    private void ClearRuntime_Click(object sender, RoutedEventArgs e) { _settings.RuntimeFolder = ""; _settings.Save(); RefreshSettingsPage(); }
+    private void ClearRuntime_Click(object sender, RoutedEventArgs e) { _settings.RuntimeFolder = ""; _settings.Save(); _ = RefreshSettingsPage(); }
 
     private async void PickReShade_Click(object sender, RoutedEventArgs e)
     {
@@ -384,10 +404,10 @@ public sealed partial class MainWindow : Window
         }
         _settings.ReShadeSource = file.Path;
         _settings.Save();
-        RefreshSettingsPage();
+        _ = RefreshSettingsPage();
     }
 
-    private void ClearReShade_Click(object sender, RoutedEventArgs e) { _settings.ReShadeSource = ""; _settings.Save(); RefreshSettingsPage(); }
+    private void ClearReShade_Click(object sender, RoutedEventArgs e) { _settings.ReShadeSource = ""; _settings.Save(); _ = RefreshSettingsPage(); }
 
     private async void AddFolder_Click(object sender, RoutedEventArgs e)
     {
@@ -395,7 +415,7 @@ public sealed partial class MainWindow : Window
         if (dir is null || _settings.ExtraFolders.Contains(dir, StringComparer.OrdinalIgnoreCase)) return;
         _settings.ExtraFolders.Add(dir);
         _settings.Save();
-        RefreshSettingsPage();
+        _ = RefreshSettingsPage();
         await LoadLibraryAsync();
     }
 
@@ -404,7 +424,7 @@ public sealed partial class MainWindow : Window
         if (FolderList.SelectedItem is not string dir) return;
         _settings.ExtraFolders.Remove(dir);
         _settings.Save();
-        RefreshSettingsPage();
+        _ = RefreshSettingsPage();
         await LoadLibraryAsync();
     }
 
@@ -427,7 +447,7 @@ public sealed partial class MainWindow : Window
             try { Installers.ImportDll(f.Path); }
             catch (Exception ex) { errors.Add(ex.Message); }
         }
-        RefreshSettingsPage();
+        _ = RefreshSettingsPage();
         if (errors.Count > 0) DllLibraryStatus.Text += "\n" + string.Join("\n", errors);
     }
 
