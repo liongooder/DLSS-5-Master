@@ -40,6 +40,8 @@ public sealed partial class MainWindow : Window
         // The tab row re-centres when a label changes ("SETTINGS ●"); keep its clickable area in step.
         Tabs.SizeChanged += (_, _) => UpdateTitleBarRegions();
         GameTools.SizeChanged += (_, _) => UpdateTitleBarRegions();
+        AppUpdateButton.SizeChanged += (_, _) => UpdateTitleBarRegions();
+        AppUpdateButton.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => UpdateTitleBarRegions());
         Tabs.LayoutUpdated += (_, _) => { if (Tabs.ActualOffset != _tabsOffset) { _tabsOffset = Tabs.ActualOffset; UpdateTitleBarRegions(); } };
         GameOverlay.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => UpdateTitleBarRegions());
         GameTools.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => UpdateTitleBarRegions());
@@ -86,6 +88,7 @@ public sealed partial class MainWindow : Window
             rects.Add(new Windows.Graphics.RectInt32((int)(r.X * scale), (int)(r.Y * scale), (int)Math.Ceiling(r.Width * scale), (int)Math.Ceiling(r.Height * scale)));
         }
         Add(Tabs);
+        Add(AppUpdateButton);
         Add(GameTools);
         if (GameOverlay.Visibility == Visibility.Visible) Add(GamePanel, belowCaption: true);
         Microsoft.UI.Input.InputNonClientPointerSource.GetForWindowId(AppWindow.Id)
