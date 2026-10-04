@@ -170,7 +170,7 @@
         <Border Style="{StaticResource Card}">
           <StackPanel Spacing="8">
             <Image x:Name="AboutLogo" Height="150" HorizontalAlignment="Left" Stretch="Uniform" Margin="0,0,0,6" />
-            <TextBlock Text="DLSS 5 Master 0.2.8" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Text="DLSS 5 Master 0.2.9" FontSize="20" FontWeight="SemiBold" />
             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
                        Text="One place for ReShade + RenoDX neural rendering routes (Native, Multipass, Feeder), OptiScaler, and per-game DLL swapping. Every change is recorded in _DLSS5Master_Backup inside the game folder, and Restore originals puts the game back exactly as it was." />
           </StackPanel>
