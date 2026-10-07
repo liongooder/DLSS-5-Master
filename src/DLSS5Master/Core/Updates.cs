@@ -69,7 +69,7 @@ public static partial class Updates
         new("renodx-dlss", "RenoDX DLSS Tool (multipass)", "RankFTW/rhi-repo", "renodx-dlss-SF-", @"^renodx-dlss_SF_.*\.zip$",
             UpdateKind.ZipFile, "renodx-dlss.addon64", "SF 26.1003.2350", new DateTime(2026, 10, 4, 7, 59, 13, DateTimeKind.Utc)),
         new("mfgunlock", "MFG unlock (MFGAdaUnlock)", "mavismmg/MFGAdaUnlock-RenoDx", null, @"^renodx-mfgunlock\.addon64$",
-            UpdateKind.File, null, "1.4.1", new DateTime(2026, 10, 2, 20, 34, 23, DateTimeKind.Utc)),
+            UpdateKind.File, null, "1.4.2", new DateTime(2026, 10, 6, 17, 6, 29, DateTimeKind.Utc)),
         new("feeder", "DLSS5 Feeder", "jlrouzies-fr/DLSS5-Feeder", null, @"^DLSS5-Feeder-.*\.zip$",
             UpdateKind.Feeder, null, "1.17.0", new DateTime(2026, 9, 27, 4, 32, 3, DateTimeKind.Utc)),
         new("optiscaler-nr", "OptiScaler NR (pre-SR multipass)", "wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass", null, @"^OptiScaler-NR-v[\d.]+(-rtx40-mfg)?\.zip$",

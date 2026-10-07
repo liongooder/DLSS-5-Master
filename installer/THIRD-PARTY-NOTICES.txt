@@ -18,7 +18,7 @@ Third-party notices
 
 Bundled with this installer (unmodified, SHA-256 pinned):
 
-- MFGAdaUnlock-RenoDx 1.4.1 (renodx-mfgunlock.addon64) -
+- MFGAdaUnlock-RenoDx 1.4.2 (renodx-mfgunlock.addon64) -
   https://github.com/mavismmg/MFGAdaUnlock-RenoDx
 
   MIT License
