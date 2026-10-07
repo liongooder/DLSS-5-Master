@@ -473,7 +473,7 @@ public sealed partial class MainWindow : Window
         "• RenoDX DLSS5 add-on and DLSS Tool — github.com/clshortfuse/renodx (MIT)\n" +
         "• DLSS5-Feeder — github.com/jlrouzies-fr/DLSS5-Feeder (MIT)\n" +
         "• vort_Shaders — github.com/vortigern11/vort_Shaders (MIT)\n" +
-        "• MFGAdaUnlock-RenoDx 1.4.1 — github.com/mavismmg/MFGAdaUnlock-RenoDx (MIT)\n" +
+        "• MFGAdaUnlock-RenoDx 1.4.2 — github.com/mavismmg/MFGAdaUnlock-RenoDx (MIT)\n" +
         "• OptiScaler NR pre-SR multipass 0.8.3 RTX 40 MFG — github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0; source code at tag v0.8.3)\n\n" +
         "Downloaded when first used, from their authors' release pages and verified by SHA-256:\n" +
         "• OptiScaler NR pre-SR multipass 0.8.3 (standard) — github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0)\n" +
