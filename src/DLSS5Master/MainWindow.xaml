@@ -62,6 +62,12 @@
         </Button>
       </StackPanel>
       <GridView x:Name="GameGrid" Grid.Row="1" Padding="24,8,24,24" IsItemClickEnabled="True" SelectionMode="None" ItemClick="GameGrid_ItemClick">
+        <!-- Rows are centred so the space left over by the last column is shared evenly on both sides. -->
+        <GridView.ItemsPanel>
+          <ItemsPanelTemplate>
+            <ItemsWrapGrid Orientation="Horizontal" HorizontalAlignment="Center" />
+          </ItemsPanelTemplate>
+        </GridView.ItemsPanel>
         <GridView.ItemTemplate>
           <DataTemplate x:DataType="views:GameItem">
             <StackPanel Width="190" Margin="6" Spacing="8" Background="Transparent">
@@ -349,7 +355,7 @@
         <Border Style="{StaticResource Card}">
           <StackPanel Spacing="8">
             <Image x:Name="AboutLogo" Height="150" HorizontalAlignment="Left" Stretch="Uniform" Margin="0,0,0,6" />
-            <TextBlock Text="DLSS 5 Master 0.5.0" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Text="DLSS 5 Master 0.5.1" FontSize="20" FontWeight="SemiBold" />
             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
                        Text="One place for ReShade + RenoDX neural rendering routes (Native, Multipass, Feeder), OptiScaler, and per-game DLL swapping. Every change is recorded in _DLSS5Master_Backup inside the game folder, and Restore originals puts the game back exactly as it was." />
           </StackPanel>
