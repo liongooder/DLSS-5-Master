@@ -18,10 +18,10 @@ reshade\ReShade32.dll,reshade-vulkan\ReShade32.dll,da430e0a9c6eecefa0d1b27d05e16
 reshade\ReShade64.dll,reshade-vulkan\ReShade64.dll,0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7
 renodx\renodx-dlss5.addon64,renodx-dlss5.addon64,342341f669f1d64e0c70c8593a07a2fab5075e073dfae97c331c9a6776260a0a
 renodx\renodx-dlss.addon64,https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss-SF-26.1003.2350/renodx-dlss_SF_26.1003.2350.zip,1310119c87e4ab5ad0af41511411bd4608ff3c3030a29196ae0e4bba32c84585
-feeder\dlss5-feed-host64.exe,feeder\dlss5-feed-host64.exe,c835754277a0590780d846443f314a83a30e2d2815ee0b2f7c18f1a24f252936
-feeder\dlss5-feed.addon32,feeder\dlss5-feed.addon32,bfe24218be719cf5b91d829283953432907922333280931b755d83ac793fd8b2
-feeder\dlss5-feed.addon64,feeder\dlss5-feed.addon64,6854d012eac307021cd31c978bafd42f1e22c5b7b2922c80e0a0010d428a3fd7
-feeder\Verify-DLSS5Feeder.ps1,feeder\Verify-DLSS5Feeder.ps1,2cdb0eac0f4f8ea9da8e6290c442f846074aae9b87750425e0d2da4a820d0aca
+feeder\dlss5-feed-host64.exe,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v1.19.0/DLSS5-Feeder-1.19.0.zip,79e427430c5c0102f6c7a557155b706ad51b0c40933f6e245fce922bf5b1401e
+feeder\dlss5-feed.addon32,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v1.19.0/DLSS5-Feeder-1.19.0.zip,34c767bd53a99f51a6cb5d87b267734e04314d16bf495a6c69ab98acd62d0874
+feeder\dlss5-feed.addon64,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v1.19.0/DLSS5-Feeder-1.19.0.zip,2b8c905012fd464ddf0554c6b178cba55030ec10eb917acdcee0e7a2376fe4dd
+feeder\Verify-DLSS5Feeder.ps1,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v1.19.0/DLSS5-Feeder-1.19.0.zip,c84b672c8b92241fcd03018ce731eab1cb7f09f68f64cf41014c7bf7d76b5c2b
 feeder\licenses\DLSS5-Feeder-LICENSE.txt,feeder\licenses\DLSS5-Feeder-LICENSE.txt,6562d5a5e3d7534711e34f4b34335f23f067acc839ae5274c1250bf5f4654b8b
 feeder\licenses\VORT-LICENSE.txt,feeder\licenses\VORT-LICENSE.txt,800bacb0f9db4df8203f0dad1f99947109a44f4097380807e0483bd62dee0d41
 feeder\reshade-shaders\Shaders\DLSS5_Feed.fx,feeder\reshade-shaders\Shaders\DLSS5_Feed.fx,c4ba1610df8e1593faa7c203d6d0517058d3a8ecf2dfda18ca67849844391456

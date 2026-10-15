@@ -18,7 +18,7 @@ Third-party notices
 
 Bundled with this installer (unmodified, SHA-256 pinned):
 
-- MFGAdaUnlock-RenoDx 1.4.2 (renodx-mfgunlock.addon64) -
+- MFGAdaUnlock-RenoDx 1.4.3 (renodx-mfgunlock.addon64) -
   https://github.com/mavismmg/MFGAdaUnlock-RenoDx
 
   MIT License
@@ -53,7 +53,7 @@ Bundled with this installer (unmodified, SHA-256 pinned):
   Copyright (c) 2025 Carlos Lopez Jr. MIT; full text in
   licenses\RenoDX-LICENSE.txt.
 
-- DLSS5-Feeder 1.17.0 (payload\feeder\) -
+- DLSS5-Feeder 1.19.0 (payload\feeder\) -
   https://github.com/jlrouzies-fr/DLSS5-Feeder,
   Copyright (c) 2026 Jean-Laurent Rouzies. MIT; full text in
   payload\feeder\licenses\DLSS5-Feeder-LICENSE.txt.
