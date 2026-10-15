@@ -20,3 +20,8 @@ docs/cleanroom/
 
 # CI workflow kept local until the payload can be fetched in CI
 .github/workflows/
+
+# community server tooling
+community/node_modules/
+community/.wrangler/
+community/.dev.vars

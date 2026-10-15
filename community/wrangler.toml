@@ -1,0 +1,13 @@
+name = "dlss5master-community"
+main = "src/worker.js"
+compatibility_date = "2026-10-01"
+
+# Created with: npx wrangler d1 create dlss5master-community
+[[d1_databases]]
+binding = "DB"
+database_name = "dlss5master-community"
+database_id = "02332952-1755-4522-8742-597f14fda035"
+
+# Secrets (set with `npx wrangler secret put <NAME>`, never stored here):
+#   PEPPER       random string mixed into every hashed install ID / IP
+#   ADMIN_TOKEN  moderator token for the /v1/admin endpoints
