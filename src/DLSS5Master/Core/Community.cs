@@ -13,7 +13,8 @@ public sealed record CommunityCounts(int Works, int Partly, int Broken)
 
 public sealed record CommunityCombo(string Route, bool Mfg, string GpuFamily, int Works, int Partly, int Broken);
 
-public sealed record CommunityNote(long Id, string Rating, string Route, bool Mfg, string Gpu, string GpuFamily, string AppVersion, string Note, DateTime When);
+public sealed record CommunityNote(long Id, string Rating, string Route, bool Mfg, string Gpu, string GpuFamily, string AppVersion, string Note, DateTime When,
+                                   string Nickname = "", bool IsDev = false);
 
 public sealed record CommunityMine(long Id, string Rating, string Route, bool Mfg, string Note, bool Hidden);
 
@@ -26,7 +27,9 @@ public sealed record CommunitySummary(string Key, CommunityCounts Counts, List<C
 /// </summary>
 public static partial class Community
 {
-    public const string Server = "https://dlss5master-community.dlss5master-community.workers.dev";
+    /// <summary>The community server; tests point DLSS5MASTER_COMMUNITY at a local copy.</summary>
+    public static readonly string Server = Environment.GetEnvironmentVariable("DLSS5MASTER_COMMUNITY") is { Length: > 0 } test
+        ? test.TrimEnd('/') : "https://dlss5master-community.dlss5master-community.workers.dev";
     public const int NoteMax = 280;
 
     private static readonly HttpClient Http = CreateClient();
@@ -104,7 +107,8 @@ public static partial class Community
         var notes = r.GetProperty("notes").EnumerateArray().Select(x => new CommunityNote(
             (long)Num(x, "id"), Str(x, "rating"), Str(x, "route"), x.TryGetProperty("mfg", out var m) && m.ValueKind == JsonValueKind.True,
             Str(x, "gpu"), Str(x, "gpu_family"), Str(x, "app_version"), Str(x, "note"),
-            DateTimeOffset.FromUnixTimeMilliseconds((long)Num(x, "updated_at")).LocalDateTime)).ToList();
+            DateTimeOffset.FromUnixTimeMilliseconds((long)Num(x, "updated_at")).LocalDateTime,
+            Str(x, "nickname"), x.TryGetProperty("is_dev", out var d) && d.ValueKind == JsonValueKind.True)).ToList();
         CommunityMine? mine = null;
         if (r.TryGetProperty("mine", out var mi) && mi.ValueKind == JsonValueKind.Object)
             mine = new CommunityMine((long)Num(mi, "id"), Str(mi, "rating"), Str(mi, "route"), Num(mi, "mfg") != 0, Str(mi, "note"), Num(mi, "hidden") != 0);

@@ -50,17 +50,19 @@ public sealed partial class MainWindow
         }
     }
 
-    private void RenderCommunity(CommunitySummary s)
+    /// <summary>Fills <paramref name="target"/> (the game panel's section by default) with a game's community summary.</summary>
+    private void RenderCommunity(CommunitySummary s, Panel? target = null, bool editor = true)
     {
-        CommunityPanel.Children.Clear();
+        target ??= CommunityPanel;
+        target.Children.Clear();
         var family = Community.GpuFamily(Community.LocalGpu);
 
         // Overall counts.
         if (s.Counts.Total == 0)
-            CommunityPanel.Children.Add(Muted("No reports for this game yet. Install a route and be the first to say how it went."));
+            target.Children.Add(Muted("No reports for this game yet. Install a route and be the first to say how it went."));
         else
         {
-            CommunityPanel.Children.Add(new TextBlock
+            target.Children.Add(new TextBlock
             {
                 FontSize = 16, FontWeight = FontWeights.SemiBold,
                 Text = $"✅ {s.Counts.Works} work   ·   🟡 {s.Counts.Partly} partly   ·   ❌ {s.Counts.Broken} broken",
@@ -71,23 +73,23 @@ public sealed partial class MainWindow
                 .ThenByDescending(c => c.Works - c.Broken)
                 .FirstOrDefault();
             if (best is not null)
-                CommunityPanel.Children.Add(new TextBlock
+                target.Children.Add(new TextBlock
                 {
                     Foreground = Res("AccentText"), TextWrapping = TextWrapping.Wrap,
                     Text = $"Most reported to work: {RouteName(best.Route)}{(best.Mfg ? " + MFG" : "")} on {best.GpuFamily} ({best.Works} of {best.Works + best.Partly + best.Broken})",
                 });
             var onMine = s.Combos.Where(c => c.GpuFamily == family).ToList();
             if (onMine.Count > 0 && family != "Other")
-                CommunityPanel.Children.Add(Muted($"On {family} like yours: ✅ {onMine.Sum(c => c.Works)}  🟡 {onMine.Sum(c => c.Partly)}  ❌ {onMine.Sum(c => c.Broken)}"));
+                target.Children.Add(Muted($"On {family} like yours: ✅ {onMine.Sum(c => c.Works)}  🟡 {onMine.Sum(c => c.Partly)}  ❌ {onMine.Sum(c => c.Broken)}"));
         }
 
-        CommunityPanel.Children.Add(MyReportEditor(s));
+        if (editor) target.Children.Add(MyReportEditor(s));
 
         // Latest notes.
         if (s.Notes.Count > 0)
         {
-            CommunityPanel.Children.Add(new TextBlock { Text = "WHAT PLAYERS SAY", Style = (Style)Application.Current.Resources["SectionTitle"], Margin = new Thickness(0, 6, 0, 0) });
-            foreach (var n in s.Notes) CommunityPanel.Children.Add(NoteRow(n, s.Mine?.Id == n.Id));
+            target.Children.Add(new TextBlock { Text = "WHAT PLAYERS SAY", Style = (Style)Application.Current.Resources["SectionTitle"], Margin = new Thickness(0, 6, 0, 0) });
+            foreach (var n in s.Notes) target.Children.Add(NoteRow(n, s.Mine?.Id == n.Id));
         }
     }
 
@@ -170,7 +172,7 @@ public sealed partial class MainWindow
         text.Children.Add(new TextBlock
         {
             FontSize = 11, Foreground = Res("MutedText"), TextWrapping = TextWrapping.Wrap,
-            Text = $"{RouteName(n.Route)}{(n.Mfg ? " + MFG" : "")} · {n.Gpu} · {n.When:d MMM yyyy}{(mine ? " · your report" : "")}",
+            Text = $"{(n.Nickname is { Length: > 0 } who ? who + (n.IsDev ? " (developer)" : "") + " · " : "")}{RouteName(n.Route)}{(n.Mfg ? " + MFG" : "")} · {n.Gpu} · {n.When:d MMM yyyy}{(mine ? " · your report" : "")}",
         });
         Grid.SetColumn(text, 1);
         grid.Children.Add(text);

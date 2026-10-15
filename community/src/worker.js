@@ -261,7 +261,7 @@ async function storeImage(env, install, kind, base64) {
   else if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) mime = 'image/png';
   else throw new HttpError(400, 'Only JPEG or PNG pictures');
   const r = await env.DB.prepare(`INSERT INTO images (install, kind, mime, data, created_at) VALUES (?, ?, ?, ?, ?) RETURNING id`)
-    .bind(install, kind, mime, bytes.buffer, Date.now()).first();
+    .bind(install, kind, mime, bytes, Date.now()).first();
   return r.id;
 }
 
@@ -273,7 +273,8 @@ async function getImage(env, id, install, adminView = false) {
     allowed = !!(await env.DB.prepare(`SELECT 1 AS ok FROM gallery WHERE image_id = ? AND status = 'approved'`).bind(id).first());
   if (!allowed) throw new HttpError(404, 'Not found');
   const publicImage = img.kind === 'gallery' && !adminView && install !== img.install;
-  return new Response(img.data, {
+  // D1 hands BLOBs back as an array of byte values; turn it into real bytes.
+  return new Response(new Uint8Array(img.data), {
     headers: { 'Content-Type': img.mime, 'Cache-Control': publicImage ? 'public, max-age=86400' : 'private, no-store' },
   });
 }
