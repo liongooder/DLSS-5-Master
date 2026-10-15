@@ -25,3 +25,6 @@ docs/cleanroom/
 community/node_modules/
 community/.wrangler/
 community/.dev.vars
+
+# promotion drafts (private)
+promo/
