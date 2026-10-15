@@ -374,5 +374,22 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     else Check("unrecorded: payload ReShade64.dll present for test", false, realReShade);
 }
 
+// ---------------------------------------------------------------- community: game keys and GPU families
+{
+    Check("community key: steam id", Community.GameKey(new GameEntry { Launcher = "Steam", Id = "3751260", Name = "The Blood of Dawnwalker" }) == "steam:3751260");
+    Check("community key: non-steam name", Community.GameKey(new GameEntry { Launcher = "Epic Games", Id = "abc", Name = "Gothic 1 Remake!" }) == "name:gothic1remake");
+    Check("community key: steam without numeric id", Community.GameKey(new GameEntry { Launcher = "Steam", Id = "x1", Name = "Odd Game" }) == "name:oddgame");
+    Check("community key: empty name", Community.GameKey(new GameEntry { Launcher = "Manual", Name = "***" }) == "name:unknown");
+    Check("community key: long name capped", Community.GameKey(new GameEntry { Launcher = "Manual", Name = new string('a', 90) }).Length == "name:".Length + 60);
+    Check("gpu family: RTX 4090", Community.GpuFamily("NVIDIA GeForce RTX 4090") == "RTX 40");
+    Check("gpu family: RTX 5070 Ti", Community.GpuFamily("NVIDIA GeForce RTX 5070 Ti") == "RTX 50");
+    Check("gpu family: RTX PRO 6000", Community.GpuFamily("NVIDIA RTX PRO 6000 Blackwell") == "RTX 60" || Community.GpuFamily("NVIDIA RTX PRO 6000 Blackwell") == "NVIDIA");
+    Check("gpu family: GTX", Community.GpuFamily("NVIDIA GeForce GTX 1080 Ti") == "GTX");
+    Check("gpu family: AMD", Community.GpuFamily("AMD Radeon RX 7900 XTX") == "AMD");
+    Check("gpu family: unknown", Community.GpuFamily(null) == "Other");
+    var id1 = Community.InstallId; var id2 = Community.InstallId;
+    Check("install id: 32 hex, stable", id1.Length == 32 && id1.All(Uri.IsHexDigit) && id1 == id2);
+}
+
 Console.WriteLine($"{passed} passed, {failed} failed");
 return failed == 0 ? 0 : 1;

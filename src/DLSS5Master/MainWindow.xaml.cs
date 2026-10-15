@@ -348,6 +348,7 @@ public sealed partial class MainWindow : Window
     private async Task RefreshSettingsPage()
     {
         RuntimeFolderBox.Text = _settings.RuntimeFolder;
+        CommunityBox.IsChecked = _settings.ShowCommunity;
         ReShadeSourceBox.Text = _settings.ReShadeSource;
         FolderList.ItemsSource = _settings.ExtraFolders.ToList();
         static string Where(string path) =>

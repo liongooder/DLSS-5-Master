@@ -40,6 +40,7 @@ public sealed class AppSettings
     /// <summary>Folder or ReShade_Setup_*_Addon.exe providing ReShade32/64.dll. Empty = auto-detect.</summary>
     public string ReShadeSource { get; set; } = "";
     public string OptiScalerMenuKey { get; set; } = "0x2D";
+    public bool ShowCommunity { get; set; } = true;
     public Dictionary<string, GameOverride> Overrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };

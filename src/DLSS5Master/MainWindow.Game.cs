@@ -86,6 +86,7 @@ public sealed partial class MainWindow
             _scan = await Task.Run(() => Scanner.Scan(game.Entry.Dir, preferred));
             game.SetScan(_scan);
             Populate();
+            _ = LoadCommunityAsync();
         }
         catch (Exception ex) { Log("Scan failed: " + ex.Message); }
         finally { SetBusy(false); }
