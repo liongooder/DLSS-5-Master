@@ -35,6 +35,10 @@
 
 ![DLSS 5 Master game library](docs/screenshots/app-library.jpg)
 
+## Pick a route, tick MFG, done
+
+![A game in DLSS 5 Master: detected executable and API, route choice and MFG unlock](docs/screenshots/app-game-panel.jpg)
+
 ## How it works
 
 1. **[Download the installer](../../releases/latest)** and run it. Everything is included: no other tools, no extra downloads.
