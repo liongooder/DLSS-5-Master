@@ -3,6 +3,10 @@ using System.Security.Cryptography;
 using System.Text;
 using DLSS5Master.Core;
 
+// Keep the real %LOCALAPPDATA%\DLSS5Master (log, settings, install ID) out of the tests.
+var testData = Path.Combine(Path.GetTempPath(), "d5m-tests-" + Guid.NewGuid().ToString("N")[..8]);
+Environment.SetEnvironmentVariable("DLSS5MASTER_DATA", testData);
+
 int passed = 0, failed = 0;
 void Check(string name, bool ok, string? detail = null)
 {
@@ -391,5 +395,20 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Check("install id: 32 hex, stable", id1.Length == 32 && id1.All(Uri.IsHexDigit) && id1 == id2);
 }
 
+// ---------------------------------------------------------------- add-on updates the app now includes are dropped
+{
+    var mfg = Updates.Sources.First(s => s.Id == "mfgunlock");
+    var feeder = Updates.Sources.First(s => s.Id == "feeder");
+    var state = new UpdateState();
+    state.Active["mfgunlock"] = new ActiveUpdate { Version = "old", Published = mfg.BundledDate.AddDays(-3) };   // older than built-in
+    state.Active["feeder"] = new ActiveUpdate { Version = "same", Published = feeder.BundledDate };          // the built-in release
+    state.Active["renodx-dlss"] = new ActiveUpdate { Version = "newer", Published = DateTime.UtcNow.AddYears(5) };
+    var gone = Updates.Superseded(state);
+    Check("superseded: older and same dropped, newer kept", gone.Count == 2 && gone.Contains("mfgunlock") && gone.Contains("feeder") && !gone.Contains("renodx-dlss"),
+          string.Join(",", gone));
+    Check("tests use their own data folder", AppPaths.Root == testData);
+}
+
+try { Directory.Delete(testData, true); } catch { }
 Console.WriteLine($"{passed} passed, {failed} failed");
 return failed == 0 ? 0 : 1;

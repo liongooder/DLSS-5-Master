@@ -282,6 +282,28 @@ public static partial class Updates
         AppPaths.Log($"Add-on update undone: {s.Name} back to {s.BundledVersion}");
     }
 
+    /// <summary>
+    /// Accepted add-on updates that this app version already includes (its bundled copy is the same release or a
+    /// newer one). Such an update is redundant: the built-in copy should be used again.
+    /// </summary>
+    public static List<string> Superseded(UpdateState state) =>
+        Sources.Where(s => state.Active.TryGetValue(s.Id, out var a) && a.Published <= s.BundledDate)
+               .Select(s => s.Id).ToList();
+
+    /// <summary>Run at start-up: after an app update, switch back to the built-in copy of any add-on it now includes.</summary>
+    public static void DropSuperseded()
+    {
+        var ids = Superseded(State);
+        if (ids.Count == 0) return;
+        foreach (var id in ids)
+        {
+            var src = Sources.First(s => s.Id == id);
+            AppPaths.Log($"Add-on update no longer needed: {src.Name} {State.Active[id].Version} is included with this version (built-in {src.BundledVersion})");
+            State.Active.Remove(id);
+        }
+        Save();
+    }
+
     // ------------------------------------------------------------------ used by Components
 
     public static string? ActivePath(string id) =>
