@@ -33,8 +33,8 @@ if ($Stage -in 'all', 'publish') {
     foreach ($row in Import-Csv (Join-Path $root 'installer\payload-manifest.csv')) {
         $dest = Join-Path $payload $row.dest
         if ((Test-Path $dest) -and (Get-FileHash $dest -Algorithm SHA256).Hash.ToLower() -eq $row.sha256) { continue }
-        if ($row.source -like 'https://*' -and (Split-Path $row.source -Leaf) -eq (Split-Path $row.dest -Leaf)) {
-            # The release file itself is bundled (e.g. the OptiScaler zip).
+        if ($row.source -like 'https://*' -and $row.dest -like '*.zip') {
+            # The release file itself is bundled (e.g. the OptiScaler zip), possibly under another name.
             $src = Join-Path ([IO.Path]::GetTempPath()) (Split-Path $row.source -Leaf)
             Invoke-WebRequest $row.source -OutFile $src -UseBasicParsing
         } elseif ($row.source -like 'https://*') {

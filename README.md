@@ -85,7 +85,7 @@ DLSS 5 Master is free. If it saved you time, you can support its development:
 
 ## Build from source
 
-Prerequisites: [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) and [Inno Setup 6](https://jrsoftware.org/isinfo.php).
+Prerequisites: [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) and [Inno Setup 6](https://jrsoftware.org/isinfo.php).
 
 ```powershell
 # app only

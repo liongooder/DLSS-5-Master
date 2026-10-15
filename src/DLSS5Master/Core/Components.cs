@@ -302,8 +302,9 @@ public sealed class Components
             return Path.GetFullPath(customFolder);
         }
 
-        // The recommended build ships in payload\optiscaler under its release file name; the others are downloaded.
-        var zip = Path.Combine(BundledPayload, "optiscaler", Path.GetFileName(new Uri(build.Url).LocalPath));
+        // The recommended build ships in payload\optiscaler; the others are downloaded. The bundled name has no dots
+        // besides ".zip", because the build's resource indexer reads dotted name parts as qualifiers ("…v0.8.3…").
+        var zip = Path.Combine(BundledPayload, "optiscaler", BundledOptiZipName(build));
         if (!File.Exists(zip) || !HashMatches(zip, build.Sha256))
         {
             zip = Path.Combine(AppPaths.Components, $"OptiScaler-{build.Id}.zip");
@@ -332,6 +333,8 @@ public sealed class Components
             throw new InstallException($"OptiScaler.dll in the {build.Label} package is not a 64-bit DLL. Nothing was installed.");
         return Path.GetDirectoryName(dll)!;
     }
+
+    public static string BundledOptiZipName(OptiBuild build) => $"OptiScaler-{build.Id.Replace('.', '_')}.zip";
 
     // ------------------------------------------------------------------ hashing / downloading
 
