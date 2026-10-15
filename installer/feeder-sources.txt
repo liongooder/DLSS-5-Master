@@ -1,6 +1,6 @@
 Third-party files in this folder (payload\feeder), shipped by DLSS 5 Master unmodified:
 
-DLSS5-Feeder 1.17.0 (dlss5-feed.addon64, dlss5-feed.addon32, dlss5-feed-host64.exe,
+DLSS5-Feeder 1.19.0 (dlss5-feed.addon64, dlss5-feed.addon32, dlss5-feed-host64.exe,
   DLSS5_Feed.fx, Verify-DLSS5Feeder.ps1) - https://github.com/jlrouzies-fr/DLSS5-Feeder
   MIT; licence text in DLSS5-Feeder-LICENSE.txt.
 

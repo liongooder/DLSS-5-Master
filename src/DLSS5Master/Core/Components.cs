@@ -38,16 +38,16 @@ public sealed class Components
 
     public static readonly Dictionary<string, string> FeederHashes = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["dlss5-feed.addon32"] = "bfe24218be719cf5b91d829283953432907922333280931b755d83ac793fd8b2",
-        ["dlss5-feed.addon64"] = "6854d012eac307021cd31c978bafd42f1e22c5b7b2922c80e0a0010d428a3fd7",
-        ["dlss5-feed-host64.exe"] = "c835754277a0590780d846443f314a83a30e2d2815ee0b2f7c18f1a24f252936",
+        ["dlss5-feed.addon32"] = "34c767bd53a99f51a6cb5d87b267734e04314d16bf495a6c69ab98acd62d0874",
+        ["dlss5-feed.addon64"] = "2b8c905012fd464ddf0554c6b178cba55030ec10eb917acdcee0e7a2376fe4dd",
+        ["dlss5-feed-host64.exe"] = "79e427430c5c0102f6c7a557155b706ad51b0c40933f6e245fce922bf5b1401e",
         ["DLSS5_Feed.fx"] = "c4ba1610df8e1593faa7c203d6d0517058d3a8ecf2dfda18ca67849844391456",
     };
 
     public const string MfgAddon = "renodx-mfgunlock.addon64";
-    public const string MfgVersion = "1.4.2";
-    public const string MfgUrl = "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/1.4.2/renodx-mfgunlock.addon64";
-    public const string MfgSha256 = "cc35f0fedafad20fed1528280899c91f941e4c58b40e5d5e1639ad86b23ea2c8";
+    public const string MfgVersion = "1.4.3";
+    public const string MfgUrl = "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/1.4.3/renodx-mfgunlock.addon64";
+    public const string MfgSha256 = "18636063cc4a762c24e2f2c25fef248058509986caae5becee65b5075fbe5e90";
 
     public static readonly string[] OptiLibraries =
     {
@@ -67,9 +67,9 @@ public sealed class Components
          "34ef92d6742bf6d05df42ff81c04b70f5138b0a0a970a93f1a04295ac83f7f0f",
          "renodx-dlss.addon64", "1310119c87e4ab5ad0af41511411bd4608ff3c3030a29196ae0e4bba32c84585", "renodx-dlss-SF-26.1003.2350");
 
-    private const string FeederUrl = "https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v1.17.0/DLSS5-Feeder-1.17.0.zip";
-    private const string FeederSha = "11a96b36ae89ef75b3cff0e03849db35591143fe4df171986502905809469e12";
-    private const string FeederFolder = "DLSS5-Feeder-1.17.0";
+    private const string FeederUrl = "https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v1.19.0/DLSS5-Feeder-1.19.0.zip";
+    private const string FeederSha = "9cc19e28f8fb4e216ea61621fdf6443e207e338ec639979ab335503c75f48f36";
+    private const string FeederFolder = "DLSS5-Feeder-1.19.0";
 
     private static readonly HttpClient Http = CreateClient();
 
