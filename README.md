@@ -8,6 +8,7 @@ A Windows app that brings DLSS 5 neural rendering setups for your games together
 - **MFG unlock (RTX 40)** – ships [MFGAdaUnlock-RenoDx](https://github.com/mavismmg/MFGAdaUnlock-RenoDx) for DLSS multi frame generation (3x/4x) on GeForce RTX 40 cards, as a tick-box add-on on every ReShade route (Native, Multipass, Feeder).
 - **DLL swapping** – swap any upscaler DLL for another version from your DLL library.
 - **Exact restore** – every file added or replaced is recorded in `_DLSS5Master_Backup` inside the game folder; *Restore originals* puts the game back byte-for-byte.
+- **Community tab** – a list of every reported game with filters, a public chat, a gallery of screenshots (approved before anyone sees them) and a private line to the developer; pick a nickname, no account needed.
 - **Community reports** – each game shows what other players report (works / partly / broken), by route and graphics card, with short notes. Rate your own install in one click; no account needed.
 - **Updates** – the app and its bundled add-ons update themselves from GitHub, checked against GitHub's published SHA-256.
 

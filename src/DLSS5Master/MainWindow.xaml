@@ -26,6 +26,7 @@
 
       <SelectorBar x:Name="Tabs" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" SelectionChanged="Tabs_SelectionChanged">
         <SelectorBarItem x:Name="TabGames" Text="GAMES" IsSelected="True" />
+        <SelectorBarItem x:Name="TabCommunity" Text="COMMUNITY" />
         <SelectorBarItem x:Name="TabSettings" Text="SETTINGS" />
         <SelectorBarItem x:Name="TabAbout" Text="ABOUT" />
       </SelectorBar>
@@ -38,7 +39,14 @@
           <TextBlock x:Name="AppUpdateText" Text="Update" />
         </StackPanel>
       </Button>
-      <StackPanel x:Name="GameTools" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+      </StackPanel>
+    </Grid>
+
+    <!-- ===== Games page ===== -->
+    <Grid x:Name="GamesPage" Grid.Row="1">
+      <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+      <!-- search / filter / add / rescan for the library -->
+      <StackPanel x:Name="GameTools" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="24,8,30,0">
         <AutoSuggestBox x:Name="SearchBox" Width="220" PlaceholderText="Search games" QueryIcon="Find" TextChanged="SearchBox_TextChanged" />
         <ComboBox x:Name="FilterBox" Width="150" SelectedIndex="0" SelectionChanged="FilterBox_SelectionChanged">
           <ComboBoxItem Content="All games" />
@@ -53,12 +61,7 @@
           <FontIcon Glyph="&#xE72C;" FontSize="14" />
         </Button>
       </StackPanel>
-      </StackPanel>
-    </Grid>
-
-    <!-- ===== Games page ===== -->
-    <Grid x:Name="GamesPage" Grid.Row="1">
-      <GridView x:Name="GameGrid" Padding="24,8,24,24" IsItemClickEnabled="True" SelectionMode="None" ItemClick="GameGrid_ItemClick">
+      <GridView x:Name="GameGrid" Grid.Row="1" Padding="24,8,24,24" IsItemClickEnabled="True" SelectionMode="None" ItemClick="GameGrid_ItemClick">
         <GridView.ItemTemplate>
           <DataTemplate x:DataType="views:GameItem">
             <StackPanel Width="190" Margin="6" Spacing="8" Background="Transparent">
@@ -92,11 +95,159 @@
           </DataTemplate>
         </GridView.ItemTemplate>
       </GridView>
-      <StackPanel x:Name="LoadingPanel" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+      <StackPanel x:Name="LoadingPanel" Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
         <ProgressRing IsActive="True" Width="40" Height="40" />
         <TextBlock x:Name="LoadingText" Text="Finding your games…" Foreground="{StaticResource MutedText}" HorizontalAlignment="Center" />
       </StackPanel>
-      <TextBlock x:Name="ScanStatus" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,28,8" FontSize="11" Foreground="{StaticResource MutedText}" />
+      <TextBlock x:Name="ScanStatus" Grid.Row="1" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,28,8" FontSize="11" Foreground="{StaticResource MutedText}" />
+    </Grid>
+
+    <!-- ===== Community page (sub-pages are filled in code) ===== -->
+    <Grid x:Name="CommunityPage" Grid.Row="1" Visibility="Collapsed" Padding="24,8,24,16" RowSpacing="12">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="*" />
+      </Grid.RowDefinitions>
+      <Border Style="{StaticResource Card}" Padding="16,8">
+        <Grid ColumnSpacing="12">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <SelectorBar x:Name="CommunityTabs" SelectionChanged="CommunityTabs_SelectionChanged">
+            <SelectorBarItem x:Name="CTabGames" Text="GAMES" IsSelected="True" />
+            <SelectorBarItem x:Name="CTabChat" Text="CHAT" />
+            <SelectorBarItem x:Name="CTabGallery" Text="GALLERY" />
+            <SelectorBarItem x:Name="CTabPrivate" Text="PRIVATE" />
+            <SelectorBarItem x:Name="CTabModerate" Text="MODERATE" Visibility="Collapsed" />
+          </SelectorBar>
+          <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+            <Button x:Name="NicknameButton" Click="Nickname_Click" ToolTipService.ToolTip="Your community nickname. Click to change it.">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <FontIcon Glyph="&#xE77B;" FontSize="13" />
+                <TextBlock x:Name="NicknameText" Text="Choose a nickname" />
+              </StackPanel>
+            </Button>
+            <Button Content="Refresh" Click="CommunityRefreshTab_Click" />
+          </StackPanel>
+        </Grid>
+      </Border>
+      <Grid Grid.Row="1">
+        <!-- GAMES -->
+        <Grid x:Name="CGamesPage" RowSpacing="10">
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+          <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
+            <ComboBox x:Name="CgRoute" Header="Route" Width="160" SelectedIndex="0" SelectionChanged="CgFilter_Changed">
+              <ComboBoxItem Content="All routes" Tag="" />
+              <ComboBoxItem Content="Native" Tag="native" />
+              <ComboBoxItem Content="Multipass" Tag="multipass" />
+              <ComboBoxItem Content="Feeder" Tag="feeder" />
+              <ComboBoxItem Content="OptiScaler" Tag="optiscaler" />
+            </ComboBox>
+            <ComboBox x:Name="CgResult" Header="Result" Width="160" SelectedIndex="0" SelectionChanged="CgFilter_Changed">
+              <ComboBoxItem Content="Any result" Tag="" />
+              <ComboBoxItem Content="Working" Tag="working" />
+              <ComboBoxItem Content="Mixed" Tag="mixed" />
+              <ComboBoxItem Content="Not working" Tag="broken" />
+            </ComboBox>
+            <ComboBox x:Name="CgSort" Header="Sort" Width="160" SelectedIndex="0" SelectionChanged="CgFilter_Changed">
+              <ComboBoxItem Content="Most recent" Tag="recent" />
+              <ComboBoxItem Content="Most reports" Tag="reports" />
+              <ComboBoxItem Content="Name" Tag="name" />
+            </ComboBox>
+            <AutoSuggestBox x:Name="CgSearch" Header="Search" Width="220" PlaceholderText="Game name" QueryIcon="Find" QuerySubmitted="CgSearch_QuerySubmitted" />
+          </StackPanel>
+          <ScrollViewer Grid.Row="1" x:Name="CgScroll">
+            <StackPanel Spacing="10">
+              <TextBlock x:Name="CgStatus" Foreground="{StaticResource MutedText}" HorizontalAlignment="Center" />
+              <VariableSizedWrapGrid x:Name="CgGrid" Orientation="Horizontal" ItemWidth="380" ItemHeight="132" HorizontalAlignment="Center" />
+              <Button x:Name="CgMore" Content="Show more" HorizontalAlignment="Center" Visibility="Collapsed" Click="CgMore_Click" />
+            </StackPanel>
+          </ScrollViewer>
+        </Grid>
+
+        <!-- CHAT -->
+        <Grid x:Name="CChatPage" Visibility="Collapsed" RowSpacing="10">
+          <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+          <Border Style="{StaticResource Card}" Padding="0">
+            <ScrollViewer x:Name="ChatScroll" Padding="16,8,16,8" ViewChanged="ChatScroll_ViewChanged">
+              <StackPanel x:Name="ChatList" Spacing="6" />
+            </ScrollViewer>
+          </Border>
+          <StackPanel Grid.Row="1" Spacing="6">
+            <Border x:Name="ChatReplyBar" Visibility="Collapsed" Padding="12,6" CornerRadius="8" Background="{StaticResource RowBackground}">
+              <Grid>
+                <TextBlock x:Name="ChatReplyText" TextTrimming="CharacterEllipsis" Foreground="{StaticResource MutedText}" Margin="0,0,30,0" />
+                <Button HorizontalAlignment="Right" Padding="6,2" Click="ChatReplyCancel_Click" Content="✕" />
+              </Grid>
+            </Border>
+            <Grid ColumnSpacing="10">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+              <TextBox x:Name="ChatInput" PlaceholderText="Write a message…" MaxLength="500" KeyDown="ChatInput_KeyDown" />
+              <Button Grid.Column="1" x:Name="ChatSend" Content="Send" Style="{StaticResource AccentButtonStyle}" Click="ChatSend_Click" />
+            </Grid>
+            <TextBlock x:Name="ChatStatus" FontSize="11" Foreground="{StaticResource MutedText}" Text="Enter to send · be kind · links show as text" />
+          </StackPanel>
+        </Grid>
+
+        <!-- GALLERY -->
+        <Grid x:Name="CGalleryPage" Visibility="Collapsed" RowSpacing="10">
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+          <Border Style="{StaticResource Card}" Padding="14,10">
+            <StackPanel Spacing="6">
+              <Grid ColumnSpacing="10">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="220" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <TextBox x:Name="GalleryCaption" PlaceholderText="Say something about it (optional)" MaxLength="140" />
+                <TextBox Grid.Column="1" x:Name="GalleryGame" PlaceholderText="Game (optional)" MaxLength="100" />
+                <Button Grid.Column="2" x:Name="GalleryUpload" Content="Upload a picture…" Style="{StaticResource AccentButtonStyle}" Click="GalleryUpload_Click" />
+              </Grid>
+              <TextBlock x:Name="GalleryStatus" FontSize="12" Foreground="{StaticResource MutedText}" TextWrapping="Wrap"
+                         Text="Uploads are checked by the developer before anyone sees them." />
+            </StackPanel>
+          </Border>
+          <ScrollViewer Grid.Row="1">
+            <StackPanel Spacing="10">
+              <VariableSizedWrapGrid x:Name="GalleryGrid" Orientation="Horizontal" ItemWidth="372" ItemHeight="290" HorizontalAlignment="Center" />
+              <Button x:Name="GalleryMore" Content="Show more" HorizontalAlignment="Center" Visibility="Collapsed" Click="GalleryMore_Click" />
+            </StackPanel>
+          </ScrollViewer>
+        </Grid>
+
+        <!-- PRIVATE -->
+        <Grid x:Name="CPrivatePage" Visibility="Collapsed" RowSpacing="10">
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+          <StackPanel>
+            <TextBlock Text="A PRIVATE LINE TO THE DEVELOPER" Style="{StaticResource SectionTitle}" />
+            <TextBlock Text="Only you and the developer can see what you write here." Foreground="{StaticResource MutedText}" FontSize="12" />
+          </StackPanel>
+          <Border Grid.Row="1" Style="{StaticResource Card}" Padding="0">
+            <ScrollViewer x:Name="PrivateScroll" Padding="16,8">
+              <StackPanel x:Name="PrivateList" Spacing="8" />
+            </ScrollViewer>
+          </Border>
+          <Grid Grid.Row="2" ColumnSpacing="10">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <Button x:Name="PrivateAttach" ToolTipService.ToolTip="Attach a picture" Click="PrivateAttach_Click"><FontIcon Glyph="&#xE723;" FontSize="14" /></Button>
+            <TextBox Grid.Column="1" x:Name="PrivateInput" PlaceholderText="Write privately to the developer" MaxLength="2000" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120" />
+            <Button Grid.Column="2" x:Name="PrivateSend" Content="Send" Style="{StaticResource AccentButtonStyle}" Click="PrivateSend_Click" />
+          </Grid>
+        </Grid>
+
+        <!-- MODERATE (developer only) -->
+        <Grid x:Name="CModeratePage" Visibility="Collapsed" RowSpacing="10">
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+          <SelectorBar x:Name="ModTabs" SelectionChanged="ModTabs_SelectionChanged">
+            <SelectorBarItem x:Name="MTabGallery" Text="Pictures to approve" IsSelected="True" />
+            <SelectorBarItem x:Name="MTabPrivate" Text="Private messages" />
+            <SelectorBarItem x:Name="MTabNotes" Text="Flagged notes" />
+            <SelectorBarItem x:Name="MTabChat" Text="Chat" />
+          </SelectorBar>
+          <ScrollViewer Grid.Row="1">
+            <StackPanel x:Name="ModList" Spacing="10" />
+          </ScrollViewer>
+        </Grid>
+      </Grid>
     </Grid>
 
     <!-- ===== Settings page ===== -->
@@ -174,6 +325,19 @@
             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
                        Text="Each game panel shows what other players report: works, partly or broken, with the route and graphics card they used. Reading is anonymous. Nothing is sent unless you press Send on your own report: then the game, your rating, route, add-on versions, graphics card model and your note are shared, with a random ID for this install (no account, name or IP is stored)." />
             <CheckBox x:Name="CommunityBox" Content="Show community reports in game panels" Click="CommunityBox_Click" />
+            <Expander Header="Moderator" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+              <StackPanel Spacing="8">
+                <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}" FontSize="12"
+                           Text="For the developer only. With the moderator key, Community gets a MODERATE page to approve pictures, answer private messages and remove notes or chat messages. The key is checked with the server and kept encrypted for this Windows user." />
+                <Grid ColumnSpacing="8">
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                  <PasswordBox x:Name="ModKeyBox" PlaceholderText="Moderator key" />
+                  <Button Grid.Column="1" Content="Save" Click="ModKeySave_Click" />
+                  <Button Grid.Column="2" Content="Remove" Click="ModKeyRemove_Click" />
+                </Grid>
+                <TextBlock x:Name="ModKeyStatus" FontSize="12" TextWrapping="Wrap" />
+              </StackPanel>
+            </Expander>
           </StackPanel>
         </Border>
       </StackPanel>
@@ -185,7 +349,7 @@
         <Border Style="{StaticResource Card}">
           <StackPanel Spacing="8">
             <Image x:Name="AboutLogo" Height="150" HorizontalAlignment="Left" Stretch="Uniform" Margin="0,0,0,6" />
-            <TextBlock Text="DLSS 5 Master 0.4.1" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Text="DLSS 5 Master 0.5.0" FontSize="20" FontWeight="SemiBold" />
             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
                        Text="One place for ReShade + RenoDX neural rendering routes (Native, Multipass, Feeder), OptiScaler, and per-game DLL swapping. Every change is recorded in _DLSS5Master_Backup inside the game folder, and Restore originals puts the game back exactly as it was." />
           </StackPanel>

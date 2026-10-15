@@ -39,12 +39,10 @@ public sealed partial class MainWindow : Window
         TitleBar.SizeChanged += (_, _) => UpdateTitleBarRegions();
         // The tab row re-centres when a label changes ("SETTINGS ●"); keep its clickable area in step.
         Tabs.SizeChanged += (_, _) => UpdateTitleBarRegions();
-        GameTools.SizeChanged += (_, _) => UpdateTitleBarRegions();
         AppUpdateButton.SizeChanged += (_, _) => UpdateTitleBarRegions();
         AppUpdateButton.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => UpdateTitleBarRegions());
         Tabs.LayoutUpdated += (_, _) => { if (Tabs.ActualOffset != _tabsOffset) { _tabsOffset = Tabs.ActualOffset; UpdateTitleBarRegions(); } };
         GameOverlay.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => UpdateTitleBarRegions());
-        GameTools.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => UpdateTitleBarRegions());
         GameGrid.ItemsSource = _visible;
         NoticesText.Text = Notices;
         AboutCoffeeHost.Content = CoffeeButton();
@@ -89,7 +87,6 @@ public sealed partial class MainWindow : Window
         }
         Add(Tabs);
         Add(AppUpdateButton);
-        Add(GameTools);
         if (GameOverlay.Visibility == Visibility.Visible) Add(GamePanel, belowCaption: true);
         Microsoft.UI.Input.InputNonClientPointerSource.GetForWindowId(AppWindow.Id)
             .SetRegionRects(Microsoft.UI.Input.NonClientRegionKind.Passthrough, rects.ToArray());
@@ -332,11 +329,8 @@ public sealed partial class MainWindow : Window
         bool games = tab == TabGames;
         GamesPage.Opacity = games ? 1 : 0;
         GamesPage.IsHitTestVisible = games;
-        // Hide the search tools without giving up their space: collapsing them re-centred the tabs, which then
-        // jumped sideways under the mouse on every switch.
-        GameTools.Opacity = games ? 1 : 0;
-        GameTools.IsHitTestVisible = games;
-        UpdateTitleBarRegions();
+        CommunityPage.Visibility = tab == TabCommunity ? Visibility.Visible : Visibility.Collapsed;
+        if (tab == TabCommunity) _ = EnterCommunityAsync(); else LeaveCommunity();
         SettingsPage.Visibility = tab == TabSettings ? Visibility.Visible : Visibility.Collapsed;
         AboutPage.Visibility = tab == TabAbout ? Visibility.Visible : Visibility.Collapsed;
         if (tab == TabSettings) { RefreshUpdatesPanel(); _ = RefreshSettingsPage(); }
