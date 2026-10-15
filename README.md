@@ -39,6 +39,12 @@
 
 ![A game in DLSS 5 Master: detected executable and API, route choice and MFG unlock](docs/screenshots/app-game-panel.jpg)
 
+## Always up to date
+
+DLSS 5 Master checks GitHub for newer RenoDX, MFG unlock, Feeder and OptiScaler releases and for new versions of itself. Every download is checked against GitHub's published SHA-256 before it is used.
+
+![Add-on updates in DLSS 5 Master](docs/screenshots/app-updates.jpg)
+
 ## How it works
 
 1. **[Download the installer](../../releases/latest)** and run it. Everything is included: no other tools, no extra downloads.
