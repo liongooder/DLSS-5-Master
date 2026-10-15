@@ -4,7 +4,9 @@ namespace DLSS5Master.Core;
 
 public static class AppPaths
 {
-    public static string Root { get; } = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DLSS5Master");
+    /// <summary>%LOCALAPPDATA%\DLSS5Master; tests point DLSS5MASTER_DATA at a temporary folder so they never touch the real one.</summary>
+    public static string Root { get; } = Environment.GetEnvironmentVariable("DLSS5MASTER_DATA") is { Length: > 0 } test
+        ? test : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DLSS5Master");
     public static string Components => Path.Combine(Root, "components");
     public static string DllLibrary => Path.Combine(Root, "dll-library");
     public static string SettingsFile => Path.Combine(Root, "settings.json");

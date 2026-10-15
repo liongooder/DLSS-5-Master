@@ -14,6 +14,8 @@ public sealed partial class MainWindow
     /// <summary>Runs the daily check in the background when it is due; marks the Settings tab when updates exist.</summary>
     private async Task AutoCheckUpdatesAsync()
     {
+        try { Updates.DropSuperseded(); RefreshOptiBuildList(); }
+        catch (Exception e) { AppPaths.Log("Could not tidy add-on updates: " + e.Message); }
         MarkSettingsTab();
         ShowAppUpdateBar();
         if (Updates.State.AutoCheck)
