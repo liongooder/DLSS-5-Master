@@ -61,6 +61,10 @@ Source: "licenses\*"; DestDir: "{app}\licenses"; Flags: ignoreversion
 ; Shortcuts from versions named "DLSS5 Master" (without the space).
 Type: files; Name: "{autoprograms}\DLSS5 Master.lnk"
 Type: files; Name: "{autodesktop}\DLSS5 Master.lnk"
+; Updating from 0.5.x (.NET 8): remove that runtime's DLLs (all DLLs are installed again below) and the OptiScaler
+; zip stored under its old name, so nothing outdated stays behind in the install folder.
+Type: files; Name: "{app}\*.dll"
+Type: files; Name: "{app}\payload\optiscaler\OptiScaler-NR-v0.8.3-rtx40-mfg.zip"
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"

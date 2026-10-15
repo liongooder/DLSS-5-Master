@@ -48,4 +48,4 @@ feeder\reshade-shaders\Shaders\Includes\vort_TAA.fxh,feeder\reshade-shaders\Shad
 feeder\reshade-shaders\Shaders\Includes\vort_Tonemap.fxh,feeder\reshade-shaders\Shaders\Includes\vort_Tonemap.fxh,9413eef6190303e920356310bc3aa2a270c052a1bcfde44f024f0a8986095f30
 feeder\reshade-shaders\Textures\vort_BlueNoise.png,feeder\reshade-shaders\Textures\vort_BlueNoise.png,050d26db9283fbaece3b6883e300d22403631d83a12a5f2f79dc8b789b860305
 feeder\reshade-shaders\Textures\vort_MLUT.png,feeder\reshade-shaders\Textures\vort_MLUT.png,acb25ed926e7e847aeb0ef521745287d4ddda3c7f22e472ee42d61bb3064bbd7
-optiscaler\OptiScaler-NR-v0.8.3-rtx40-mfg.zip,https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/releases/download/v0.8.3/OptiScaler-NR-v0.8.3-rtx40-mfg.zip,aac7ea64d80604a5b79f686043ba28fbefefaf98818e861a377b78122cb24448
+optiscaler\OptiScaler-0_8_3-rtx40-mfg.zip,https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/releases/download/v0.8.3/OptiScaler-NR-v0.8.3-rtx40-mfg.zip,aac7ea64d80604a5b79f686043ba28fbefefaf98818e861a377b78122cb24448

@@ -69,7 +69,7 @@ Bundled with this installer (unmodified, SHA-256 pinned):
   nis.license.txt. These files are NVIDIA's property.
 
 - OptiScaler NR pre-SR multipass 0.8.3 RTX 40 MFG
-  (payload\optiscaler\OptiScaler-NR-v0.8.3-rtx40-mfg.zip, the unmodified
+  (payload\optiscaler\OptiScaler-0_8_3-rtx40-mfg.zip, the unmodified
   release file) - GPL-3.0; the licence text is the LICENSE file inside the zip.
   Source code: https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass
   (tag v0.8.3). The zip also contains AMD FidelityFX and Intel XeSS libraries

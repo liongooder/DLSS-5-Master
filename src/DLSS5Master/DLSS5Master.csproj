@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>DLSS5Master</RootNamespace>
     <AssemblyName>DLSS5Master</AssemblyName>
@@ -18,14 +18,14 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.5.1</Version>
+    <Version>0.6.0</Version>
     <Company>Liongooder</Company>
     <Copyright>Copyright (c) 2026 Liongooder</Copyright>
     <ApplicationIcon>Assets\DLSS5Master.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.13" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="Assets\DLSS5Master.ico" CopyToOutputDirectory="PreserveNewest" />
