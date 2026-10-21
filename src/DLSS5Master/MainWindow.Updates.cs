@@ -21,18 +21,23 @@ public sealed partial class MainWindow
         if (Updates.State.AutoCheck)
         {
             // The app itself is checked on every start (one small request); add-ons once a day.
-            try { await Updates.CheckAppAsync(); }
+            try { using var limit = new CancellationTokenSource(Updates.CheckLimit); await Updates.CheckAppAsync(limit.Token); }
             catch (Exception e) { AppPaths.Log("App update check failed: " + e.Message); }
             ShowAppUpdateBar();
         }
         if (!Updates.CheckDue) return;
         _updating = true;
         if (SettingsPage.Visibility == Visibility.Visible) UpdateStatus.Text = "Checking for updates…";
-        try { await Updates.CheckAsync(); }
-        catch (Exception e) { AppPaths.Log("Update check failed: " + e.Message); }
+        string? failure = null;
+        try { using var limit = new CancellationTokenSource(Updates.CheckLimit); await Updates.CheckAsync(limit.Token); }
+        catch (Exception e) { AppPaths.Log("Update check failed: " + e.Message); failure = Updates.CheckFailure(e); }
         finally { _updating = false; }
         MarkSettingsTab();
-        if (SettingsPage.Visibility == Visibility.Visible) RefreshUpdatesPanel();
+        if (SettingsPage.Visibility == Visibility.Visible)
+        {
+            RefreshUpdatesPanel();
+            if (failure is not null) UpdateStatus.Text = failure;
+        }
     }
 
     private void MarkSettingsTab() => TabSettings.Text = Updates.AvailableCount > 0 ? "SETTINGS ●" : "SETTINGS";
@@ -101,11 +106,12 @@ public sealed partial class MainWindow
         UpdateStatus.Text = "Checking GitHub…";
         try
         {
-            await Task.WhenAll(Updates.CheckAsync(), Updates.CheckAppAsync());
+            using var limit = new CancellationTokenSource(Updates.CheckLimit);
+            await Task.WhenAll(Updates.CheckAsync(limit.Token), Updates.CheckAppAsync(limit.Token));
             RefreshUpdatesPanel();
             ShowAppUpdateBar();
         }
-        catch (Exception ex) { UpdateStatus.Text = "Could not check for updates: " + ex.Message; }
+        catch (Exception ex) { AppPaths.Log("Update check failed: " + ex.Message); UpdateStatus.Text = Updates.CheckFailure(ex); }
         finally
         {
             _updating = false;
