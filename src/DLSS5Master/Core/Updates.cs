@@ -76,11 +76,24 @@ public static partial class Updates
             UpdateKind.OptiScaler, null, "0.8.3", new DateTime(2026, 9, 13, 6, 16, 54, DateTimeKind.Utc)),
     };
 
-    private static readonly HttpClient Http = CreateClient();
-    private static HttpClient CreateClient()
+    // Downloads (add-on files, the app installer in pieces): long timeout, but no reuse of dead connections.
+    private static readonly HttpClient Http = CreateClient(TimeSpan.FromSeconds(120));
+    // GitHub API look-ups are small: fail fast, so a stalled connection never leaves "Checking…" on screen for minutes.
+    private static readonly HttpClient Api = CreateClient(TimeSpan.FromSeconds(20));
+
+    /// <summary>The longest a whole update check may take before it gives up and says GitHub could not be reached.</summary>
+    public static readonly TimeSpan CheckLimit = TimeSpan.FromSeconds(60);
+
+    private static HttpClient CreateClient(TimeSpan timeout)
     {
-        var c = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
-        c.DefaultRequestHeaders.UserAgent.ParseAdd("DLSS5Master/0.2");
+        var handler = new SocketsHttpHandler
+        {
+            ConnectTimeout = TimeSpan.FromSeconds(10),
+            PooledConnectionLifetime = TimeSpan.FromMinutes(1),
+            PooledConnectionIdleTimeout = TimeSpan.FromSeconds(20),
+        };
+        var c = new HttpClient(handler) { Timeout = timeout };
+        c.DefaultRequestHeaders.UserAgent.ParseAdd($"DLSS5Master/{typeof(Updates).Assembly.GetName().Version?.ToString(3)}");
         c.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
         return c;
     }
@@ -100,11 +113,17 @@ public static partial class Updates
         }
     }
 
+    private static readonly object SaveLock = new();
+
+    /// <summary>Writes updates.json. Locked: the add-on check and the app check can finish at the same moment.</summary>
     public static void Save()
     {
-        Directory.CreateDirectory(AppPaths.Root);
-        File.WriteAllText(StateFile + ".tmp", JsonSerializer.Serialize(State, Json));
-        File.Move(StateFile + ".tmp", StateFile, true);
+        lock (SaveLock)
+        {
+            Directory.CreateDirectory(AppPaths.Root);
+            File.WriteAllText(StateFile + ".tmp", JsonSerializer.Serialize(State, Json));
+            File.Move(StateFile + ".tmp", StateFile, true);
+        }
     }
 
     [GeneratedRegex(@"(^|[-_.\s])(rc|beta|alpha|preview|pre)\d*([-_.\s]|$)", RegexOptions.IgnoreCase)]
@@ -177,16 +196,21 @@ public static partial class Updates
         Save();
     }
 
-    /// <summary>GitHub requests occasionally drop mid-response; try up to three times before giving up.</summary>
+    /// <summary>GitHub requests occasionally drop or stall; try up to three times (20 s each) before giving up.</summary>
     private static async Task<string> GetWithRetryAsync(string url, CancellationToken ct)
     {
         for (int attempt = 1; ; attempt++)
         {
-            try { return await Http.GetStringAsync(url, ct); }
-            catch (HttpRequestException) when (attempt < 3) { await Task.Delay(1500 * attempt, ct); }
-            catch (TaskCanceledException) when (attempt < 3 && !ct.IsCancellationRequested) { await Task.Delay(1500 * attempt, ct); }
+            try { return await Api.GetStringAsync(url, ct); }
+            catch (HttpRequestException) when (attempt < 3) { await Task.Delay(1000 * attempt, ct); }
+            catch (TaskCanceledException) when (attempt < 3 && !ct.IsCancellationRequested) { await Task.Delay(1000 * attempt, ct); }
         }
     }
+
+    /// <summary>A friendly reason for a failed check, for the status line.</summary>
+    public static string CheckFailure(Exception e) => e is OperationCanceledException or TimeoutException or HttpRequestException
+        ? "GitHub could not be reached just now. It will try again next time, or press Check now."
+        : "Could not check for updates: " + e.Message;
 
     // ------------------------------------------------------------------ apply / undo
 
