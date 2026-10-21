@@ -479,7 +479,7 @@
                 </StackPanel>
                 <CheckBox x:Name="AddDlssBox" Content="Add nvngx_dlss.dll beside the game if it has none" />
                 <StackPanel>
-                  <CheckBox x:Name="MfgBox" Content="MFG unlock for RTX 40 — DLSS multi frame generation 3x/4x (MFGAdaUnlock 1.4.3)" />
+                  <CheckBox x:Name="MfgBox" Content="MFG unlock for RTX 40 — DLSS multi frame generation 3x/4x (MFGAdaUnlock 1.4.5)" />
                   <TextBlock x:Name="MfgNote" Margin="28,0,0,0" FontSize="12" Foreground="{StaticResource MutedText}" TextWrapping="Wrap" />
                 </StackPanel>
               </StackPanel>
