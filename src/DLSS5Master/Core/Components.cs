@@ -45,9 +45,9 @@ public sealed class Components
     };
 
     public const string MfgAddon = "renodx-mfgunlock.addon64";
-    public const string MfgVersion = "1.4.5";
-    public const string MfgUrl = "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/1.4.5/renodx-mfgunlock.addon64";
-    public const string MfgSha256 = "9715987f6323a2699dd5b7636412258a6b97a180a4d70c0f79d286714e2972e2";
+    public const string MfgVersion = "1.5.2";
+    public const string MfgUrl = "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/1.5.2/renodx-mfgunlock.addon64";
+    public const string MfgSha256 = "563fe235739056fa139543e6a1a375d61911caf0c6cbd9cb31cd2dcfac4601b3";
 
     public static readonly string[] OptiLibraries =
     {

@@ -4,7 +4,7 @@
 
 <p align="center">
   <b>DLSS 5 neural rendering for your PC games, in one app.</b><br>
-  ReShade + RenoDX routes, OptiScaler, RTX 40 multi frame generation, DLL swapping and an exact restore. One click per game.
+  ReShade + RenoDX routes, OptiScaler, multi frame generation (RTX 20–50), DLL swapping and an exact restore. One click per game.
 </p>
 
 <p align="center">
@@ -58,7 +58,7 @@ DLSS 5 Master checks GitHub for newer RenoDX, MFG unlock, Feeder and OptiScaler 
 - **Game library**: finds Steam, Epic, GOG, Ubisoft, Xbox and custom-folder games, with cover art, and detects each game's executable, DirectX/Vulkan version, 32/64-bit, and DLSS / FSR / XeSS / Streamline DLLs.
 - **ReShade + RenoDX routes**: *Native* (RenoDX DLSS5 add-on), *Multipass* (RenoDX DLSS Tool) and *DLSS5 Feeder* (for games without DLSS).
 - **OptiScaler**: the NR 0.8.3 RTX 40 MFG build is included, plus other DLSS-NR builds or your own OptiScaler folder, a choice of proxy DLL name (`dxgi`, `winmm`, `version`, …) and the in-game menu key.
-- **MFG unlock (RTX 40)**: [MFGAdaUnlock-RenoDx](https://github.com/mavismmg/MFGAdaUnlock-RenoDx) for DLSS multi frame generation (3x/4x) on GeForce RTX 40 cards, as a tick box on every ReShade route.
+- **MFG unlock**: [MFGAdaUnlock-RenoDx](https://github.com/mavismmg/MFGAdaUnlock-RenoDx) as a tick box on every ReShade route: DLSS multi frame generation (3x/4x) on GeForce RTX 40, or its XeMFG mode (Intel XeSS frame generation, 2x–6x) on RTX 20, 30, 40 and 50.
 - **DLL swapping**: swap any upscaler DLL for another version from your DLL library.
 - **Exact restore**: every file added or replaced is recorded in `_DLSS5Master_Backup` inside the game folder; *Restore originals* puts the game back byte for byte. It can also remove installs made by other DLSS 5 tools.
 - **Community**: every game shows what other players report (works / partly / broken) by route and graphics card. The Community tab has every reported game with filters, a chat, a screenshot gallery (approved before anyone sees it) and a private line to the developer. Pick a nickname; no account needed.
@@ -69,7 +69,7 @@ DLSS 5 Master checks GitHub for newer RenoDX, MFG unlock, Feeder and OptiScaler 
 ## Requirements
 
 - Windows 10 1809 or newer, x64
-- An NVIDIA RTX graphics card for the DLSS routes (MFG unlock: GeForce RTX 40)
+- An NVIDIA RTX graphics card for the DLSS routes (MFG unlock: DLSS mode on RTX 40, XeMFG mode on RTX 20–50)
 
 ## Feedback
 
@@ -109,7 +109,7 @@ The installer bundles these components, unmodified and checked against the pinne
 | DLSS5-Feeder | [jlrouzies-fr/DLSS5-Feeder](https://github.com/jlrouzies-fr/DLSS5-Feeder) | MIT |
 | RenoDX DLSS5 add-on / DLSS Tool | [clshortfuse/renodx](https://github.com/clshortfuse/renodx), builds via [RankFTW/rhi-repo](https://github.com/RankFTW/rhi-repo) | MIT |
 | NVIDIA DLSS / Frame Gen / Ray Reconstruction / neural rendering runtimes, Streamline | NVIDIA | NVIDIA licence (included) |
-| MFGAdaUnlock-RenoDx (RTX 40 multi frame generation) | [mavismmg/MFGAdaUnlock-RenoDx](https://github.com/mavismmg/MFGAdaUnlock-RenoDx) | MIT |
+| MFGAdaUnlock-RenoDx (multi frame generation, DLSS-G and XeMFG) | [mavismmg/MFGAdaUnlock-RenoDx](https://github.com/mavismmg/MFGAdaUnlock-RenoDx) | MIT |
 | vort_Shaders | [vortigern11/vort_Shaders](https://github.com/vortigern11/vort_Shaders) | MIT |
 | ReShade | [reshade.me](https://reshade.me) | BSD-3-Clause |
 
