@@ -164,6 +164,7 @@ public sealed partial class MainWindow : Window
         var ct = _scanCts.Token;
         LoadingPanel.Visibility = Visibility.Visible;
         LoadingText.Text = "Finding your games…";
+        EmptyPanel.Visibility = Visibility.Collapsed;
         _all.Clear();
         _visible.Clear();
         List<GameEntry> games;
@@ -171,8 +172,9 @@ public sealed partial class MainWindow : Window
         catch (Exception e) { LoadingText.Text = "Could not read the game library: " + e.Message; return; }
         foreach (var g in games) _all.Add(new GameItem(g));
         ApplyFilter();
-        LoadingPanel.Visibility = _all.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        if (_all.Count == 0) { LoadingText.Text = "No games found. Add a library folder in Settings or a game with +."; return; }
+        LoadingPanel.Visibility = Visibility.Collapsed;
+        UpdateEmptyState();
+        if (_all.Count == 0) return;
 
         _ = LoadPostersAsync(_all.ToList(), ct);
         await ScanAllAsync(_all.ToList(), ct);
@@ -304,6 +306,7 @@ public sealed partial class MainWindow : Window
         if (list.SequenceEqual(_visible)) return;
         _visible.Clear();
         foreach (var i in list) _visible.Add(i);
+        UpdateEmptyState(libraryLoaded: LoadingPanel.Visibility != Visibility.Visible);
     }
 
     private void SearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args) => ApplyFilter();
@@ -327,12 +330,16 @@ public sealed partial class MainWindow : Window
         var tab = sender.SelectedItem;
         // The games grid stays laid out while hidden (hiding it with Collapsed re-measures every poster on return).
         bool games = tab == TabGames;
-        GamesPage.Opacity = games ? 1 : 0;
         GamesPage.IsHitTestVisible = games;
+        if (games) Reveal(GamesPage); else GamesPage.Opacity = 0;
+        PageVeil.Opacity = games ? 0 : 1;
         CommunityPage.Visibility = tab == TabCommunity ? Visibility.Visible : Visibility.Collapsed;
         if (tab == TabCommunity) _ = EnterCommunityAsync(); else LeaveCommunity();
         SettingsPage.Visibility = tab == TabSettings ? Visibility.Visible : Visibility.Collapsed;
         AboutPage.Visibility = tab == TabAbout ? Visibility.Visible : Visibility.Collapsed;
+        if (tab == TabCommunity) Reveal(CommunityPage);
+        else if (tab == TabSettings) Reveal(SettingsPage);
+        else if (tab == TabAbout) Reveal(AboutPage);
         if (tab == TabSettings) { RefreshUpdatesPanel(); _ = RefreshSettingsPage(); }
     }
 
