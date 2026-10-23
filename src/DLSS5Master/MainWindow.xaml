@@ -13,6 +13,10 @@
 
     <!-- Brand artwork behind every page (set from Assets\Background.jpg in code). -->
     <Image x:Name="BackgroundArt" Grid.RowSpan="2" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center" />
+    <!-- Soft veil behind the text pages so the network-line art does not compete with the text. -->
+    <Border x:Name="PageVeil" Grid.Row="1" Background="#A6060B12" Opacity="0" IsHitTestVisible="False">
+      <Border.OpacityTransition><ScalarTransition Duration="0:0:0.25" /></Border.OpacityTransition>
+    </Border>
 
     <!-- ===== Title / top bar ===== -->
     <Grid x:Name="TitleBar" Height="84" Padding="20,0,150,0" ColumnSpacing="16" Background="#66040A10">
@@ -44,6 +48,8 @@
 
     <!-- ===== Games page ===== -->
     <Grid x:Name="GamesPage" Grid.Row="1">
+      <Grid.OpacityTransition><ScalarTransition Duration="0:0:0.2" /></Grid.OpacityTransition>
+      <Grid.TranslationTransition><Vector3Transition Duration="0:0:0.25" /></Grid.TranslationTransition>
       <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
       <!-- search / filter / add / rescan for the library -->
       <StackPanel x:Name="GameTools" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="24,8,30,0">
@@ -62,6 +68,11 @@
         </Button>
       </StackPanel>
       <GridView x:Name="GameGrid" Grid.Row="1" Padding="24,8,24,24" IsItemClickEnabled="True" SelectionMode="None" ItemClick="GameGrid_ItemClick">
+        <!-- The poster itself reacts to the mouse (see PosterCard_PointerEntered); no grey box around it. -->
+        <GridView.Resources>
+          <SolidColorBrush x:Key="GridViewItemBackgroundPointerOver" Color="Transparent" />
+          <SolidColorBrush x:Key="GridViewItemBackgroundPressed" Color="Transparent" />
+        </GridView.Resources>
         <!-- Rows are centred so the space left over by the last column is shared evenly on both sides. -->
         <GridView.ItemsPanel>
           <ItemsPanelTemplate>
@@ -84,7 +95,9 @@
                   </MenuFlyoutItem>
                 </MenuFlyout>
               </StackPanel.ContextFlyout>
-              <Grid Height="270" CornerRadius="14" BorderThickness="1" BorderBrush="{StaticResource RowBorder}" Background="#CC0D1824">
+              <Grid Height="270" CornerRadius="14" BorderThickness="1" BorderBrush="{StaticResource RowBorder}" Background="#CC0D1824"
+                    CenterPoint="95,135,0" PointerEntered="PosterCard_PointerEntered" PointerExited="PosterCard_PointerExited" PointerCanceled="PosterCard_PointerExited">
+                <Grid.ScaleTransition><Vector3Transition Duration="0:0:0.15" /></Grid.ScaleTransition>
                 <TextBlock Text="{x:Bind Initials}" Visibility="{x:Bind PlaceholderVisibility, Mode=OneWay}" FontSize="44" FontWeight="Black"
                            Foreground="#40FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center" />
                 <Image Source="{x:Bind Poster, Mode=OneWay}" Stretch="UniformToFill" />
@@ -105,11 +118,30 @@
         <ProgressRing IsActive="True" Width="40" Height="40" />
         <TextBlock x:Name="LoadingText" Text="Finding your games…" Foreground="{StaticResource MutedText}" HorizontalAlignment="Center" />
       </StackPanel>
+      <!-- Nothing to show: no games at all, or none that match the search / filter. -->
+      <StackPanel x:Name="EmptyPanel" Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="10" MaxWidth="460" Visibility="Collapsed">
+        <FontIcon Glyph="&#xE7FC;" FontSize="40" Foreground="{StaticResource MutedText}" HorizontalAlignment="Center" />
+        <TextBlock x:Name="EmptyTitle" FontSize="18" FontWeight="SemiBold" HorizontalAlignment="Center" TextAlignment="Center" />
+        <TextBlock x:Name="EmptyText" Foreground="{StaticResource MutedText}" TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" />
+        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center" Margin="0,6,0,0">
+          <Button x:Name="EmptyAdd" Style="{StaticResource AccentButtonStyle}" Click="AddGame_Click">
+            <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE710;" FontSize="13" /><TextBlock Text="Add a game" /></StackPanel>
+          </Button>
+          <Button x:Name="EmptyFolders" Click="EmptyFolders_Click">
+            <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8B7;" FontSize="13" /><TextBlock Text="Library folders" /></StackPanel>
+          </Button>
+          <Button x:Name="EmptyClear" Click="EmptyClear_Click">
+            <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE894;" FontSize="13" /><TextBlock Text="Clear search and filter" /></StackPanel>
+          </Button>
+        </StackPanel>
+      </StackPanel>
       <TextBlock x:Name="ScanStatus" Grid.Row="1" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,28,8" FontSize="11" Foreground="{StaticResource MutedText}" />
     </Grid>
 
     <!-- ===== Community page (sub-pages are filled in code) ===== -->
     <Grid x:Name="CommunityPage" Grid.Row="1" Visibility="Collapsed" Padding="24,8,24,16" RowSpacing="12">
+      <Grid.OpacityTransition><ScalarTransition Duration="0:0:0.2" /></Grid.OpacityTransition>
+      <Grid.TranslationTransition><Vector3Transition Duration="0:0:0.25" /></Grid.TranslationTransition>
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto" />
         <RowDefinition Height="*" />
@@ -135,7 +167,7 @@
                 <TextBlock x:Name="NicknameText" Text="Choose a nickname" />
               </StackPanel>
             </Button>
-            <Button Content="Refresh" Click="CommunityRefreshTab_Click" />
+            <Button Click="CommunityRefreshTab_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE72C;" FontSize="13" /><TextBlock Text="Refresh" /></StackPanel></Button>
           </StackPanel>
         </Grid>
       </Border>
@@ -191,7 +223,7 @@
             <Grid ColumnSpacing="10">
               <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
               <TextBox x:Name="ChatInput" PlaceholderText="Write a message…" MaxLength="500" KeyDown="ChatInput_KeyDown" />
-              <Button Grid.Column="1" x:Name="ChatSend" Content="Send" Style="{StaticResource AccentButtonStyle}" Click="ChatSend_Click" />
+              <Button Grid.Column="1" x:Name="ChatSend" Style="{StaticResource AccentButtonStyle}" Click="ChatSend_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE724;" FontSize="13" /><TextBlock Text="Send" /></StackPanel></Button>
             </Grid>
             <TextBlock x:Name="ChatStatus" FontSize="11" Foreground="{StaticResource MutedText}" Text="Enter to send · be kind · links show as text" />
           </StackPanel>
@@ -206,7 +238,7 @@
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="220" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                 <TextBox x:Name="GalleryCaption" PlaceholderText="Say something about it (optional)" MaxLength="140" />
                 <TextBox Grid.Column="1" x:Name="GalleryGame" PlaceholderText="Game (optional)" MaxLength="100" />
-                <Button Grid.Column="2" x:Name="GalleryUpload" Content="Upload a picture…" Style="{StaticResource AccentButtonStyle}" Click="GalleryUpload_Click" />
+                <Button Grid.Column="2" x:Name="GalleryUpload" Style="{StaticResource AccentButtonStyle}" Click="GalleryUpload_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xEB9F;" FontSize="13" /><TextBlock Text="Upload a picture…" /></StackPanel></Button>
               </Grid>
               <TextBlock x:Name="GalleryStatus" FontSize="12" Foreground="{StaticResource MutedText}" TextWrapping="Wrap"
                          Text="Uploads are checked by the developer before anyone sees them." />
@@ -236,7 +268,7 @@
             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
             <Button x:Name="PrivateAttach" ToolTipService.ToolTip="Attach a picture" Click="PrivateAttach_Click"><FontIcon Glyph="&#xE723;" FontSize="14" /></Button>
             <TextBox Grid.Column="1" x:Name="PrivateInput" PlaceholderText="Write privately to the developer" MaxLength="2000" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120" />
-            <Button Grid.Column="2" x:Name="PrivateSend" Content="Send" Style="{StaticResource AccentButtonStyle}" Click="PrivateSend_Click" />
+            <Button Grid.Column="2" x:Name="PrivateSend" Style="{StaticResource AccentButtonStyle}" Click="PrivateSend_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE724;" FontSize="13" /><TextBlock Text="Send" /></StackPanel></Button>
           </Grid>
         </Grid>
 
@@ -258,6 +290,8 @@
 
     <!-- ===== Settings page ===== -->
     <ScrollViewer x:Name="SettingsPage" Grid.Row="1" Visibility="Collapsed">
+      <ScrollViewer.OpacityTransition><ScalarTransition Duration="0:0:0.2" /></ScrollViewer.OpacityTransition>
+      <ScrollViewer.TranslationTransition><Vector3Transition Duration="0:0:0.25" /></ScrollViewer.TranslationTransition>
       <StackPanel MaxWidth="860" Margin="24,8,24,32" Spacing="14">
         <Border Style="{StaticResource Card}">
           <StackPanel Spacing="10">
@@ -268,7 +302,7 @@
               <StackPanel x:Name="UpdateRows" />
             </Border>
             <StackPanel Orientation="Horizontal" Spacing="12">
-              <Button x:Name="CheckUpdatesButton" Content="Check now" Click="CheckUpdates_Click" />
+              <Button x:Name="CheckUpdatesButton" Click="CheckUpdates_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE72C;" FontSize="13" /><TextBlock Text="Check now" /></StackPanel></Button>
               <CheckBox x:Name="AutoCheckBox" Content="Check once a day" Click="UpdateOptions_Click" />
               <CheckBox x:Name="PreReleaseBox" Content="Include beta / pre-release versions" Click="UpdateOptions_Click" />
             </StackPanel>
@@ -282,7 +316,7 @@
             <Grid ColumnSpacing="8">
               <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
               <TextBox x:Name="RuntimeFolderBox" PlaceholderText="Automatic" IsReadOnly="True" />
-              <Button Grid.Column="1" Content="Browse…" Click="PickRuntime_Click" />
+              <Button Grid.Column="1" Click="PickRuntime_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8B7;" FontSize="13" /><TextBlock Text="Browse…" /></StackPanel></Button>
               <Button Grid.Column="2" Content="Automatic" Click="ClearRuntime_Click" />
             </Grid>
             <TextBlock x:Name="RuntimeStatus" FontSize="12" TextWrapping="Wrap" />
@@ -295,7 +329,7 @@
             <Grid ColumnSpacing="8">
               <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
               <TextBox x:Name="ReShadeSourceBox" PlaceholderText="Automatic" IsReadOnly="True" />
-              <Button Grid.Column="1" Content="Pick setup…" Click="PickReShade_Click" />
+              <Button Grid.Column="1" Click="PickReShade_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8E5;" FontSize="13" /><TextBlock Text="Pick setup…" /></StackPanel></Button>
               <Button Grid.Column="2" Content="Automatic" Click="ClearReShade_Click" />
             </Grid>
             <TextBlock x:Name="ReShadeStatus" FontSize="12" TextWrapping="Wrap" />
@@ -307,9 +341,9 @@
             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}" Text="Steam, Epic, GOG, Ubisoft and Xbox games are found automatically. Add folders where every sub-folder is a game (repacks, standalone games)." />
             <ListView x:Name="FolderList" SelectionMode="Single" MaxHeight="200" />
             <StackPanel Orientation="Horizontal" Spacing="8">
-              <Button Content="Add folder…" Click="AddFolder_Click" />
-              <Button Content="Remove selected" Click="RemoveFolder_Click" />
-              <Button Content="Show hidden games again" Click="UnhideAll_Click" />
+              <Button Click="AddFolder_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE710;" FontSize="13" /><TextBlock Text="Add folder…" /></StackPanel></Button>
+              <Button Click="RemoveFolder_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE738;" FontSize="13" /><TextBlock Text="Remove selected" /></StackPanel></Button>
+              <Button Click="UnhideAll_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE7B3;" FontSize="13" /><TextBlock Text="Show hidden games again" /></StackPanel></Button>
             </StackPanel>
           </StackPanel>
         </Border>
@@ -318,9 +352,9 @@
             <TextBlock Text="DLL LIBRARY" Style="{StaticResource SectionTitle}" />
             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}" Text="DLSS, Frame Gen, Ray Reconstruction, FSR and XeSS builds you import here are offered by the Swap button in every game." />
             <StackPanel Orientation="Horizontal" Spacing="8">
-              <Button Content="Import DLLs…" Click="ImportDlls_Click" />
-              <Button Content="Open library folder" Click="OpenDllLibrary_Click" />
-              <Button Content="Open activity log" Click="OpenLog_Click" />
+              <Button Click="ImportDlls_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8B5;" FontSize="13" /><TextBlock Text="Import DLLs…" /></StackPanel></Button>
+              <Button Click="OpenDllLibrary_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8B7;" FontSize="13" /><TextBlock Text="Open library folder" /></StackPanel></Button>
+              <Button Click="OpenLog_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8A5;" FontSize="13" /><TextBlock Text="Open activity log" /></StackPanel></Button>
             </StackPanel>
             <TextBlock x:Name="DllLibraryStatus" FontSize="12" Foreground="{StaticResource MutedText}" TextWrapping="Wrap" />
           </StackPanel>
@@ -351,11 +385,13 @@
 
     <!-- ===== About page ===== -->
     <ScrollViewer x:Name="AboutPage" Grid.Row="1" Visibility="Collapsed">
+      <ScrollViewer.OpacityTransition><ScalarTransition Duration="0:0:0.2" /></ScrollViewer.OpacityTransition>
+      <ScrollViewer.TranslationTransition><Vector3Transition Duration="0:0:0.25" /></ScrollViewer.TranslationTransition>
       <StackPanel MaxWidth="860" Margin="24,8,24,32" Spacing="14">
         <Border Style="{StaticResource Card}">
           <StackPanel Spacing="8">
             <Image x:Name="AboutLogo" Height="150" HorizontalAlignment="Left" Stretch="Uniform" Margin="0,0,0,6" />
-            <TextBlock Text="DLSS 5 Master 0.6.2" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Text="DLSS 5 Master 0.7.0" FontSize="20" FontWeight="SemiBold" />
             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
                        Text="One place for ReShade + RenoDX neural rendering routes (Native, Multipass, Feeder), OptiScaler, and per-game DLL swapping. Every change is recorded in _DLSS5Master_Backup inside the game folder, and Restore originals puts the game back exactly as it was." />
           </StackPanel>
@@ -366,9 +402,9 @@
             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
                        Text="Found a bug or have an idea? Open an issue on GitHub. Your app version, Windows version and graphics card are filled in for you; add the game name and what happened. You can attach activity.log from the log folder." />
             <StackPanel Orientation="Horizontal" Spacing="10">
-              <Button Content="Report a problem" Style="{StaticResource AccentButtonStyle}" Click="ReportProblem_Click" />
-              <Button Content="Suggest a feature" Click="SuggestFeature_Click" />
-              <Button Content="Open log folder" Click="OpenLogFolder_Click" />
+              <Button Style="{StaticResource AccentButtonStyle}" Click="ReportProblem_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xEBE8;" FontSize="13" /><TextBlock Text="Report a problem" /></StackPanel></Button>
+              <Button Click="SuggestFeature_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE82F;" FontSize="13" /><TextBlock Text="Suggest a feature" /></StackPanel></Button>
+              <Button Click="OpenLogFolder_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8B7;" FontSize="13" /><TextBlock Text="Open log folder" /></StackPanel></Button>
             </StackPanel>
           </StackPanel>
         </Border>
@@ -402,8 +438,10 @@
 
     <!-- ===== Game panel (overlay) ===== -->
     <Grid x:Name="GameOverlay" Grid.RowSpan="2" Visibility="Collapsed" Background="{StaticResource OverlayBackground}" Tapped="GameOverlay_Tapped">
-      <Border x:Name="GamePanel" MaxWidth="980" Margin="40,30" Background="{StaticResource PanelBackground}" CornerRadius="22"
+      <Border x:Name="GamePanel" MaxWidth="1040" Margin="40,30" Background="{StaticResource PanelBackground}" CornerRadius="22"
               BorderBrush="{StaticResource RowBorder}" BorderThickness="1" Tapped="GamePanel_Tapped">
+        <Border.OpacityTransition><ScalarTransition Duration="0:0:0.18" /></Border.OpacityTransition>
+        <Border.TranslationTransition><Vector3Transition Duration="0:0:0.22" /></Border.TranslationTransition>
         <Grid>
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -434,42 +472,55 @@
 
           <!-- body -->
           <ScrollViewer Grid.Row="1" Padding="28,6,28,10">
-            <StackPanel Spacing="16" Padding="0,0,14,0">
-              <StackPanel>
-                <TextBlock Text="Executable" Style="{StaticResource FieldLabel}" />
-                <Grid ColumnSpacing="8">
-                  <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                  <ComboBox x:Name="ExeBox" HorizontalAlignment="Stretch" SelectionChanged="ExeBox_SelectionChanged" />
-                  <Button Grid.Column="1" Content="Change .exe" Click="ChangeExe_Click" />
+            <StackPanel Spacing="22" Padding="0,0,14,0">
+              <!-- GAME: which exe and which renderer -->
+              <StackPanel Spacing="8">
+                <TextBlock Text="GAME" Style="{StaticResource SectionTitle}" />
+                <Grid ColumnSpacing="14">
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="280" /></Grid.ColumnDefinitions>
+                  <StackPanel>
+                    <TextBlock Text="Executable" Style="{StaticResource FieldLabel}" />
+                    <Grid ColumnSpacing="8">
+                      <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                      <ComboBox x:Name="ExeBox" HorizontalAlignment="Stretch" SelectionChanged="ExeBox_SelectionChanged" />
+                      <Button Grid.Column="1" Click="ChangeExe_Click" ToolTipService.ToolTip="Pick the game's .exe yourself">
+                        <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8E5;" FontSize="13" /><TextBlock Text="Change .exe" /></StackPanel>
+                      </Button>
+                    </Grid>
+                  </StackPanel>
+                  <StackPanel Grid.Column="1">
+                    <TextBlock Text="Rendering API" Style="{StaticResource FieldLabel}" />
+                    <ComboBox x:Name="ApiBox" HorizontalAlignment="Stretch" SelectionChanged="ApiBox_SelectionChanged" />
+                  </StackPanel>
                 </Grid>
               </StackPanel>
 
-              <StackPanel>
-                <TextBlock Text="Rendering API" Style="{StaticResource FieldLabel}" />
-                <ComboBox x:Name="ApiBox" HorizontalAlignment="Stretch" SelectionChanged="ApiBox_SelectionChanged" />
-              </StackPanel>
-
-              <Grid ColumnSpacing="14">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                <StackPanel>
-                  <TextBlock Text="Rendering backend" Style="{StaticResource FieldLabel}" />
-                  <ComboBox x:Name="BackendBox" HorizontalAlignment="Stretch" SelectionChanged="BackendBox_SelectionChanged">
+              <!-- ROUTE: one card per way of running DLSS 5 (filled in code; the hidden boxes below hold the choice) -->
+              <StackPanel Spacing="10">
+                <TextBlock Text="HOW TO RUN DLSS 5" Style="{StaticResource SectionTitle}" />
+                <Grid x:Name="RouteCards" ColumnSpacing="10" />
+                <StackPanel x:Name="OptiBuildPanel" Visibility="Collapsed">
+                  <TextBlock Text="OptiScaler build" Style="{StaticResource FieldLabel}" />
+                  <ComboBox x:Name="OptiBuildBox" HorizontalAlignment="Stretch" SelectionChanged="OptiBuildBox_SelectionChanged" />
+                </StackPanel>
+                <TextBlock x:Name="RouteDescription" TextWrapping="Wrap" Foreground="{StaticResource MutedText}" />
+                <InfoBar x:Name="RouteWarning" IsClosable="False" Severity="Warning" />
+                <!-- The route choice itself (kept as the source of truth for installing). -->
+                <StackPanel Visibility="Collapsed">
+                  <ComboBox x:Name="BackendBox" SelectionChanged="BackendBox_SelectionChanged">
                     <ComboBoxItem Content="ReShade (RenoDX)" />
                     <ComboBoxItem Content="OptiScaler" />
                   </ComboBox>
+                  <ComboBox x:Name="RouteBox" SelectionChanged="RouteBox_SelectionChanged" />
                 </StackPanel>
-                <StackPanel Grid.Column="1">
-                  <TextBlock x:Name="RouteLabel" Text="Installation route" Style="{StaticResource FieldLabel}" />
-                  <ComboBox x:Name="RouteBox" HorizontalAlignment="Stretch" SelectionChanged="RouteBox_SelectionChanged" />
-                  <ComboBox x:Name="OptiBuildBox" HorizontalAlignment="Stretch" Visibility="Collapsed" SelectionChanged="OptiBuildBox_SelectionChanged" />
-                </StackPanel>
-              </Grid>
+              </StackPanel>
 
-              <TextBlock x:Name="RouteDescription" TextWrapping="Wrap" Foreground="{StaticResource MutedText}" />
-              <InfoBar x:Name="RouteWarning" IsClosable="False" Severity="Warning" />
-
+              <!-- OPTIONS -->
+              <StackPanel Spacing="8">
+              <TextBlock Text="OPTIONS" Style="{StaticResource SectionTitle}" />
               <!-- ReShade options -->
-              <StackPanel x:Name="ReShadeOptions" Spacing="10">
+              <Border x:Name="ReShadeOptions" Style="{StaticResource Card}">
+              <StackPanel Spacing="10">
                 <StackPanel x:Name="ProxyPanel">
                   <TextBlock Text="ReShade DLL name" Style="{StaticResource FieldLabel}" />
                   <ComboBox x:Name="ProxyBox" Width="260" SelectedIndex="0">
@@ -483,6 +534,7 @@
                   <TextBlock x:Name="MfgNote" Margin="28,0,0,0" FontSize="12" Foreground="{StaticResource MutedText}" TextWrapping="Wrap" />
                 </StackPanel>
               </StackPanel>
+              </Border>
 
               <!-- OptiScaler options -->
               <Border x:Name="OptiOptions" Style="{StaticResource Card}" Visibility="Collapsed">
@@ -505,17 +557,21 @@
                   <Grid x:Name="CustomOptiPanel" ColumnSpacing="8" Visibility="Collapsed">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                     <TextBox x:Name="CustomOptiBox" PlaceholderText="Folder with OptiScaler.dll + OptiScaler.ini (extracted official release)" IsReadOnly="True" />
-                    <Button Grid.Column="1" Content="Browse…" Click="PickCustomOpti_Click" />
+                    <Button Grid.Column="1" Click="PickCustomOpti_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8B7;" FontSize="13" /><TextBlock Text="Browse…" /></StackPanel></Button>
                   </Grid>
                 </StackPanel>
               </Border>
 
               <CheckBox x:Name="AntiCheatBox" Visibility="Collapsed" Content="This game has anti-cheat. I understand injected DLLs can get me banned online." />
+              </StackPanel>
 
               <!-- status table -->
-              <Border Style="{StaticResource Card}" Padding="0">
-                <StackPanel x:Name="StatusRows" />
-              </Border>
+              <StackPanel Spacing="8">
+                <TextBlock Text="STATUS" Style="{StaticResource SectionTitle}" />
+                <Border Style="{StaticResource Card}" Padding="0">
+                  <StackPanel x:Name="StatusRows" />
+                </Border>
+              </StackPanel>
 
               <!-- community reports (filled in code from the community server) -->
               <StackPanel x:Name="CommunitySection" Spacing="8">
@@ -558,7 +614,9 @@
             <Button Grid.Column="1" Click="Launch_Click" Height="40">
               <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE768;" FontSize="14" Foreground="{StaticResource AccentText}" /><TextBlock Text="Launch" /></StackPanel>
             </Button>
-            <Button x:Name="RestoreButton" Grid.Column="2" Content="Restore originals" Click="Restore_Click" Height="40" />
+            <Button x:Name="RestoreButton" Grid.Column="2" Click="Restore_Click" Height="40" ToolTipService.ToolTip="Put every file this app changed back exactly as it was">
+              <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE7A7;" FontSize="14" /><TextBlock Text="Restore originals" /></StackPanel>
+            </Button>
             <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="10" HorizontalAlignment="Right" VerticalAlignment="Center">
               <ProgressRing x:Name="BusyRing" IsActive="False" Width="20" Height="20" />
               <TextBlock x:Name="BusyText" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" MaxWidth="320" TextTrimming="CharacterEllipsis" />

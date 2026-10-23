@@ -56,6 +56,7 @@ public sealed partial class MainWindow
         _game = item;
         LogBox.Text = "";
         GameOverlay.Visibility = Visibility.Visible;
+        Reveal(GamePanel);
         PanelTitle.Text = item.Name;
         PanelPoster.Source = item.Poster;
         await RescanAsync();
@@ -171,9 +172,7 @@ public sealed partial class MainWindow
         try
         {
             bool opti = BackendBox.SelectedIndex == 1;
-            RouteBox.Visibility = opti ? Visibility.Collapsed : Visibility.Visible;
-            OptiBuildBox.Visibility = opti ? Visibility.Visible : Visibility.Collapsed;
-            RouteLabel.Text = opti ? "OptiScaler build" : "Installation route";
+            OptiBuildPanel.Visibility = opti ? Visibility.Visible : Visibility.Collapsed;
             ReShadeOptions.Visibility = opti ? Visibility.Collapsed : Visibility.Visible;
             OptiOptions.Visibility = opti ? Visibility.Visible : Visibility.Collapsed;
 
@@ -240,6 +239,7 @@ public sealed partial class MainWindow
             RouteWarning.ActionButton = otherApp ? _removeOtherButton : unrecorded && warning is not null && warning.StartsWith("ReShade ") ? _removeReShadeButton : null;
             InstallButton.IsEnabled = !_busy && SelectedExe is not null && (opti ? chosen?.Unavailable is null : RouteBox.SelectedItem is not null);
             InstallButton.Content = _scan.Manifest is null ? "Complete Installation" : "Reinstall";
+            RenderRouteCards(routes, opti, bits);
         }
         finally { _populating = false; }
     }
