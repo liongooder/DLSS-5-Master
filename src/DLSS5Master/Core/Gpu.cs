@@ -14,8 +14,11 @@ public static partial class Gpu
     private static readonly Lazy<List<string>> _names = new(Read);
     public static IReadOnlyList<string> Names => _names.Value;
 
-    /// <summary>MFGAdaUnlock targets GeForce RTX 40-series (Ada) cards.</summary>
+    /// <summary>MFGAdaUnlock's default DLSS-G mode targets GeForce RTX 40-series (Ada) cards.</summary>
     public static bool HasRtx40 => Names.Any(n => Rtx40().IsMatch(n));
+
+    /// <summary>Any GeForce RTX card (20-series or newer): enough for MFGAdaUnlock's XeMFG mode.</summary>
+    public static bool HasRtx => Names.Any(n => n.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) && n.Contains("RTX", StringComparison.OrdinalIgnoreCase));
     public static string? Nvidia => Names.FirstOrDefault(n => n.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase));
 
     private static List<string> Read()

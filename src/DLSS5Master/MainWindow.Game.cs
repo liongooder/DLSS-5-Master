@@ -34,7 +34,7 @@ public sealed partial class MainWindow
         OptiBuildBox.SelectedItem = OptiBuildBox.Items.OfType<ComboBoxItem>().FirstOrDefault(i => ((OptiBuild)i.Tag).Id == selected?.Id)
                                     ?? OptiBuildBox.Items.OfType<ComboBoxItem>().FirstOrDefault();
         var mfg = Updates.InUse(Updates.Sources.First(s => s.Id == "mfgunlock")).Version;
-        MfgBox.Content = $"MFG unlock for RTX 40 — DLSS multi frame generation 3x/4x (MFGAdaUnlock {mfg})";
+        MfgBox.Content = $"MFG unlock — multi frame generation: DLSS 3x/4x on RTX 40, or Intel XeSS 2x–6x on RTX 20–50 (MFGAdaUnlock {mfg})";
     }
 
     private void InitGamePanel()
@@ -211,7 +211,9 @@ public sealed partial class MainWindow
             var mfgWhy = Installers.MfgUnavailable(SelectedApi, bits, _scan.HasFrameGen);
             MfgBox.IsEnabled = mfgWhy is null;
             if (mfgWhy is not null) MfgBox.IsChecked = false;
-            MfgNote.Text = mfgWhy ?? (Gpu.HasRtx40 ? "" : $"Built for GeForce RTX 40 cards; this PC has {Gpu.Nvidia ?? "no NVIDIA GPU"}.");
+            MfgNote.Text = mfgWhy ?? (Gpu.HasRtx40 ? ""
+                : Gpu.HasRtx ? $"On {Gpu.Nvidia}, choose XeMFG (XeSS frame generation 2x–6x) under General → Frame generation method in the add-on's in-game panel; it installs Intel's files itself. The default DLSS-G mode needs an RTX 40 card."
+                : $"Needs a GeForce RTX 20-series or newer card; this PC has {Gpu.Nvidia ?? "no NVIDIA GPU"}.");
             MfgNote.Visibility = MfgNote.Text == "" ? Visibility.Collapsed : Visibility.Visible;
             CustomOptiPanel.Visibility = (OptiBuildBox.SelectedItem as ComboBoxItem)?.Tag is OptiBuild { Id: "custom" } ? Visibility.Visible : Visibility.Collapsed;
             ApplyKeyButton.IsEnabled = _scan.OptiScalerIni;
@@ -304,7 +306,7 @@ public sealed partial class MainWindow
         var fg = _scan.Upscalers.FirstOrDefault(u => u.Kind == UpscalerKind.DlssFG);
         AddRow(StatusRows, "DLSS Frame Generation", fg?.Version ?? "none", fg is null ? null : Scanner.CompareVersions(fg.Version, "310.0.0.0") < 0 ? "WarnText" : "AccentText");
         bool mfgHere = addons.Any(a => a.Equals(Components.MfgAddon, StringComparison.OrdinalIgnoreCase));
-        AddRow(StatusRows, "MFG unlock (RTX 40)", mfgHere ? (m?.MfgUnlock is { } mv ? $"Installed · {mv}" : "Installed (other app)") : "not installed", mfgHere ? "AccentText" : null);
+        AddRow(StatusRows, "MFG unlock", mfgHere ? (m?.MfgUnlock is { } mv ? $"Installed · {mv}" : "Installed (other app)") : "not installed", mfgHere ? "AccentText" : null);
         var rs = _scan.ReShade;
         AddRow(StatusRows, "ReShade", rs.Installed ? $"{rs.Version}{(rs.AddonSupport ? " + add-on" : " (no add-on support)")}  ·  {rs.File}" : "not installed",
             rs.Installed ? (rs.AddonSupport ? "AccentText" : "WarnText") : null);
