@@ -717,11 +717,15 @@ public static partial class Installers
                 if (!File.Exists(src)) throw new InstallException($"The {build.Label} package is missing {ForwarderDll}.");
                 job.S.CopyTracked(src, forwarder, "optiscaler");
             }
-            foreach (var lib in Components.OptiLibraries)
-            {
-                var src = Path.Combine(pkg, "OptiScaler", lib);
-                if (File.Exists(src)) job.S.CopyTracked(src, Path.Combine(exeDir, "OptiScaler", lib), "optiscaler");
-            }
+            var backend = Path.Combine(pkg, "OptiScaler");
+            if (build.WholeBackend && Directory.Exists(backend))
+                job.S.CopyTreeTracked(backend, Path.Combine(exeDir, "OptiScaler"), "optiscaler");
+            else
+                foreach (var lib in Components.OptiLibraries)
+                {
+                    var src = Path.Combine(backend, lib);
+                    if (File.Exists(src)) job.S.CopyTracked(src, Path.Combine(exeDir, "OptiScaler", lib), "optiscaler");
+                }
             var licensesDir = Path.Combine(exeDir, "OptiScaler", "licenses");
             var pkgLicenses = Path.Combine(pkg, "Licenses");
             if (Directory.Exists(pkgLicenses)) job.S.CopyTreeTracked(pkgLicenses, licensesDir, "license");

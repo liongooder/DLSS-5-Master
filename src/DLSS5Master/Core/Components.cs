@@ -3,9 +3,13 @@ using System.Security.Cryptography;
 
 namespace DLSS5Master.Core;
 
-/// <summary>A pinned OptiScaler package (or the user's own folder when <see cref="Id"/> is "custom").</summary>
+/// <summary>
+/// A pinned OptiScaler package (or the user's own folder when <see cref="Id"/> is "custom"). <see cref="WholeBackend"/>
+/// builds need their entire OptiScaler\ folder (own Streamline, frame-generation modules, model data), not just the
+/// usual libraries.
+/// </summary>
 public sealed record OptiBuild(string Id, string Label, string? Url, string? Sha256, string? LicenseUrl,
-                               string? LicenseSha256, bool Forwarded, bool NeuralRendering);
+                               string? LicenseSha256, bool Forwarded, bool NeuralRendering, bool WholeBackend = false);
 
 /// <summary>Locates or downloads (always hash-verified) every third-party file an install needs.</summary>
 public sealed class Components
@@ -21,6 +25,9 @@ public sealed class Components
         new("0.8.3-rtx40-mfg", "OptiScaler NR 0.8.3 · RTX 40 MFG (recommended)",
             "https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/releases/download/v0.8.3/OptiScaler-NR-v0.8.3-rtx40-mfg.zip",
             "aac7ea64d80604a5b79f686043ba28fbefefaf98818e861a377b78122cb24448", null, null, false, true),
+        new("0.9.72-shyvortex", "OptiScaler NR 0.9.72 · ShyVortex (newer)",
+            "https://github.com/ShyVortex/OptiScaler-DLSSNR-PreSR-Multipass/releases/download/v0.9.72/OptiScaler-NR-v0.9.72.zip",
+            "3ba28becc5bb84f9c3f77677a35aa81fa63f0c4b00217ec921fa82c68754e28c", null, null, false, true, WholeBackend: true),
         new("0.8.3", "OptiScaler NR 0.8.3 · standard",
             "https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/releases/download/v0.8.3/OptiScaler-NR-v0.8.3.zip",
             "3f2d26fb136d964a394bf50896d082156173153a2a55b88e1995277b4dabe3c8", null, null, false, true),

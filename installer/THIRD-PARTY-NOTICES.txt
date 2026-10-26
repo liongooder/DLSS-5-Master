@@ -78,6 +78,8 @@ Bundled with this installer (unmodified, SHA-256 pinned):
 Not bundled; downloaded at install time from their authors' release pages and
 verified by SHA-256:
 
+- OptiScaler NR pre-SR multipass 0.9.72 -
+  https://github.com/ShyVortex/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0)
 - OptiScaler NR pre-SR multipass 0.8.3 (standard) -
   https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0)
 - OptiScaler DLSS-NR - https://github.com/Dagherbou/OptiScaler_DLSSNR (GPL-3.0)

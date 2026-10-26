@@ -517,6 +517,7 @@ public sealed partial class MainWindow : Window
         "• MFGAdaUnlock-RenoDx 1.5.8 — github.com/mavismmg/MFGAdaUnlock-RenoDx (MIT)\n" +
         "• OptiScaler NR pre-SR multipass 0.8.3 RTX 40 MFG — github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0; source code at tag v0.8.3)\n\n" +
         "Downloaded when first used, from their authors' release pages and verified by SHA-256:\n" +
+        "• OptiScaler NR pre-SR multipass 0.9.72 — github.com/ShyVortex/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0)\n" +
         "• OptiScaler NR pre-SR multipass 0.8.3 (standard) — github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0)\n" +
         "• OptiScaler DLSS-NR — github.com/Dagherbou/OptiScaler_DLSSNR (GPL-3.0)\n" +
         "• OptiScaler DLSS-NR pre-SR multipass — github.com/jlrouzies-fr/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0)";

@@ -4,7 +4,7 @@ runtime\nvngx_dlss.dll,https://github.com/RankFTW/rhi-repo/releases/download/dls
 runtime\nvngx_dlss.license.txt,streamline\nvngx_dlss.license.txt,b6f4b4b6f582c9523ed4dfe89a4fae4cfc9c61f9c57e335e00ccee5f9b2b2e4b
 runtime\nvngx_dlssd.dll,https://github.com/RankFTW/rhi-repo/releases/download/dlssd-310.9.16/nvngx_dlssd_310.9.16.zip,7006c3a729276e876e06a97c6262672a1be96a58d69b0e85877f911146b98fbe
 runtime\nvngx_dlssg.dll,https://github.com/RankFTW/rhi-repo/releases/download/dlssg-310.9.16/nvngx_dlssg_310.9.16.zip,cadee1aa6db3907babdc3285da2aebc4553d92b89c38ba3eae8abd8bba1bea72
-runtime\nvngx_dlssnr.dll,streamline\nvngx_dlssnr.dll,8270b350cd82de5ce89806872cdd6b6a9249b80836b91bbeb3573470744cc206
+runtime\nvngx_dlssnr.dll,https://github.com/RankFTW/rhi-repo/releases/download/dlssnr-310.9.16/nvngx_dlssnr_310.9.16.zip,cdfa6c1ec784867182164c7836f324f087b5c9f374d0c9fe46f54999feabf3ed
 runtime\reflex.license.txt,streamline\reflex.license.txt,ebf83c07fb3b2939908c3795d887afde3161c89a28ba391724efc784ce1bdabe
 runtime\sl.common.dll,streamline\sl.common.dll,a4b2b5acbe49fbc6d44dd432cac19cd53218f698b2539dc7ed0fb268c72cfc8d
 runtime\sl.dlss.dll,streamline\sl.dlss.dll,1eb5fb3d6f01d340fe086d981cc2de4f18aa6d05ee276e5cf28ecd54818dcc8b
