@@ -7,10 +7,13 @@ using System.Text.Json;
 namespace DLSS5Master.Core;
 
 public sealed record CommunityMe(string? Nickname, bool IsDev, bool Banned, int UnreadPrivate);
-public sealed record CommunityGame(string Key, string Name, int Works, int Partly, int Broken, int Notes, DateTime Updated, string Status)
+public sealed record CommunityGame(string Key, string Name, int Works, int Partly, int Broken, int Notes, DateTime Updated, string Status, List<string> Apis, bool Mine)
 {
     public int Total => Works + Partly + Broken;
 }
+
+/// <summary>What to list on Community → Games. Empty strings mean "any".</summary>
+public sealed record CommunityGameQuery(string Route, string Api, string Gpu, string Result, string Search, string Sort, bool Mine, IReadOnlyCollection<string>? Keys);
 public sealed record ChatReaction(string Emoji, int Count, bool Mine);
 public sealed record ChatQuote(long Id, string Nickname, string Text);
 public sealed record ChatMessage(long Id, string Text, DateTime When, string Nickname, bool IsDev, bool Mine, ChatQuote? Reply, List<ChatReaction> Reactions);
@@ -82,15 +85,17 @@ public static class CommunityHub
 
     // ------------------------------------------------------------------ games
 
-    public static async Task<(int Total, List<CommunityGame> Games)> GamesAsync(string? route, string? result, string? search, string sort, int offset)
+    public static async Task<(int Total, List<CommunityGame> Games)> GamesAsync(CommunityGameQuery f, int offset)
     {
-        var q = $"/v1/games?sort={sort}&offset={offset}"
-                + (string.IsNullOrEmpty(route) ? "" : "&route=" + route)
-                + (string.IsNullOrEmpty(result) ? "" : "&result=" + result)
-                + (string.IsNullOrWhiteSpace(search) ? "" : "&q=" + Uri.EscapeDataString(search.Trim()));
-        using var d = await SendAsync(Req(HttpMethod.Get, q, withInstall: false));
+        static string P(string name, string value) => string.IsNullOrWhiteSpace(value) ? "" : $"&{name}={Uri.EscapeDataString(value.Trim())}";
+        var q = $"/v1/games?sort={(f.Sort.Length > 0 ? f.Sort : "recent")}&offset={offset}"
+                + P("route", f.Route) + P("api", f.Api) + P("gpu", f.Gpu) + P("result", f.Result) + P("q", f.Search) + (f.Mine ? "&mine=1" : "");
+        // "My games": the library's keys go in the body, too many for the address.
+        using var d = await SendAsync(f.Keys is null ? Req(HttpMethod.Get, q) : Req(HttpMethod.Post, q, new Dictionary<string, object> { ["keys"] = f.Keys }));
         var games = d.RootElement.GetProperty("games").EnumerateArray().Select(g => new CommunityGame(
-            Str(g, "key"), Str(g, "name"), Int(g, "works"), Int(g, "partly"), Int(g, "broken"), Int(g, "notes"), Time(g, "updated"), Str(g, "status"))).ToList();
+            Str(g, "key"), Str(g, "name"), Int(g, "works"), Int(g, "partly"), Int(g, "broken"), Int(g, "notes"), Time(g, "updated"), Str(g, "status"),
+            g.TryGetProperty("apis", out var a) && a.ValueKind == JsonValueKind.Array ? a.EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x.Length > 0).ToList() : new(),
+            Bool(g, "mine"))).ToList();
         return (Int(d.RootElement, "total"), games);
     }
 

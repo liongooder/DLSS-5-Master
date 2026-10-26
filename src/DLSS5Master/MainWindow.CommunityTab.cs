@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.UI.Xaml.Shapes;
 using DLSS5Master.Core;
 using DLSS5Master.Views;
 using Windows.Storage.Pickers;
@@ -117,70 +118,185 @@ public sealed partial class MainWindow
 
     // ------------------------------------------------------------------ games
 
+    private bool _cgHold;
+
     private void CgFilter_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_cgHold && CommunityPage is { Visibility: Visibility.Visible }) _ = LoadCommunityGamesAsync(reset: true);
+    }
+
+    private void CgSearch_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args) => _ = LoadCommunityGamesAsync(reset: true);
+
+    /// <summary>Clearing the search box shows everything again without pressing Enter.</summary>
+    private void CgSearch_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (args.Reason == AutoSuggestionBoxTextChangeReason.UserInput && sender.Text.Length == 0) _ = LoadCommunityGamesAsync(reset: true);
+    }
+
+    private void CgView_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
     {
         if (CommunityPage is { Visibility: Visibility.Visible }) _ = LoadCommunityGamesAsync(reset: true);
     }
 
-    private void CgSearch_QuerySubmitted(AutoSuggestBox sender, AutoSuggestBoxQuerySubmittedEventArgs args) => _ = LoadCommunityGamesAsync(reset: true);
+    private void CgClear_Click(object sender, RoutedEventArgs e)
+    {
+        _cgHold = true;
+        CgSearch.Text = "";
+        CgRoute.SelectedIndex = CgApi.SelectedIndex = CgResult.SelectedIndex = CgGpu.SelectedIndex = CgSort.SelectedIndex = 0;
+        _cgHold = false;
+        _ = LoadCommunityGamesAsync(reset: true);
+    }
+
     private void CgMore_Click(object sender, RoutedEventArgs e) => _ = LoadCommunityGamesAsync(reset: false);
 
     private static string ComboTag(ComboBox box) => (box.SelectedItem as ComboBoxItem)?.Tag as string ?? "";
 
+    private CommunityGameQuery CgQuery() => new(
+        ComboTag(CgRoute), ComboTag(CgApi), ComboTag(CgGpu), ComboTag(CgResult), CgSearch.Text ?? "", ComboTag(CgSort),
+        Mine: CgView.SelectedItem == CgViewMine,
+        Keys: CgView.SelectedItem == CgViewMyGames ? _all.Select(g => Community.GameKey(g.Entry)).Distinct().Take(3000).ToList() : null);
+
     private async Task LoadCommunityGamesAsync(bool reset)
     {
         if (reset) { _cgOffset = 0; CgGrid.Children.Clear(); }
+        var query = CgQuery();
+        CgClear.IsEnabled = query is not { Route: "", Api: "", Gpu: "", Result: "", Search: "" } || CgSort.SelectedIndex != 0;
         CgStatus.Text = "Loading…";
         CgMore.Visibility = Visibility.Collapsed;
         try
         {
-            var (total, games) = await CommunityHub.GamesAsync(ComboTag(CgRoute), ComboTag(CgResult), CgSearch.Text, ComboTag(CgSort) is { Length: > 0 } s ? s : "recent", _cgOffset);
+            var (total, games) = await CommunityHub.GamesAsync(query, _cgOffset);
             foreach (var g in games) CgGrid.Children.Add(GameCard(g));
             _cgOffset += games.Count;
-            CgStatus.Text = total == 0 ? "No reported games match. Rate the games you set up from their panel on the Games tab!" : $"{total} reported game{(total == 1 ? "" : "s")}";
+            CgStatus.Text = total > 0 ? $"{total} reported game{(total == 1 ? "" : "s")}"
+                : query.Mine ? "You have not rated a game yet. Open a game you set up on the Games tab and tell others how it runs."
+                : query.Keys is not null ? "Nobody has reported the games in your library yet. Be the first: rate them from their panel on the Games tab."
+                : "No reported games match. Rate the games you set up from their panel on the Games tab!";
             CgMore.Visibility = _cgOffset < total ? Visibility.Visible : Visibility.Collapsed;
         }
         catch (Exception ex) { CgStatus.Text = "Community not available right now (" + ex.Message + ")."; }
     }
 
+    /// <summary>
+    /// One reported game: its artwork across the card (the library poster if the game is installed here, else Steam's
+    /// header picture), the overall result, APIs, coloured works / partly / broken counts and how much was said.
+    /// </summary>
     private FrameworkElement GameCard(CommunityGame g)
     {
         var (label, color) = g.Status switch
         {
-            "working" => ("WORKING", "AccentText"),
-            "broken" => ("NOT WORKING", "WarnText"),
-            _ => ("MIXED", "WarnText"),
+            "working" => ("WORKING", "ResultWorks"),
+            "broken" => ("NOT WORKING", "ResultBroken"),
+            _ => ("MIXED", "ResultPartly"),
         };
         var card = new Button
         {
             HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch, Margin = new Thickness(6),
-            HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(12), CornerRadius = new CornerRadius(14),
-            Background = Res("RowBackground"), BorderBrush = Res("RowBorder"),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch,
+            Padding = new Thickness(0), CornerRadius = new CornerRadius(16), Background = Res("RowBackground"), BorderBrush = Res("RowBorder"),
         };
-        var grid = new Grid { ColumnSpacing = 14 };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(64) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var root = new Grid { CornerRadius = new CornerRadius(16) };
 
-        var art = new Grid { Width = 64, Height = 96, CornerRadius = new CornerRadius(8), Background = Res("RowBorder") };
-        art.Children.Add(new TextBlock { Text = g.Name.Length > 0 ? g.Name[..1].ToUpperInvariant() : "?", FontSize = 26, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = Res("MutedText") });
-        if (g.Key.StartsWith("steam:"))
-            art.Children.Add(new Image { Stretch = Stretch.UniformToFill, Source = new BitmapImage(new Uri($"https://cdn.cloudflare.steamstatic.com/steam/apps/{g.Key[6..]}/library_600x900.jpg")) { DecodePixelWidth = 128 } });
-        grid.Children.Add(art);
-
-        var info = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
-        info.Children.Add(new Border
+        // artwork
+        root.Children.Add(new TextBlock { Text = g.Name.Length > 0 ? g.Name[..1].ToUpperInvariant() : "?", FontSize = 120, FontWeight = FontWeights.Black, Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(0x18, 0xFF, 0xFF, 0xFF)), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 28, 0) });
+        var local = _all.FirstOrDefault(i => i.Poster is not null && Community.GameKey(i.Entry) == g.Key)?.Poster;
+        if (local is not null) root.Children.Add(new Image { Source = local, Stretch = Stretch.UniformToFill, VerticalAlignment = VerticalAlignment.Center });
+        else if (g.Key.StartsWith("steam:"))
+            root.Children.Add(new Image { Stretch = Stretch.UniformToFill, Source = new BitmapImage(new Uri($"https://cdn.cloudflare.steamstatic.com/steam/apps/{g.Key[6..]}/header.jpg")) { DecodePixelWidth = 460 } });
+        // darken towards the bottom so the text stays readable on any picture
+        root.Children.Add(new Border
         {
-            HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(8, 2, 8, 2), CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(1),
-            BorderBrush = Res(color), Child = new TextBlock { Text = label, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = Res(color) },
+            Background = new LinearGradientBrush
+            {
+                StartPoint = new Windows.Foundation.Point(0, 0), EndPoint = new Windows.Foundation.Point(0, 1),
+                GradientStops =
+                {
+                    new GradientStop { Color = Windows.UI.Color.FromArgb(0x66, 0x06, 0x0B, 0x12), Offset = 0 },
+                    new GradientStop { Color = Windows.UI.Color.FromArgb(0xF2, 0x06, 0x0B, 0x12), Offset = 0.75 },
+                },
+            },
         });
-        info.Children.Add(new TextBlock { Text = g.Name, FontSize = 16, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
-        info.Children.Add(new TextBlock { Text = $"✅ {g.Works}   🟡 {g.Partly}   ❌ {g.Broken}" });
-        info.Children.Add(new TextBlock { Text = $"{g.Total} report{(g.Total == 1 ? "" : "s")} · {g.Notes} note{(g.Notes == 1 ? "" : "s")} · {Ago(g.Updated)}", FontSize = 11, Foreground = Res("MutedText") });
-        Grid.SetColumn(info, 1);
-        grid.Children.Add(info);
-        card.Content = grid;
+
+        var content = new Grid { Padding = new Thickness(16, 14, 16, 14) };
+        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        content.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        content.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        // top: result and "yours"
+        var top = new Grid();
+        top.Children.Add(Pill(label, color, dot: true));
+        if (g.Mine)
+        {
+            var mine = Pill("YOU REPORTED", "AccentText", dot: false);
+            mine.HorizontalAlignment = HorizontalAlignment.Right;
+            top.Children.Add(mine);
+        }
+        content.Children.Add(top);
+
+        // bottom: name, APIs, counts, totals
+        var bottom = new Grid { ColumnSpacing = 12 };
+        bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        bottom.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var info = new StackPanel { Spacing = 7 };
+        info.Children.Add(new TextBlock { Text = g.Name, FontSize = 20, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+        if (g.Apis.Count > 0)
+        {
+            var apis = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            foreach (var a in g.Apis.OrderBy(a => a))
+                apis.Children.Add(new Border
+                {
+                    Padding = new Thickness(7, 1, 7, 2), CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(1), BorderBrush = Res("RowBorder"),
+                    Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0x99, 0x06, 0x0B, 0x12)),
+                    Child = new TextBlock { Text = Community.ApiLabel(a), FontSize = 11, FontWeight = FontWeights.SemiBold },
+                });
+            info.Children.Add(apis);
+        }
+        var counts = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16 };
+        foreach (var (n, key, what) in new[] { (g.Works, "ResultWorks", "works"), (g.Partly, "ResultPartly", "partly works"), (g.Broken, "ResultBroken", "does not work") })
+        {
+            var c = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            c.Children.Add(new Ellipse { Width = 10, Height = 10, Fill = Res(key), VerticalAlignment = VerticalAlignment.Center });
+            c.Children.Add(new TextBlock { Text = n.ToString(), FontSize = 16, FontWeight = FontWeights.SemiBold });
+            ToolTipService.SetToolTip(c, $"{n} player{(n == 1 ? "" : "s")}: {what}");
+            counts.Children.Add(c);
+        }
+        info.Children.Add(counts);
+        info.Children.Add(new TextBlock
+        {
+            Text = $"{g.Total} report{(g.Total == 1 ? "" : "s")}  ·  {g.Notes} note{(g.Notes == 1 ? "" : "s")}  ·  {Ago(g.Updated)}",
+            FontSize = 12, Foreground = Res("MutedText"),
+        });
+        bottom.Children.Add(info);
+        var open = new Border
+        {
+            Width = 40, Height = 40, CornerRadius = new CornerRadius(20), BorderThickness = new Thickness(1), BorderBrush = Res("RowBorder"),
+            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0x99, 0x06, 0x0B, 0x12)), VerticalAlignment = VerticalAlignment.Bottom,
+            Child = new FontIcon { Glyph = "", FontSize = 14 },
+        };
+        Grid.SetColumn(open, 1);
+        bottom.Children.Add(open);
+        Grid.SetRow(bottom, 2);
+        content.Children.Add(bottom);
+        root.Children.Add(content);
+
+        card.Content = root;
         card.Click += async (_, _) => await ShowCommunityGameAsync(g);
         return card;
+    }
+
+    private static Border Pill(string text, string colorKey, bool dot)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        if (dot) row.Children.Add(new Ellipse { Width = 9, Height = 9, Fill = Res(colorKey), VerticalAlignment = VerticalAlignment.Center });
+        var label = new TextBlock { Text = text, FontSize = 11, FontWeight = FontWeights.Bold, CharacterSpacing = 60 };
+        if (!dot) label.Foreground = Res(colorKey);   // a dotted pill keeps the normal text colour
+        row.Children.Add(label);
+        return new Border
+        {
+            HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(10, 4, 12, 4), CornerRadius = new CornerRadius(12),
+            BorderThickness = new Thickness(1), BorderBrush = Res(dot ? "RowBorder" : colorKey),
+            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0xCC, 0x06, 0x0B, 0x12)), Child = row,
+        };
     }
 
     private async Task ShowCommunityGameAsync(CommunityGame g)
@@ -206,22 +322,40 @@ public sealed partial class MainWindow
 
     // ------------------------------------------------------------------ chat
 
+    private const string ChatHint = "Enter to send · Shift+Enter for a new line · be kind · links show as text";
+    /// <summary>Messages shown, oldest first. Rows are drawn from this list so grouping and day dividers stay right.</summary>
+    private readonly List<ChatMessage> _chatMessages = new();
+
     private async Task LoadChatAsync()
     {
-        ChatList.Children.Clear();
-        _chatFirst = _chatLast = 0;
         ChatStatus.Text = "Loading…";
         try
         {
             var messages = await CommunityHub.ChatAsync();
-            if (messages.Count == 0) ChatList.Children.Add(Muted("No messages yet. Say hello!"));
-            foreach (var m in messages) ChatList.Children.Add(ChatRow(m));
-            if (messages.Count > 0) { _chatFirst = messages[0].Id; _chatLast = messages[^1].Id; }
-            ChatStatus.Text = "Enter to send · be kind · links show as text";
+            _chatMessages.Clear();
+            _chatMessages.AddRange(messages);
+            _chatFirst = messages.Count > 0 ? messages[0].Id : 0;
+            _chatLast = messages.Count > 0 ? messages[^1].Id : 0;
+            RenderChat();
+            ChatStatus.Text = ChatHint;
+            SetChatLive(true);
             ScrollChatToEnd();
         }
-        catch (Exception ex) { ChatStatus.Text = "Chat not available right now (" + ex.Message + ")."; }
+        catch (Exception ex)
+        {
+            ChatStatus.Text = "Chat not available right now (" + ex.Message + ").";
+            SetChatLive(false);
+        }
         StartChatPolling();
+    }
+
+    private void SetChatLive(bool online)
+    {
+        ChatLive.Visibility = Visibility.Visible;
+        var brush = Res(online ? "AccentText" : "MutedText");
+        ChatLive.BorderBrush = ChatLiveDot.Fill = ChatLiveText.Foreground = brush;
+        ChatLiveText.Text = online ? "LIVE" : "OFFLINE";
+        ToolTipService.SetToolTip(ChatLive, online ? "New messages appear by themselves every few seconds." : "The community server cannot be reached; trying again.");
     }
 
     private void StartChatPolling()
@@ -242,15 +376,20 @@ public sealed partial class MainWindow
         try
         {
             var newer = await CommunityHub.ChatAsync(after: _chatLast);
+            SetChatLive(true);
             if (newer.Count == 0) return;
             bool atEnd = ChatScroll.VerticalOffset >= ChatScroll.ScrollableHeight - 40;
-            if (_chatLast == 0) ChatList.Children.Clear();
-            foreach (var m in newer) ChatList.Children.Add(ChatRow(m));
+            if (_chatMessages.Count == 0) ChatList.Children.Clear();   // the "say hello" line
+            foreach (var m in newer)
+            {
+                AddChatRow(m, _chatMessages.Count > 0 ? _chatMessages[^1] : null);
+                _chatMessages.Add(m);
+            }
             if (_chatFirst == 0) _chatFirst = newer[0].Id;
             _chatLast = newer[^1].Id;
             if (atEnd) ScrollChatToEnd();
         }
-        catch { /* keep polling quietly; Refresh shows errors */ }
+        catch { SetChatLive(false); /* keep polling quietly; Refresh shows the error */ }
     }
 
     private void ScrollChatToEnd()
@@ -269,8 +408,9 @@ public sealed partial class MainWindow
             if (older.Count > 0)
             {
                 double before = ChatScroll.ScrollableHeight;
-                for (int i = older.Count - 1; i >= 0; i--) ChatList.Children.Insert(0, ChatRow(older[i]));
+                _chatMessages.InsertRange(0, older);
                 _chatFirst = older[0].Id;
+                RenderChat();
                 ChatScroll.UpdateLayout();
                 ChatScroll.ChangeView(null, ChatScroll.ScrollableHeight - before, null, true);
             }
@@ -280,58 +420,108 @@ public sealed partial class MainWindow
         finally { _chatLoadingOlder = false; }
     }
 
-    private FrameworkElement ChatRow(ChatMessage m)
+    /// <summary>Draws every message again (after loading older ones, deleting or reacting).</summary>
+    private void RenderChat()
     {
-        var grid = new Grid { ColumnSpacing = 10, Padding = new Thickness(0, 4, 0, 4) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        ChatList.Children.Clear();
+        if (_chatMessages.Count == 0) { ChatList.Children.Add(Muted("No messages yet. Say hello!")); return; }
+        ChatMessage? prev = null;
+        foreach (var m in _chatMessages) { AddChatRow(m, prev); prev = m; }
+    }
+
+    /// <summary>Adds a day divider when the day changes, then the message (without name and avatar right after the same person).</summary>
+    private void AddChatRow(ChatMessage m, ChatMessage? prev)
+    {
+        if (prev is null || prev.When.Date != m.When.Date) ChatList.Children.Add(DayDivider(m.When));
+        bool continued = prev is not null && prev.When.Date == m.When.Date && prev.Nickname == m.Nickname && prev.IsDev == m.IsDev
+                         && m.Reply is null && (m.When - prev.When).TotalMinutes < 5;
+        ChatList.Children.Add(ChatRow(m, continued));
+    }
+
+    private FrameworkElement DayDivider(DateTime when)
+    {
+        var day = when.Date == DateTime.Today ? "TODAY" : when.Date == DateTime.Today.AddDays(-1) ? "YESTERDAY"
+            : when.ToString(when.Year == DateTime.Today.Year ? "dddd, d MMMM" : "dddd, d MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture).ToUpperInvariant();
+        var grid = new Grid { ColumnSpacing = 14, Margin = new Thickness(0, 14, 0, 8) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.Children.Add(new Rectangle { Height = 1, Fill = Res("RowBorder"), VerticalAlignment = VerticalAlignment.Center });
+        var label = new TextBlock { Text = day, FontSize = 11, FontWeight = FontWeights.SemiBold, CharacterSpacing = 100, Foreground = Res("MutedText") };
+        Grid.SetColumn(label, 1);
+        grid.Children.Add(label);
+        var right = new Rectangle { Height = 1, Fill = Res("RowBorder"), VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(right, 2);
+        grid.Children.Add(right);
+        return grid;
+    }
 
-        var avatar = new Border { Width = 34, Height = 34, CornerRadius = new CornerRadius(17), Background = Res(m.IsDev ? "AccentText" : "RowBorder"), VerticalAlignment = VerticalAlignment.Top };
-        avatar.Child = new TextBlock { Text = m.Nickname.Length > 0 ? m.Nickname[..1].ToUpperInvariant() : "?", HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.SemiBold, Foreground = m.IsDev ? new SolidColorBrush(Microsoft.UI.Colors.Black) : Res("MutedText") };
-        grid.Children.Add(avatar);
+    /// <summary>
+    /// One message. Hovering it lights the row and shows a small bar: six reactions, reply, and more (copy, delete).
+    /// A <paramref name="continued"/> message (same person within five minutes) leaves out the name and avatar.
+    /// </summary>
+    private FrameworkElement ChatRow(ChatMessage m, bool continued)
+    {
+        var row = new Grid { ColumnSpacing = 12, Padding = new Thickness(8, continued ? 2 : 8, 8, 4), CornerRadius = new CornerRadius(10), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        // left column: avatar, or the time (shown on hover) for a continued message
+        TextBlock? sideTime = null;
+        if (!continued)
+        {
+            var avatar = new Border { Width = 36, Height = 36, CornerRadius = new CornerRadius(18), Background = Res(m.IsDev ? "AccentText" : "RowBorder"), VerticalAlignment = VerticalAlignment.Top };
+            avatar.Child = new TextBlock { Text = m.Nickname.Length > 0 ? m.Nickname[..1].ToUpperInvariant() : "?", HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, FontWeight = FontWeights.SemiBold, Foreground = m.IsDev ? new SolidColorBrush(Microsoft.UI.Colors.Black) : Res("MutedText") };
+            row.Children.Add(avatar);
+        }
+        else
+        {
+            sideTime = new TextBlock { Text = m.When.ToString("HH:mm"), FontSize = 10, Foreground = Res("MutedText"), Opacity = 0, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 0) };
+            row.Children.Add(sideTime);
+        }
 
         var body = new StackPanel { Spacing = 4 };
-        var head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        head.Children.Add(new TextBlock { Text = m.Nickname, FontWeight = FontWeights.SemiBold, Foreground = m.IsDev ? Res("AccentText") : null });
-        if (m.IsDev) head.Children.Add(new Border { Padding = new Thickness(6, 0, 6, 0), CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(1), BorderBrush = Res("AccentText"), Child = new TextBlock { Text = "DEVELOPER", FontSize = 10, Foreground = Res("AccentText") } });
-        head.Children.Add(new TextBlock { Text = Ago(m.When), FontSize = 11, Foreground = Res("MutedText"), VerticalAlignment = VerticalAlignment.Center });
-        body.Children.Add(head);
+        if (!continued)
+        {
+            var head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            head.Children.Add(new TextBlock { Text = m.Nickname, FontWeight = FontWeights.SemiBold, Foreground = m.IsDev ? Res("AccentText") : null });
+            if (m.IsDev) head.Children.Add(new Border { Padding = new Thickness(6, 0, 6, 0), CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(1), BorderBrush = Res("AccentText"), Child = new TextBlock { Text = "DEVELOPER", FontSize = 10, Foreground = Res("AccentText") } });
+            var time = new TextBlock { Text = Ago(m.When), FontSize = 11, Foreground = Res("MutedText"), VerticalAlignment = VerticalAlignment.Center };
+            ToolTipService.SetToolTip(time, m.When.ToString("dddd d MMMM yyyy, HH:mm"));
+            head.Children.Add(time);
+            body.Children.Add(head);
+        }
         if (m.Reply is { } q)
             body.Children.Add(new Border
             {
-                HorizontalAlignment = HorizontalAlignment.Left, MaxWidth = 760,
+                HorizontalAlignment = HorizontalAlignment.Left, MaxWidth = 760, CornerRadius = new CornerRadius(4),
                 BorderBrush = Res("AccentText"), BorderThickness = new Thickness(3, 0, 0, 0), Padding = new Thickness(8, 2, 8, 2), Background = Res("RowBackground"),
                 Child = new TextBlock { Text = (q.Nickname.Length > 0 ? q.Nickname + ": " : "") + q.Text, FontSize = 12, Foreground = Res("MutedText"), TextTrimming = TextTrimming.CharacterEllipsis, MaxLines = 2, TextWrapping = TextWrapping.Wrap },
             });
-        // Plain text only: shown exactly as typed.
-        body.Children.Add(new Border
-        {
-            HorizontalAlignment = HorizontalAlignment.Left, Padding = new Thickness(12, 8, 12, 8), CornerRadius = new CornerRadius(10), Background = Res("RowBackground"),
-            Child = new TextBlock { Text = m.Text, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, MaxWidth = 760 },
-        });
+        // Plain text only: shown exactly as typed, line breaks included.
+        body.Children.Add(new TextBlock { Text = m.Text, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, MaxWidth = 860, HorizontalAlignment = HorizontalAlignment.Left });
         var reactions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
         foreach (var r in m.Reactions)
         {
-            var b = new ToggleButton { Content = $"{r.Emoji} {r.Count}", IsChecked = r.Mine, Padding = new Thickness(8, 2, 8, 2), FontSize = 12 };
+            var b = new ToggleButton { Content = $"{r.Emoji} {r.Count}", IsChecked = r.Mine, Padding = new Thickness(8, 1, 8, 2), FontSize = 12, CornerRadius = new CornerRadius(12) };
+            ToolTipService.SetToolTip(b, r.Mine ? "Remove your reaction" : "React the same");
             b.Click += async (_, _) => await ReactAsync(m, r.Emoji, b.IsChecked == true);
             reactions.Children.Add(b);
         }
         if (reactions.Children.Count > 0) body.Children.Add(reactions);
         Grid.SetColumn(body, 1);
-        grid.Children.Add(body);
+        row.Children.Add(body);
 
-        var more = new Button { Content = new FontIcon { Glyph = "", FontSize = 12 }, Padding = new Thickness(6, 4, 6, 4), VerticalAlignment = VerticalAlignment.Top, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0) };
-        var menu = new MenuFlyout();
-        var react = new MenuFlyoutSubItem { Text = "React" };
+        // hover bar: floats over the top right corner of the row
+        var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 0 };
         foreach (var e in CommunityHub.Reactions)
         {
-            var item = new MenuFlyoutItem { Text = e };
-            item.Click += async (_, _) => await ReactAsync(m, e, true);
-            react.Items.Add(item);
+            bool already = m.Reactions.Any(r => r.Emoji == e && r.Mine);
+            var react = BarButton(new TextBlock { Text = e, FontSize = 15 }, already ? "Remove your reaction" : "React");
+            react.Click += async (_, _) => await ReactAsync(m, e, !already);
+            bar.Children.Add(react);
         }
-        menu.Items.Add(react);
-        var reply = new MenuFlyoutItem { Text = "Reply" };
+        var reply = BarButton(new FontIcon { Glyph = "", FontSize = 14 }, "Reply");
         reply.Click += (_, _) =>
         {
             _chatReplyTo = m.Id;
@@ -339,8 +529,10 @@ public sealed partial class MainWindow
             ChatReplyBar.Visibility = Visibility.Visible;
             ChatInput.Focus(FocusState.Programmatic);
         };
-        menu.Items.Add(reply);
-        var copy = new MenuFlyoutItem { Text = "Copy text" };
+        bar.Children.Add(reply);
+        var more = BarButton(new FontIcon { Glyph = "", FontSize = 14 }, "More");
+        var menu = new MenuFlyout();
+        var copy = new MenuFlyoutItem { Text = "Copy text", Icon = new FontIcon { Glyph = "" } };
         copy.Click += (_, _) =>
         {
             var data = new Windows.ApplicationModel.DataTransfer.DataPackage();
@@ -350,19 +542,44 @@ public sealed partial class MainWindow
         menu.Items.Add(copy);
         if (m.Mine)
         {
-            var delete = new MenuFlyoutItem { Text = "Delete my message" };
+            var delete = new MenuFlyoutItem { Text = "Delete my message", Icon = new FontIcon { Glyph = "" } };
             delete.Click += async (_, _) =>
             {
-                try { await CommunityHub.DeleteChatAsync(m.Id); ChatList.Children.Remove(grid); }
+                try { await CommunityHub.DeleteChatAsync(m.Id); _chatMessages.Remove(m); RenderChat(); }
                 catch (Exception ex) { ChatStatus.Text = ex.Message; }
             };
             menu.Items.Add(delete);
         }
         more.Flyout = menu;
-        ToolTipService.SetToolTip(more, "React, reply or copy");
-        Grid.SetColumn(more, 2);
-        grid.Children.Add(more);
-        return grid;
+        bar.Children.Add(more);
+        var barHost = new Border
+        {
+            Child = bar, Padding = new Thickness(4, 2, 4, 2), CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(1), BorderBrush = Res("RowBorder"),
+            Background = Res("PanelBackground"), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, -16, 4, 0), Opacity = 0, IsHitTestVisible = false,
+        };
+        Grid.SetColumnSpan(barHost, 2);
+        row.Children.Add(barHost);
+
+        void Hover(bool on)
+        {
+            row.Background = on ? Res("RowBackground") : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            barHost.Opacity = on ? 1 : 0;
+            barHost.IsHitTestVisible = on;
+            if (sideTime is not null) sideTime.Opacity = on ? 1 : 0;
+        }
+        row.PointerEntered += (_, _) => Hover(true);
+        // Keep the bar while its "more" menu is open, so the menu does not lose its anchor.
+        row.PointerExited += (_, _) => { if (!menu.IsOpen) Hover(false); };
+        menu.Closed += (_, _) => Hover(false);
+        return row;
+    }
+
+    private static Button BarButton(UIElement content, string tip)
+    {
+        var b = new Button { Content = content, Padding = new Thickness(7, 4, 7, 4), MinWidth = 34, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0) };
+        ToolTipService.SetToolTip(b, tip);
+        return b;
     }
 
     private async Task ReactAsync(ChatMessage m, string emoji, bool on)
@@ -386,9 +603,12 @@ public sealed partial class MainWindow
         ChatReplyBar.Visibility = Visibility.Collapsed;
     }
 
-    private async void ChatInput_KeyDown(object sender, KeyRoutedEventArgs e)
+    /// <summary>Enter sends; Shift+Enter starts a new line.</summary>
+    private async void ChatInput_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (e.Key != Windows.System.VirtualKey.Enter) return;
+        var shift = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(Windows.System.VirtualKey.Shift);
+        if (shift.HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down)) return;
         e.Handled = true;
         await SendChatAsync();
     }
@@ -397,7 +617,7 @@ public sealed partial class MainWindow
 
     private async Task SendChatAsync()
     {
-        var text = ChatInput.Text.Trim();
+        var text = ChatInput.Text.Replace("\r\n", "\n").Replace('\r', '\n').Trim();
         if (text.Length == 0 || !await EnsureNicknameAsync()) return;
         ChatSend.IsEnabled = false;
         try
@@ -407,7 +627,7 @@ public sealed partial class MainWindow
             ChatReplyCancel_Click(this, new RoutedEventArgs());
             await PollChatAsync();
             ScrollChatToEnd();
-            ChatStatus.Text = "Enter to send · be kind · links show as text";
+            ChatStatus.Text = ChatHint;
         }
         catch (Exception ex) { ChatStatus.Text = "Not sent: " + ex.Message; }
         finally { ChatSend.IsEnabled = true; }

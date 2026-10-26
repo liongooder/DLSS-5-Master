@@ -45,9 +45,9 @@ public sealed class Components
     };
 
     public const string MfgAddon = "renodx-mfgunlock.addon64";
-    public const string MfgVersion = "1.5.5";
-    public const string MfgUrl = "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/1.5.5/renodx-mfgunlock.addon64";
-    public const string MfgSha256 = "e1529d0d20a5ec57c17beb740b14966e5d3ade24e229623d75029b900fd5943e";
+    public const string MfgVersion = "1.5.8";
+    public const string MfgUrl = "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/1.5.8/renodx-mfgunlock.addon64";
+    public const string MfgSha256 = "beae1bd3f46ba83f97bfcc53f612fb9e27b7dcc5a85f8e9c6c1c1ca75bee4e33";
 
     public static readonly string[] OptiLibraries =
     {
@@ -63,9 +63,9 @@ public sealed class Components
          "renodx-dlss5.addon64", "342341f669f1d64e0c70c8593a07a2fab5075e073dfae97c331c9a6776260a0a", "renodx-dlss5-6.5.3");
 
     private static readonly (string Url, string ZipSha, string Inner, string InnerSha, string Cache) MultipassPin =
-        ("https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss-SF-26.1003.2350/renodx-dlss_SF_26.1003.2350.zip",
-         "34ef92d6742bf6d05df42ff81c04b70f5138b0a0a970a93f1a04295ac83f7f0f",
-         "renodx-dlss.addon64", "1310119c87e4ab5ad0af41511411bd4608ff3c3030a29196ae0e4bba32c84585", "renodx-dlss-SF-26.1003.2350");
+        ("https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss-SF-26.1016.1304/renodx-dlss_SF_26.1016.1304.zip",
+         "bc4ec58d31565f6919c4e0c1aad8d8ea6443199e12b54f9e019b2ffd8afaaabf",
+         "renodx-dlss.addon64", "a8fd34b531fd22c3dbd008ed8fd3cbfcca2fb451729e19cd1fc2e4c85b5068d4", "renodx-dlss-SF-26.1016.1304");
 
     private const string FeederUrl = "https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v1.19.0/DLSS5-Feeder-1.19.0.zip";
     private const string FeederSha = "9cc19e28f8fb4e216ea61621fdf6443e207e338ec639979ab335503c75f48f36";

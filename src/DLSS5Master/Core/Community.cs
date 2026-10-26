@@ -115,7 +115,27 @@ public static partial class Community
         return new CommunitySummary(key, counts, combos, notes, mine);
     }
 
-    public sealed record Report(string Key, string Name, string Rating, string Route, bool Mfg, string Note, Dictionary<string, string> Versions);
+    public sealed record Report(string Key, string Name, string Rating, string Route, bool Mfg, string Note, Dictionary<string, string> Versions, RenderApi Api = RenderApi.Unknown);
+
+    /// <summary>The community server's name for a rendering API ("" when unknown).</summary>
+    public static string ApiKey(RenderApi api) => api switch
+    {
+        RenderApi.DX12 => "dx12",
+        RenderApi.DX11 => "dx11",
+        RenderApi.DX10 => "dx10",
+        RenderApi.DX9 => "dx9",
+        RenderApi.DX8 => "dx8",
+        RenderApi.DirectDraw => "ddraw",
+        RenderApi.Vulkan => "vulkan",
+        RenderApi.OpenGL => "opengl",
+        _ => "",
+    };
+
+    public static string ApiLabel(string key) => key switch
+    {
+        "dx12" => "DX12", "dx11" => "DX11", "dx10" => "DX10", "dx9" => "DX9", "dx8" => "DX8",
+        "ddraw" => "DDraw", "vulkan" => "Vulkan", "opengl" => "OpenGL", _ => key.ToUpperInvariant(),
+    };
 
     public static async Task SendAsync(Report report, CancellationToken ct = default)
     {
@@ -130,6 +150,7 @@ public static partial class Community
             ["mfg"] = report.Mfg,
             ["gpu"] = gpu.Length > 80 ? gpu[..80] : gpu,
             ["gpuFamily"] = GpuFamily(gpu),
+            ["api"] = ApiKey(report.Api),
             ["versions"] = report.Versions,
             ["appVersion"] = Updates.CurrentAppVersion.ToString(),
             ["note"] = report.Note.Trim() is var n && n.Length > NoteMax ? n[..NoteMax] : report.Note.Trim(),

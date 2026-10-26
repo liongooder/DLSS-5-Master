@@ -62,8 +62,10 @@ public sealed partial class MainWindow
 
     private void EmptyClear_Click(object sender, RoutedEventArgs e)
     {
+        _holdFilter = true;
         SearchBox.Text = "";
-        FilterBox.SelectedIndex = 0;
+        ApiFilter.SelectedIndex = DlssFilter.SelectedIndex = StateFilter.SelectedIndex = 0;
+        _holdFilter = false;
         ApplyFilter();
     }
 }

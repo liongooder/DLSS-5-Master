@@ -25,6 +25,15 @@
       <SolidColorBrush x:Key="RowBackground" Color="#1A9CC8FF" />
       <SolidColorBrush x:Key="RowBorder" Color="#22FFFFFF" />
       <SolidColorBrush x:Key="OverlayBackground" Color="#B3020509" />
+      <!-- Rendering-API badge on the posters: DirectX 12 (every DLSS 5 route) stands out, others stay quiet. -->
+      <SolidColorBrush x:Key="ApiStrongBackground" Color="#F06FD34A" />
+      <SolidColorBrush x:Key="ApiStrongText" Color="#FF07120A" />
+      <SolidColorBrush x:Key="ApiBackground" Color="#E00B1118" />
+      <SolidColorBrush x:Key="ApiText" Color="#E6FFFFFF" />
+      <!-- Community results: works / partly / broken. -->
+      <SolidColorBrush x:Key="ResultWorks" Color="#FF6FD34A" />
+      <SolidColorBrush x:Key="ResultPartly" Color="#FFF2B84B" />
+      <SolidColorBrush x:Key="ResultBroken" Color="#FFFF6B6B" />
 
       <Style x:Key="FieldLabel" TargetType="TextBlock">
         <Setter Property="Foreground" Value="{StaticResource MutedText}" />

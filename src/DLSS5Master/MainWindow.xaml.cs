@@ -15,7 +15,8 @@ public sealed partial class MainWindow : Window
     private readonly AppSettings _settings = AppSettings.Load();
     private readonly Components _components;
     private readonly List<GameItem> _all = new();
-    private readonly ObservableCollection<GameItem> _visible = new();
+    /// <summary>The games that pass the search and filters, in the order the grid shows them.</summary>
+    private List<GameItem> _visible = new();
     private CancellationTokenSource? _scanCts;
 
     public MainWindow()
@@ -43,7 +44,6 @@ public sealed partial class MainWindow : Window
         AppUpdateButton.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => UpdateTitleBarRegions());
         Tabs.LayoutUpdated += (_, _) => { if (Tabs.ActualOffset != _tabsOffset) { _tabsOffset = Tabs.ActualOffset; UpdateTitleBarRegions(); } };
         GameOverlay.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => UpdateTitleBarRegions());
-        GameGrid.ItemsSource = _visible;
         NoticesText.Text = Notices;
         AboutCoffeeHost.Content = CoffeeButton();
         InitGamePanel();
@@ -166,12 +166,13 @@ public sealed partial class MainWindow : Window
         LoadingText.Text = "Finding your games…";
         EmptyPanel.Visibility = Visibility.Collapsed;
         _all.Clear();
-        _visible.Clear();
+        ApplyFilter(force: true);
         List<GameEntry> games;
         try { games = await Task.Run(() => Library.Discover(_settings)); }
         catch (Exception e) { LoadingText.Text = "Could not read the game library: " + e.Message; return; }
         foreach (var g in games) _all.Add(new GameItem(g));
-        ApplyFilter();
+        AppPaths.Log($"Library: found {games.Count} games ({string.Join(", ", games.GroupBy(g => g.Launcher).Select(g => $"{g.Key} {g.Count()}"))}).");
+        ApplyFilter(force: true);
         LoadingPanel.Visibility = Visibility.Collapsed;
         UpdateEmptyState();
         if (_all.Count == 0) return;
@@ -284,33 +285,16 @@ public sealed partial class MainWindow : Window
             {
                 gate.Release();
                 ScanStatus.Text = ++done < items.Count ? $"Scanning games… {done}/{items.Count}" : $"{items.Count} games";
+                if (done % 10 == 0) RefreshLibrarySummary();
             }
         });
-        try { await Task.WhenAll(tasks); } catch (OperationCanceledException) { }
-        ApplyFilter();
+        try { await Task.WhenAll(tasks); } catch (OperationCanceledException) { return; }
+        AppPaths.Log($"Library: scanned {items.Count} games: {items.Count(i => i.Api == RenderApi.DX12)} on DirectX 12, {items.Count(i => i.HasDlss)} with DLSS, " +
+                     $"{items.Count(i => i.IsReady)} ready for DLSS 5, {items.Count(i => i.IsInstalled)} set up with DLSS 5 Master.");
+        // Filters by API, DLSS and state only work once games are scanned: apply them again with the results.
+        ApplyFilter(force: true);
     }
 
-    private void ApplyFilter()
-    {
-        var q = SearchBox.Text?.Trim() ?? "";
-        IEnumerable<GameItem> items = _all;
-        if (q != "") items = items.Where(i => i.Name.Contains(q, StringComparison.CurrentCultureIgnoreCase));
-        items = FilterBox.SelectedIndex switch
-        {
-            1 => items.Where(i => i.Scan?.Dlss is not null),
-            2 => items.Where(i => i.IsInstalled),
-            3 => items.Where(i => i.Scan is { Manifest: null } s && (s.OtherAppBackup || s.OtherAppRecord || s.OptiScalerHook is not null || s.ReShade.Installed)),
-            _ => items
-        };
-        var list = items.ToList();
-        if (list.SequenceEqual(_visible)) return;
-        _visible.Clear();
-        foreach (var i in list) _visible.Add(i);
-        UpdateEmptyState(libraryLoaded: LoadingPanel.Visibility != Visibility.Visible);
-    }
-
-    private void SearchBox_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args) => ApplyFilter();
-    private void FilterBox_SelectionChanged(object sender, SelectionChangedEventArgs e) { if (_visible is not null) ApplyFilter(); }
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await LoadLibraryAsync();
 
     private async void AddGame_Click(object sender, RoutedEventArgs e)
@@ -340,7 +324,7 @@ public sealed partial class MainWindow : Window
         if (tab == TabCommunity) Reveal(CommunityPage);
         else if (tab == TabSettings) Reveal(SettingsPage);
         else if (tab == TabAbout) Reveal(AboutPage);
-        if (tab == TabSettings) { RefreshUpdatesPanel(); _ = RefreshSettingsPage(); }
+        if (tab == TabSettings) { RefreshUpdatesPanel(); _ = RefreshSettingsPage(); _ = LoadActivityLogAsync(); }
     }
 
     // ------------------------------------------------------------------ settings page
@@ -468,6 +452,61 @@ public sealed partial class MainWindow : Window
         Process.Start(new ProcessStartInfo(AppPaths.LogFile) { UseShellExecute = true });
     }
 
+    // ------------------------------------------------------------------ activity log (Settings)
+
+    private const int ActivityLines = 400;
+
+    /// <summary>Shows the end of activity.log, newest line at the bottom.</summary>
+    private async Task LoadActivityLogAsync()
+    {
+        var (text, total) = await Task.Run(() =>
+        {
+            if (!File.Exists(AppPaths.LogFile)) return ("", 0);
+            // The app may be writing to the log at the same moment; share it.
+            using var fs = new FileStream(AppPaths.LogFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(fs);
+            var lines = new Queue<string>();
+            int count = 0;
+            while (reader.ReadLine() is { } line)
+            {
+                count++;
+                lines.Enqueue(line);
+                if (lines.Count > ActivityLines) lines.Dequeue();
+            }
+            return (string.Join("\n", lines), count);
+        });
+        ActivityLogBox.Text = text;
+        ActivityLogBox.SelectionStart = text.Length;   // scrolls to the newest line
+        ActivityStatus.Text = total == 0 ? "Nothing logged yet."
+            : total > ActivityLines ? $"Last {ActivityLines} of {total} lines. Open file shows everything." : $"{total} lines.";
+    }
+
+    private async void ActivityRefresh_Click(object sender, RoutedEventArgs e) => await LoadActivityLogAsync();
+
+    private async void ActivityCopy_Click(object sender, RoutedEventArgs e)
+    {
+        await LoadActivityLogAsync();
+        var data = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        data.SetText(ActivityLogBox.Text);
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(data);
+        ActivityStatus.Text = "Copied. Paste it into your bug report.";
+    }
+
+    private async void ActivityClear_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Root.XamlRoot, Title = "Clear the activity log?",
+            Content = "Everything logged so far is deleted. Copy it first if you want to keep it for a bug report.",
+            PrimaryButtonText = "Clear", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        try { File.WriteAllText(AppPaths.LogFile, ""); }
+        catch (Exception ex) { ActivityStatus.Text = "Could not clear it: " + ex.Message; return; }
+        AppPaths.Log("Activity log cleared.");
+        await LoadActivityLogAsync();
+    }
+
     private const string Notices =
         "Included with DLSS 5 Master (SHA-256 pinned; licence texts in the install folder):\n" +
         "• NVIDIA DLSS, Frame Generation, Ray Reconstruction, neural rendering runtimes and Streamline — © NVIDIA Corporation, NVIDIA license\n" +
@@ -475,7 +514,7 @@ public sealed partial class MainWindow : Window
         "• RenoDX DLSS5 add-on and DLSS Tool — github.com/clshortfuse/renodx (MIT)\n" +
         "• DLSS5-Feeder — github.com/jlrouzies-fr/DLSS5-Feeder (MIT)\n" +
         "• vort_Shaders — github.com/vortigern11/vort_Shaders (MIT)\n" +
-        "• MFGAdaUnlock-RenoDx 1.5.5 — github.com/mavismmg/MFGAdaUnlock-RenoDx (MIT)\n" +
+        "• MFGAdaUnlock-RenoDx 1.5.8 — github.com/mavismmg/MFGAdaUnlock-RenoDx (MIT)\n" +
         "• OptiScaler NR pre-SR multipass 0.8.3 RTX 40 MFG — github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0; source code at tag v0.8.3)\n\n" +
         "Downloaded when first used, from their authors' release pages and verified by SHA-256:\n" +
         "• OptiScaler NR pre-SR multipass 0.8.3 (standard) — github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0)\n" +

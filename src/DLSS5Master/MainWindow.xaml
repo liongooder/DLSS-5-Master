@@ -51,28 +51,117 @@
       <Grid.OpacityTransition><ScalarTransition Duration="0:0:0.2" /></Grid.OpacityTransition>
       <Grid.TranslationTransition><Vector3Transition Duration="0:0:0.25" /></Grid.TranslationTransition>
       <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-      <!-- search / filter / add / rescan for the library -->
-      <StackPanel x:Name="GameTools" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="24,8,30,0">
-        <AutoSuggestBox x:Name="SearchBox" Width="220" PlaceholderText="Search games" QueryIcon="Find" TextChanged="SearchBox_TextChanged" />
-        <ComboBox x:Name="FilterBox" Width="150" SelectedIndex="0" SelectionChanged="FilterBox_SelectionChanged">
-          <ComboBoxItem Content="All games" />
-          <ComboBoxItem Content="Has DLSS" />
-          <ComboBoxItem Content="Installed here" />
-          <ComboBoxItem Content="Modded elsewhere" />
-        </ComboBox>
-        <Button ToolTipService.ToolTip="Add a game by its .exe" Click="AddGame_Click">
-          <FontIcon Glyph="&#xE710;" FontSize="14" />
-        </Button>
-        <Button ToolTipService.ToolTip="Rescan library" Click="Refresh_Click">
-          <FontIcon Glyph="&#xE72C;" FontSize="14" />
-        </Button>
+      <!-- title, filters and summary for the library -->
+      <StackPanel x:Name="GameTools" Spacing="10" Margin="30,6,34,4">
+        <Grid ColumnSpacing="8">
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+          <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <TextBlock Text="Games" FontSize="22" FontWeight="SemiBold" />
+            <TextBlock x:Name="LibraryCount" Foreground="{StaticResource MutedText}" VerticalAlignment="Bottom" Margin="0,0,0,3" />
+          </StackPanel>
+          <Button Grid.Column="1" ToolTipService.ToolTip="Add a game by its .exe" Click="AddGame_Click">
+            <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE710;" FontSize="13" /><TextBlock Text="Add a game" /></StackPanel>
+          </Button>
+          <Button Grid.Column="2" ToolTipService.ToolTip="Add a folder where every sub-folder is a game" Click="AddFolder_Click">
+            <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8B7;" FontSize="13" /><TextBlock Text="Add a folder" /></StackPanel>
+          </Button>
+          <Button Grid.Column="3" Style="{StaticResource AccentButtonStyle}" ToolTipService.ToolTip="Find and scan your games again" Click="Refresh_Click">
+            <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE72C;" FontSize="13" /><TextBlock Text="Rescan" /></StackPanel>
+          </Button>
+        </Grid>
+        <Grid ColumnSpacing="10">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" MinWidth="200" /><ColumnDefinition Width="170" /><ColumnDefinition Width="190" /><ColumnDefinition Width="200" /><ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <AutoSuggestBox x:Name="SearchBox" PlaceholderText="Search by game title…" QueryIcon="Find" TextChanged="SearchBox_TextChanged" />
+          <ComboBox x:Name="ApiFilter" Grid.Column="1" HorizontalAlignment="Stretch" SelectedIndex="0" SelectionChanged="LibraryFilter_Changed">
+            <ComboBoxItem Content="All APIs" Tag="" />
+            <ComboBoxItem Content="DirectX 12" Tag="dx12" />
+            <ComboBoxItem Content="DirectX 11" Tag="dx11" />
+            <ComboBoxItem Content="Vulkan" Tag="vulkan" />
+            <ComboBoxItem Content="Older (DX9 and below, OpenGL)" Tag="older" />
+            <ComboBoxItem Content="Unknown" Tag="unknown" />
+          </ComboBox>
+          <ComboBox x:Name="DlssFilter" Grid.Column="2" HorizontalAlignment="Stretch" SelectedIndex="0" SelectionChanged="LibraryFilter_Changed">
+            <ComboBoxItem Content="All DLSS states" Tag="" />
+            <ComboBoxItem Content="Has DLSS" Tag="dlss" />
+            <ComboBoxItem Content="Has Frame Generation" Tag="fg" />
+            <ComboBoxItem Content="No DLSS" Tag="none" />
+          </ComboBox>
+          <ComboBox x:Name="StateFilter" Grid.Column="3" HorizontalAlignment="Stretch" SelectedIndex="0" SelectionChanged="LibraryFilter_Changed">
+            <ComboBoxItem Content="Any setup state" Tag="" />
+            <ComboBoxItem Content="Ready for DLSS 5" Tag="ready" />
+            <ComboBoxItem Content="Set up with DLSS 5 Master" Tag="installed" />
+            <ComboBoxItem Content="Modded by another app" Tag="other" />
+            <ComboBoxItem Content="Not modded" Tag="clean" />
+          </ComboBox>
+          <Button x:Name="ClearFiltersButton" Grid.Column="4" Content="Clear filters" IsEnabled="False" Click="EmptyClear_Click" />
+        </Grid>
+        <!-- clickable totals; each one applies its filter (filled in code) -->
+        <StackPanel x:Name="SummaryChips" Orientation="Horizontal" Spacing="8" />
       </StackPanel>
-      <GridView x:Name="GameGrid" Grid.Row="1" Padding="24,8,24,24" IsItemClickEnabled="True" SelectionMode="None" ItemClick="GameGrid_ItemClick">
+      <GridView x:Name="GameGrid" Grid.Row="1" Padding="24,0,24,24" IsItemClickEnabled="True" SelectionMode="None" ItemClick="GameGrid_ItemClick">
         <!-- The poster itself reacts to the mouse (see PosterCard_PointerEntered); no grey box around it. -->
         <GridView.Resources>
           <SolidColorBrush x:Key="GridViewItemBackgroundPointerOver" Color="Transparent" />
           <SolidColorBrush x:Key="GridViewItemBackgroundPressed" Color="Transparent" />
         </GridView.Resources>
+        <!-- Games this app set up, newest first (filled in code; hidden while a filter or search is active). -->
+        <GridView.Header>
+          <StackPanel x:Name="RecentPanel" Spacing="8" Margin="6,6,6,10" Visibility="Collapsed">
+            <TextBlock Text="RECENTLY MODDED" Style="{StaticResource SectionTitle}" />
+            <ScrollViewer HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
+              <ItemsControl x:Name="RecentList" Padding="0,0,0,12">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="10" /></ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="views:GameItem">
+                    <Button Width="290" Height="112" Padding="8" CornerRadius="12" Background="{StaticResource RowBackground}" BorderBrush="{StaticResource RowBorder}"
+                            HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" Click="RecentGame_Click" Tag="{x:Bind}">
+                      <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="64" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <Grid CornerRadius="8" Background="#CC0D1824">
+                          <TextBlock Text="{x:Bind Initials}" Visibility="{x:Bind PlaceholderVisibility, Mode=OneWay}" FontSize="18" FontWeight="Black"
+                                     Foreground="#40FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                          <Image Source="{x:Bind Poster, Mode=OneWay}" Stretch="UniformToFill" />
+                        </Grid>
+                        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                          <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{x:Bind Badge, Mode=OneWay}" FontSize="12" Foreground="{StaticResource AccentText}" TextTrimming="CharacterEllipsis" />
+                          <TextBlock Text="{x:Bind Subtitle, Mode=OneWay}" FontSize="12" Foreground="{StaticResource MutedText}" />
+                        </StackPanel>
+                      </Grid>
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </StackPanel>
+        </GridView.Header>
+        <!-- One section per store: "Steam  73 · 72 ready for DLSS 5". -->
+        <GridView.GroupStyle>
+          <GroupStyle HidesIfEmpty="True">
+            <GroupStyle.HeaderContainerStyle>
+              <Style TargetType="GridViewHeaderItem">
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="Padding" Value="6,8,6,4" />
+                <Setter Property="BorderThickness" Value="0" />
+              </Style>
+            </GroupStyle.HeaderContainerStyle>
+            <GroupStyle.HeaderTemplate>
+              <DataTemplate x:DataType="views:GameGroup">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <TextBlock Text="{x:Bind Key}" FontSize="18" FontWeight="SemiBold" />
+                  <TextBlock Text="{x:Bind CountText}" Foreground="{StaticResource MutedText}" VerticalAlignment="Bottom" Margin="0,0,0,2" />
+                  <Border Padding="10,2" CornerRadius="10" BorderThickness="1" BorderBrush="{StaticResource AccentText}" VerticalAlignment="Center" Margin="8,0,0,0">
+                    <TextBlock Text="{x:Bind ReadyText}" FontSize="12" Foreground="{StaticResource AccentText}" />
+                  </Border>
+                </StackPanel>
+              </DataTemplate>
+            </GroupStyle.HeaderTemplate>
+          </GroupStyle>
+        </GridView.GroupStyle>
         <!-- Rows are centred so the space left over by the last column is shared evenly on both sides. -->
         <GridView.ItemsPanel>
           <ItemsPanelTemplate>
@@ -101,9 +190,34 @@
                 <TextBlock Text="{x:Bind Initials}" Visibility="{x:Bind PlaceholderVisibility, Mode=OneWay}" FontSize="44" FontWeight="Black"
                            Foreground="#40FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center" />
                 <Image Source="{x:Bind Poster, Mode=OneWay}" Stretch="UniformToFill" />
-                <Border Visibility="{x:Bind BadgeVisibility, Mode=OneWay}" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8"
+                <!-- what this app (or another one) installed here -->
+                <Border Visibility="{x:Bind BadgeVisibility, Mode=OneWay}" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8,8,8,0"
                         Background="#E0101410" CornerRadius="8" Padding="8,3" BorderThickness="1" BorderBrush="{ThemeResource AccentFillColorDefaultBrush}">
-                  <TextBlock Text="{x:Bind Badge, Mode=OneWay}" FontSize="11" Foreground="{StaticResource AccentText}" MaxWidth="160" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text="{x:Bind Badge, Mode=OneWay}" FontSize="11" Foreground="{StaticResource AccentText}" MaxWidth="110" TextTrimming="CharacterEllipsis" />
+                </Border>
+                <!-- rendering API -->
+                <Border Visibility="{x:Bind ApiVisibility, Mode=OneWay}" VerticalAlignment="Top" HorizontalAlignment="Right" Margin="8"
+                        Background="{x:Bind ApiBackground, Mode=OneWay}" CornerRadius="8" Padding="8,3">
+                  <TextBlock Text="{x:Bind ApiText, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Foreground="{x:Bind ApiForeground, Mode=OneWay}" />
+                </Border>
+                <!-- DLSS version and Frame Generation on a dark strip at the bottom of the poster -->
+                <Border Visibility="{x:Bind FactsVisibility, Mode=OneWay}" VerticalAlignment="Bottom" Padding="10,22,10,8">
+                  <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                      <GradientStop Color="#00060B12" Offset="0" />
+                      <GradientStop Color="#E6060B12" Offset="0.55" />
+                    </LinearGradientBrush>
+                  </Border.Background>
+                  <StackPanel Orientation="Horizontal" Spacing="12">
+                    <StackPanel Orientation="Horizontal" Spacing="5">
+                      <Ellipse Width="8" Height="8" Fill="{x:Bind DlssDot, Mode=OneWay}" VerticalAlignment="Center" />
+                      <TextBlock Text="{x:Bind DlssText, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="5" Visibility="{x:Bind FrameGenVisibility, Mode=OneWay}">
+                      <Ellipse Width="8" Height="8" Fill="{StaticResource AccentText}" VerticalAlignment="Center" />
+                      <TextBlock Text="FG" FontSize="12" FontWeight="SemiBold" ToolTipService.ToolTip="The game ships DLSS Frame Generation" />
+                    </StackPanel>
+                  </StackPanel>
                 </Border>
               </Grid>
               <StackPanel Spacing="1">
@@ -174,32 +288,71 @@
       <Grid Grid.Row="1">
         <!-- GAMES -->
         <Grid x:Name="CGamesPage" RowSpacing="10">
-          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-          <StackPanel Orientation="Horizontal" Spacing="10" HorizontalAlignment="Center">
-            <ComboBox x:Name="CgRoute" Header="Route" Width="160" SelectedIndex="0" SelectionChanged="CgFilter_Changed">
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+          <Grid ColumnSpacing="10">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="*" MinWidth="180" /><ColumnDefinition Width="150" /><ColumnDefinition Width="150" /><ColumnDefinition Width="150" />
+              <ColumnDefinition Width="180" />
+            </Grid.ColumnDefinitions>
+            <AutoSuggestBox x:Name="CgSearch" Header="Search games" PlaceholderText="Game name" QueryIcon="Find"
+                            QuerySubmitted="CgSearch_QuerySubmitted" TextChanged="CgSearch_TextChanged" />
+            <ComboBox x:Name="CgRoute" Grid.Column="1" Header="Route" HorizontalAlignment="Stretch" SelectedIndex="0" SelectionChanged="CgFilter_Changed">
               <ComboBoxItem Content="All routes" Tag="" />
               <ComboBoxItem Content="Native" Tag="native" />
               <ComboBoxItem Content="Multipass" Tag="multipass" />
               <ComboBoxItem Content="Feeder" Tag="feeder" />
               <ComboBoxItem Content="OptiScaler" Tag="optiscaler" />
             </ComboBox>
-            <ComboBox x:Name="CgResult" Header="Result" Width="160" SelectedIndex="0" SelectionChanged="CgFilter_Changed">
-              <ComboBoxItem Content="Any result" Tag="" />
+            <ComboBox x:Name="CgApi" Grid.Column="2" Header="Rendering API" HorizontalAlignment="Stretch" SelectedIndex="0" SelectionChanged="CgFilter_Changed">
+              <ComboBoxItem Content="All APIs" Tag="" />
+              <ComboBoxItem Content="DirectX 12" Tag="dx12" />
+              <ComboBoxItem Content="DirectX 11" Tag="dx11" />
+              <ComboBoxItem Content="Vulkan" Tag="vulkan" />
+              <ComboBoxItem Content="Older" Tag="older" />
+            </ComboBox>
+            <ComboBox x:Name="CgResult" Grid.Column="3" Header="Result" HorizontalAlignment="Stretch" SelectedIndex="0" SelectionChanged="CgFilter_Changed">
+              <ComboBoxItem Content="All results" Tag="" />
               <ComboBoxItem Content="Working" Tag="working" />
               <ComboBoxItem Content="Mixed" Tag="mixed" />
               <ComboBoxItem Content="Not working" Tag="broken" />
             </ComboBox>
-            <ComboBox x:Name="CgSort" Header="Sort" Width="160" SelectedIndex="0" SelectionChanged="CgFilter_Changed">
+            <ComboBox x:Name="CgGpu" Grid.Column="4" Header="Graphics card" HorizontalAlignment="Stretch" SelectedIndex="0" SelectionChanged="CgFilter_Changed">
+              <ComboBoxItem Content="All graphics cards" Tag="" />
+              <ComboBoxItem Content="RTX 50" Tag="RTX 50" />
+              <ComboBoxItem Content="RTX 40" Tag="RTX 40" />
+              <ComboBoxItem Content="RTX 30" Tag="RTX 30" />
+              <ComboBoxItem Content="RTX 20" Tag="RTX 20" />
+              <ComboBoxItem Content="GTX" Tag="GTX" />
+              <ComboBoxItem Content="AMD" Tag="AMD" />
+              <ComboBoxItem Content="Intel" Tag="Intel" />
+            </ComboBox>
+          </Grid>
+          <!-- whose games, then sort and clear on the right -->
+          <Grid Grid.Row="1" ColumnSpacing="10">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="170" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="1" Text="Sort" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" />
+            <ComboBox x:Name="CgSort" Grid.Column="2" HorizontalAlignment="Stretch" VerticalAlignment="Center" SelectedIndex="0" SelectionChanged="CgFilter_Changed">
               <ComboBoxItem Content="Most recent" Tag="recent" />
               <ComboBoxItem Content="Most reports" Tag="reports" />
               <ComboBoxItem Content="Name" Tag="name" />
             </ComboBox>
-            <AutoSuggestBox x:Name="CgSearch" Header="Search" Width="220" PlaceholderText="Game name" QueryIcon="Find" QuerySubmitted="CgSearch_QuerySubmitted" />
-          </StackPanel>
-          <ScrollViewer Grid.Row="1" x:Name="CgScroll">
+            <Button x:Name="CgClear" Grid.Column="3" Content="Clear filters" VerticalAlignment="Center" IsEnabled="False" Click="CgClear_Click" />
+          <SelectorBar x:Name="CgView" SelectionChanged="CgView_SelectionChanged">
+            <SelectorBarItem x:Name="CgViewAll" Text="Everyone" IsSelected="True" ToolTipService.ToolTip="Every game players reported">
+              <SelectorBarItem.Icon><FontIcon Glyph="&#xE716;" /></SelectorBarItem.Icon>
+            </SelectorBarItem>
+            <SelectorBarItem x:Name="CgViewMyGames" Text="My games" ToolTipService.ToolTip="Reports for the games in your library">
+              <SelectorBarItem.Icon><FontIcon Glyph="&#xE7FC;" /></SelectorBarItem.Icon>
+            </SelectorBarItem>
+            <SelectorBarItem x:Name="CgViewMine" Text="My reports" ToolTipService.ToolTip="Games you rated">
+              <SelectorBarItem.Icon><FontIcon Glyph="&#xE8BD;" /></SelectorBarItem.Icon>
+            </SelectorBarItem>
+          </SelectorBar>
+          </Grid>
+          <ScrollViewer Grid.Row="2" x:Name="CgScroll">
             <StackPanel Spacing="10">
               <TextBlock x:Name="CgStatus" Foreground="{StaticResource MutedText}" HorizontalAlignment="Center" />
-              <VariableSizedWrapGrid x:Name="CgGrid" Orientation="Horizontal" ItemWidth="380" ItemHeight="132" HorizontalAlignment="Center" />
+              <VariableSizedWrapGrid x:Name="CgGrid" Orientation="Horizontal" ItemWidth="420" ItemHeight="236" HorizontalAlignment="Center" />
               <Button x:Name="CgMore" Content="Show more" HorizontalAlignment="Center" Visibility="Collapsed" Click="CgMore_Click" />
             </StackPanel>
           </ScrollViewer>
@@ -207,13 +360,25 @@
 
         <!-- CHAT -->
         <Grid x:Name="CChatPage" Visibility="Collapsed" RowSpacing="10">
-          <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-          <Border Style="{StaticResource Card}" Padding="0">
-            <ScrollViewer x:Name="ChatScroll" Padding="16,8,16,8" ViewChanged="ChatScroll_ViewChanged">
-              <StackPanel x:Name="ChatList" Spacing="6" />
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+          <Grid ColumnSpacing="12">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+            <TextBlock Text="Community chat" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center" />
+            <!-- LIVE while new messages arrive every few seconds; OFFLINE when the server cannot be reached -->
+            <Border x:Name="ChatLive" Grid.Column="1" Padding="9,2,10,3" CornerRadius="11" BorderThickness="1" BorderBrush="{StaticResource AccentText}" VerticalAlignment="Center" Visibility="Collapsed">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <Ellipse x:Name="ChatLiveDot" Width="8" Height="8" Fill="{StaticResource AccentText}" VerticalAlignment="Center" />
+                <TextBlock x:Name="ChatLiveText" Text="LIVE" FontSize="11" FontWeight="Bold" CharacterSpacing="80" Foreground="{StaticResource AccentText}" />
+              </StackPanel>
+            </Border>
+            <TextBlock Grid.Column="2" Text="Share results and discoveries with everyone. Pictures go to the Gallery." Foreground="{StaticResource MutedText}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+          </Grid>
+          <Border Grid.Row="1" Style="{StaticResource Card}" Padding="0">
+            <ScrollViewer x:Name="ChatScroll" Padding="16,14,16,8" ViewChanged="ChatScroll_ViewChanged">
+              <StackPanel x:Name="ChatList" Spacing="2" />
             </ScrollViewer>
           </Border>
-          <StackPanel Grid.Row="1" Spacing="6">
+          <StackPanel Grid.Row="2" Spacing="6">
             <Border x:Name="ChatReplyBar" Visibility="Collapsed" Padding="12,6" CornerRadius="8" Background="{StaticResource RowBackground}">
               <Grid>
                 <TextBlock x:Name="ChatReplyText" TextTrimming="CharacterEllipsis" Foreground="{StaticResource MutedText}" Margin="0,0,30,0" />
@@ -222,10 +387,11 @@
             </Border>
             <Grid ColumnSpacing="10">
               <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-              <TextBox x:Name="ChatInput" PlaceholderText="Write a message…" MaxLength="500" KeyDown="ChatInput_KeyDown" />
+              <TextBox x:Name="ChatInput" PlaceholderText="Message the community…" MaxLength="500" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120"
+                       PreviewKeyDown="ChatInput_PreviewKeyDown" />
               <Button Grid.Column="1" x:Name="ChatSend" Style="{StaticResource AccentButtonStyle}" Click="ChatSend_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE724;" FontSize="13" /><TextBlock Text="Send" /></StackPanel></Button>
             </Grid>
-            <TextBlock x:Name="ChatStatus" FontSize="11" Foreground="{StaticResource MutedText}" Text="Enter to send · be kind · links show as text" />
+            <TextBlock x:Name="ChatStatus" FontSize="11" Foreground="{StaticResource MutedText}" />
           </StackPanel>
         </Grid>
 
@@ -354,9 +520,25 @@
             <StackPanel Orientation="Horizontal" Spacing="8">
               <Button Click="ImportDlls_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8B5;" FontSize="13" /><TextBlock Text="Import DLLs…" /></StackPanel></Button>
               <Button Click="OpenDllLibrary_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8B7;" FontSize="13" /><TextBlock Text="Open library folder" /></StackPanel></Button>
-              <Button Click="OpenLog_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8A5;" FontSize="13" /><TextBlock Text="Open activity log" /></StackPanel></Button>
             </StackPanel>
             <TextBlock x:Name="DllLibraryStatus" FontSize="12" Foreground="{StaticResource MutedText}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource Card}">
+          <StackPanel Spacing="10">
+            <TextBlock Text="ACTIVITY LOG" Style="{StaticResource SectionTitle}" />
+            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
+                       Text="What DLSS 5 Master did, newest at the bottom: library scans, installs, restores and updates. Copy it into a bug report when something goes wrong." />
+            <TextBox x:Name="ActivityLogBox" IsReadOnly="True" TextWrapping="NoWrap" AcceptsReturn="True" Height="240"
+                     FontFamily="Cascadia Mono, Consolas" FontSize="12"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Click="ActivityRefresh_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE72C;" FontSize="13" /><TextBlock Text="Refresh" /></StackPanel></Button>
+              <Button Click="ActivityCopy_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8C8;" FontSize="13" /><TextBlock Text="Copy log" /></StackPanel></Button>
+              <Button Click="ActivityClear_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE74D;" FontSize="13" /><TextBlock Text="Clear" /></StackPanel></Button>
+              <Button Click="OpenLog_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8A5;" FontSize="13" /><TextBlock Text="Open file" /></StackPanel></Button>
+            </StackPanel>
+            <TextBlock x:Name="ActivityStatus" FontSize="12" Foreground="{StaticResource MutedText}" />
           </StackPanel>
         </Border>
         <Border Style="{StaticResource Card}">
@@ -391,7 +573,7 @@
         <Border Style="{StaticResource Card}">
           <StackPanel Spacing="8">
             <Image x:Name="AboutLogo" Height="150" HorizontalAlignment="Left" Stretch="Uniform" Margin="0,0,0,6" />
-            <TextBlock Text="DLSS 5 Master 0.7.1" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Text="DLSS 5 Master 0.8.0" FontSize="20" FontWeight="SemiBold" />
             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
                        Text="One place for ReShade + RenoDX neural rendering routes (Native, Multipass, Feeder), OptiScaler, and per-game DLL swapping. Every change is recorded in _DLSS5Master_Backup inside the game folder, and Restore originals puts the game back exactly as it was." />
           </StackPanel>
@@ -530,7 +712,7 @@
                 </StackPanel>
                 <CheckBox x:Name="AddDlssBox" Content="Add nvngx_dlss.dll beside the game if it has none" />
                 <StackPanel>
-                  <CheckBox x:Name="MfgBox" Content="MFG unlock — multi frame generation: DLSS 3x/4x on RTX 40, or Intel XeSS 2x–6x on RTX 20–50 (MFGAdaUnlock 1.5.5)" />
+                  <CheckBox x:Name="MfgBox" Content="MFG unlock — multi frame generation: DLSS 3x/4x on RTX 40, or Intel XeSS 2x–6x on RTX 20–50 (MFGAdaUnlock 1.5.8)" />
                   <TextBlock x:Name="MfgNote" Margin="28,0,0,0" FontSize="12" Foreground="{StaticResource MutedText}" TextWrapping="Wrap" />
                 </StackPanel>
               </StackPanel>

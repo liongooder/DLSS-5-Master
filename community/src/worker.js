@@ -26,6 +26,11 @@
 
 const RATINGS = new Set(['works', 'partly', 'broken']);
 const ROUTES = new Set(['native', 'multipass', 'feeder', 'optiscaler']);
+// Rendering API of the reported game ('' on reports sent before 0.8.0). "older" in the games filter means DX10 and below or OpenGL.
+const APIS = new Set(['dx12', 'dx11', 'dx10', 'dx9', 'dx8', 'ddraw', 'vulkan', 'opengl']);
+const OLDER_APIS = ['dx10', 'dx9', 'dx8', 'ddraw', 'opengl'];
+const FAMILY_RE = /^[A-Za-z0-9 ]{1,20}$/;
+const KEYS_MAX = 3000;
 const EMOJI = new Set(['👍', '❤️', '😂', '😮', '😢', '🔥']);
 const KEY_RE = /^(steam:\d{1,10}|name:[a-z0-9]{1,60})$/;
 const INSTALL_RE = /^[0-9a-f]{32}$/;
@@ -76,7 +81,13 @@ async function route(request, env) {
   if (m === 'GET' && path === '/v1/me') return getMe(env, await installFromHeader(request, env));
   if (m === 'PUT' && path === '/v1/me') return putMe(env, await readJson(request));
 
-  if (m === 'GET' && path === '/v1/games') return listGames(env, q);
+  if (m === 'GET' && path === '/v1/games') return listGames(env, q, await installFromHeader(request, env, true));
+  // The same list limited to the games in the caller's library ({ keys: [...] }); too many keys for a query string.
+  if (m === 'POST' && path === '/v1/games') {
+    const body = await readJson(request, true);
+    if (!Array.isArray(body.keys) || body.keys.length > KEYS_MAX) throw new HttpError(400, 'Bad keys');
+    return listGames(env, q, await installFromHeader(request, env, true), new Set(body.keys.filter(k => typeof k === 'string' && KEY_RE.test(k))));
+  }
   if (m === 'GET' && (g = path.match(/^\/v1\/games\/([^/]+)$/)))
     return getGame(env, decodeURIComponent(g[1]), await installFromHeader(request, env, true));
   if (m === 'POST' && path === '/v1/reports') return postReport(env, await readJson(request));
@@ -160,19 +171,43 @@ function status(w, p, b) {
   return 'mixed';
 }
 
-async function listGames(env, q) {
+/**
+ * Reported games with their totals. Filters: route, api (or "older"), gpu (family), result, q (name), mine=1 (games this
+ * install reported; needs X-Install) and, for POST, the caller's library keys. Route, API and GPU narrow the counted reports.
+ */
+async function listGames(env, q, install = null, keys = null) {
+  const where = [], binds = [];
   const routeName = q.get('route') || '';
-  if (routeName && !ROUTES.has(routeName)) throw new HttpError(400, 'Unknown route');
+  if (routeName) {
+    if (!ROUTES.has(routeName)) throw new HttpError(400, 'Unknown route');
+    where.push('route = ?'); binds.push(routeName);
+  }
+  const api = q.get('api') || '';
+  if (api === 'older') { where.push(`api IN (${OLDER_APIS.map(() => '?').join(',')})`); binds.push(...OLDER_APIS); }
+  else if (api) {
+    if (!APIS.has(api)) throw new HttpError(400, 'Unknown API');
+    where.push('api = ?'); binds.push(api);
+  }
+  const family = q.get('gpu') || '';
+  if (family) {
+    if (!FAMILY_RE.test(family)) throw new HttpError(400, 'Bad graphics card');
+    where.push('gpu_family = ?'); binds.push(family);
+  }
+  if (q.get('mine') === '1') {
+    if (!install) throw new HttpError(400, 'Missing install id');
+    where.push('game_key IN (SELECT game_key FROM reports WHERE install = ?)'); binds.push(install);
+  }
   const rows = (await env.DB.prepare(
     `SELECT game_key AS key, MAX(game_name) AS name,
             SUM(rating = 'works') AS works, SUM(rating = 'partly') AS partly, SUM(rating = 'broken') AS broken,
-            SUM(note <> '' AND hidden = 0) AS notes, MAX(updated_at) AS updated
-       FROM reports ${routeName ? 'WHERE route = ?' : ''} GROUP BY game_key`)
-    .bind(...(routeName ? [routeName] : [])).all()).results;
+            SUM(note <> '' AND hidden = 0) AS notes, MAX(updated_at) AS updated,
+            GROUP_CONCAT(DISTINCT NULLIF(api, '')) AS apis, MAX(install = ?) AS mine
+       FROM reports ${where.length ? 'WHERE ' + where.join(' AND ') : ''} GROUP BY game_key`)
+    .bind(install ?? '', ...binds).all()).results;
   const result = q.get('result') || '';
   const search = (q.get('q') || '').toLowerCase().slice(0, 60);
-  let list = rows.map(r => ({ ...r, total: r.works + r.partly + r.broken, status: status(r.works, r.partly, r.broken) }))
-    .filter(r => (!result || r.status === result) && (!search || r.name.toLowerCase().includes(search)));
+  let list = rows.map(r => ({ ...r, apis: r.apis ? r.apis.split(',') : [], mine: !!r.mine, total: r.works + r.partly + r.broken, status: status(r.works, r.partly, r.broken) }))
+    .filter(r => (!result || r.status === result) && (!search || r.name.toLowerCase().includes(search)) && (!keys || keys.has(r.key)));
   const sort = q.get('sort') || 'recent';
   list.sort(sort === 'reports' ? (a, b) => b.total - a.total || b.updated - a.updated
     : sort === 'name' ? (a, b) => a.name.localeCompare(b.name)
@@ -217,6 +252,7 @@ async function postReport(env, body) {
   const name = clean(str(body.name, 1, 100));
   const gpu = clean(str(body.gpu ?? 'Unknown', 1, 80));
   const family = clean(str(body.gpuFamily ?? 'Other', 1, 20));
+  const api = APIS.has(body.api) ? body.api : '';
   const note = clean(str(body.note ?? '', 0, NOTE_MAX * 2)).slice(0, NOTE_MAX);
   const appVersion = clean(str(body.appVersion ?? '', 0, 20));
   const versions = JSON.stringify(body.versions && typeof body.versions === 'object' ? body.versions : {}).slice(0, 400);
@@ -226,14 +262,14 @@ async function postReport(env, body) {
   const now = Date.now();
   const before = await env.DB.prepare(`SELECT id, note FROM reports WHERE install = ? AND game_key = ?`).bind(install, key).first();
   await env.DB.prepare(
-    `INSERT INTO reports (game_key, game_name, install, rating, route, mfg, gpu, gpu_family, versions, app_version, note, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO reports (game_key, game_name, install, rating, route, mfg, gpu, gpu_family, api, versions, app_version, note, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (install, game_key) DO UPDATE SET
        game_name = excluded.game_name, rating = excluded.rating, route = excluded.route, mfg = excluded.mfg,
-       gpu = excluded.gpu, gpu_family = excluded.gpu_family, versions = excluded.versions,
+       gpu = excluded.gpu, gpu_family = excluded.gpu_family, api = excluded.api, versions = excluded.versions,
        app_version = excluded.app_version, note = excluded.note, updated_at = excluded.updated_at,
        hidden = CASE WHEN reports.note = excluded.note THEN reports.hidden ELSE 0 END`)
-    .bind(key, name, install, rating, routeName, body.mfg ? 1 : 0, gpu, family, versions, appVersion, note, now, now).run();
+    .bind(key, name, install, rating, routeName, body.mfg ? 1 : 0, gpu, family, api, versions, appVersion, note, now, now).run();
   if (before && before.note !== note) await env.DB.prepare(`DELETE FROM flags WHERE report_id = ?`).bind(before.id).run();
   return json({ ok: true });
 }

@@ -52,7 +52,11 @@ public sealed partial class MainWindow
 
     private async void GameGrid_ItemClick(object sender, ItemClickEventArgs e)
     {
-        if (e.ClickedItem is not GameItem item) return;
+        if (e.ClickedItem is GameItem item) await OpenGameAsync(item);
+    }
+
+    private async Task OpenGameAsync(GameItem item)
+    {
         _game = item;
         LogBox.Text = "";
         GameOverlay.Visibility = Visibility.Visible;
@@ -72,6 +76,8 @@ public sealed partial class MainWindow
         GameOverlay.Visibility = Visibility.Collapsed;
         _game = null;
         _scan = null;
+        // An install or restore in the panel changes the totals and the "Recently modded" row.
+        RefreshLibrarySummary();
     }
 
     private async void Rescan_Click(object sender, RoutedEventArgs e) => await RescanAsync();
@@ -418,7 +424,7 @@ public sealed partial class MainWindow
         var item = _game;
         ClosePanel();
         _all.Remove(item);
-        _visible.Remove(item);
+        ApplyFilter(force: true);
     }
 
     // ------------------------------------------------------------------ actions

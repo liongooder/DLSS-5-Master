@@ -145,7 +145,7 @@ public sealed partial class MainWindow
             status.Text = "Sending…";
             try
             {
-                await Community.SendAsync(new Community.Report(Community.GameKey(_game.Entry), _game.Name, rating, route, mfg, note.Text, ReportVersions(manifest)));
+                await Community.SendAsync(new Community.Report(Community.GameKey(_game.Entry), _game.Name, rating, route, mfg, note.Text, ReportVersions(manifest), SelectedApi));
                 status.Text = "Thanks! Your report is shared.";
                 await LoadCommunityAsync();
             }
