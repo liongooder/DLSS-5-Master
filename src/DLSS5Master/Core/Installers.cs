@@ -16,7 +16,6 @@ public sealed class InstallRequest
     public required int Bitness { get; init; }
     public required Route Route { get; init; }
     public OptiBuild? OptiBuild { get; init; }
-    public string? OptiCustomFolder { get; init; }
     public string OptiHook { get; init; } = "dxgi.dll";
     public string MenuKey { get; init; } = "0x2D";
     public string ReShadeProxy { get; init; } = "dxgi.dll";
@@ -239,7 +238,7 @@ public static partial class Installers
                 consumer = await components.RenoDxConsumerAsync(progress, ct);
                 break;
             case Route.OptiScaler:
-                opti = await components.OptiScalerAsync(build, req.OptiCustomFolder, progress, ct);
+                opti = await components.OptiScalerAsync(build, progress, ct);
                 break;
         }
         if (wantMfg) mfg = await components.MfgUnlockAsync(progress, ct);

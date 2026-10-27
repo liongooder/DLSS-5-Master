@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 namespace DLSS5Master.Core;
 
 /// <summary>
-/// A pinned OptiScaler package (or the user's own folder when <see cref="Id"/> is "custom"). <see cref="WholeBackend"/>
+/// A pinned OptiScaler package. <see cref="WholeBackend"/>
 /// builds need their entire OptiScaler\ folder (own Streamline, frame-generation modules, model data), not just the
 /// usual libraries.
 /// </summary>
@@ -14,9 +14,6 @@ public sealed record OptiBuild(string Id, string Label, string? Url, string? Sha
 /// <summary>Locates or downloads (always hash-verified) every third-party file an install needs.</summary>
 public sealed class Components
 {
-    private const string DagherbouLicenseUrl = "https://raw.githubusercontent.com/Dagherbou/OptiScaler_DLSSNR/393e070/LICENSE";
-    private const string DagherbouLicenseSha = "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986";
-
     /// <summary>OptiScaler builds offered in the app: updated ones first, then the built-in list.</summary>
     public static List<OptiBuild> AllOptiBuilds => Updates.OptiBuilds().Concat(OptiBuilds).ToList();
 
@@ -31,16 +28,6 @@ public sealed class Components
         new("0.8.3", "OptiScaler NR 0.8.3 · standard",
             "https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/releases/download/v0.8.3/OptiScaler-NR-v0.8.3.zip",
             "3f2d26fb136d964a394bf50896d082156173153a2a55b88e1995277b4dabe3c8", null, null, false, true),
-        new("0.2.0-patch1", "OptiScaler DLSS-NR 0.2.0-patch1 · Dagherbou",
-            "https://github.com/Dagherbou/OptiScaler_DLSSNR/releases/download/v0.2.0-patch1/OptiScaler-DLSSNR-v0.2.0-onimusha-fix.zip",
-            "5db547216fa8a7dbd8ab0a193da1e3bce0ea4bd71f91189afa4ed2ede8bb9561", DagherbouLicenseUrl, DagherbouLicenseSha, true, true),
-        new("0.8.92-presr", "OptiScaler DLSS-NR 0.8.92 · pre-SR multipass",
-            "https://github.com/jlrouzies-fr/OptiScaler-DLSSNR-PreSR-Multipass/releases/download/v0.8.92/OptiScaler-NR-v0.8.92.zip",
-            "9605352af2378eeb5ef96aedf69c648b36152eea40a388cb5413ca6a408bf728", null, null, false, true),
-        new("0.1.1.5-dlssnr", "OptiScaler DLSS-NR 0.1.1.5 · older",
-            "https://github.com/Dagherbou/OptiScaler_DLSSNR/releases/download/v0.1.1.5-dlssnr/OptiScaler-DLSSNR-v0.1.1.5-dlssnr.zip",
-            "735b10b4077bc187ba4d07d607e864349aca386344c6126aba61ced746d27ece", DagherbouLicenseUrl, DagherbouLicenseSha, true, true),
-        new("custom", "OptiScaler · custom folder (official build, upscaler only)", null, null, null, null, false, false),
     };
 
     public static readonly Dictionary<string, string> FeederHashes = new(StringComparer.OrdinalIgnoreCase)
@@ -300,14 +287,10 @@ public sealed class Components
 
     // ------------------------------------------------------------------ OptiScaler
 
-    public async Task<string> OptiScalerAsync(OptiBuild build, string? customFolder, IProgress<string>? p, CancellationToken ct)
+    public async Task<string> OptiScalerAsync(OptiBuild build, IProgress<string>? p, CancellationToken ct)
     {
-        if (build.Id == "custom" || build.Url is null || build.Sha256 is null)
-        {
-            if (string.IsNullOrWhiteSpace(customFolder) || !File.Exists(Path.Combine(customFolder, "OptiScaler.dll")))
-                throw new InstallException("Choose a folder that contains OptiScaler.dll and OptiScaler.ini (an extracted official OptiScaler release).");
-            return Path.GetFullPath(customFolder);
-        }
+        if (build.Url is null || build.Sha256 is null)
+            throw new InstallException($"The {build.Label} package has no pinned download. Nothing was installed.");
 
         // The recommended build ships in payload\optiscaler; the others are downloaded. The bundled name has no dots
         // besides ".zip", because the build's resource indexer reads dotted name parts as qualifiers ("…v0.8.3…").

@@ -220,7 +220,6 @@ public sealed partial class MainWindow
                 : Gpu.HasRtx ? $"On {Gpu.Nvidia}, choose XeMFG (XeSS frame generation 2x–6x) under General → Frame generation method in the add-on's in-game panel; it installs Intel's files itself. The default DLSS-G mode needs an RTX 40 card."
                 : $"Needs a GeForce RTX 20-series or newer card; this PC has {Gpu.Nvidia ?? "no NVIDIA GPU"}.");
             MfgNote.Visibility = MfgNote.Text == "" ? Visibility.Collapsed : Visibility.Visible;
-            CustomOptiPanel.Visibility = (OptiBuildBox.SelectedItem as ComboBoxItem)?.Tag is OptiBuild { Id: "custom" } ? Visibility.Visible : Visibility.Collapsed;
             ApplyKeyButton.IsEnabled = _scan.OptiScalerIni;
 
             // Description + warnings for the current choice.
@@ -400,12 +399,6 @@ public sealed partial class MainWindow
         await RescanAsync();
     }
 
-    private async void PickCustomOpti_Click(object sender, RoutedEventArgs e)
-    {
-        var dir = await PickFolderAsync();
-        if (dir is not null) CustomOptiBox.Text = dir;
-    }
-
     private async void HideGame_Click(object sender, RoutedEventArgs e)
     {
         if (_game is null) return;
@@ -459,7 +452,6 @@ public sealed partial class MainWindow
             Bitness = SelectedExe.Bitness,
             Route = route,
             OptiBuild = build,
-            OptiCustomFolder = CustomOptiBox.Text,
             OptiHook = OptiHookBox.SelectedItem as string ?? "dxgi.dll",
             MenuKey = (MenuKeyBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "0x2D",
             ReShadeProxy = (ProxyBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "dxgi.dll",

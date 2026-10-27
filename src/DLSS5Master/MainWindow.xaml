@@ -736,11 +736,6 @@
                       </Grid>
                     </StackPanel>
                   </Grid>
-                  <Grid x:Name="CustomOptiPanel" ColumnSpacing="8" Visibility="Collapsed">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                    <TextBox x:Name="CustomOptiBox" PlaceholderText="Folder with OptiScaler.dll + OptiScaler.ini (extracted official release)" IsReadOnly="True" />
-                    <Button Grid.Column="1" Click="PickCustomOpti_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8B7;" FontSize="13" /><TextBlock Text="Browse…" /></StackPanel></Button>
-                  </Grid>
                 </StackPanel>
               </Border>
 
