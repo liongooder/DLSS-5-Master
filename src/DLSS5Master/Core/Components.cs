@@ -25,9 +25,6 @@ public sealed class Components
         new("0.9.72-shyvortex", "OptiScaler NR 0.9.72 · ShyVortex (newer)",
             "https://github.com/ShyVortex/OptiScaler-DLSSNR-PreSR-Multipass/releases/download/v0.9.72/OptiScaler-NR-v0.9.72.zip",
             "3ba28becc5bb84f9c3f77677a35aa81fa63f0c4b00217ec921fa82c68754e28c", null, null, false, true, WholeBackend: true),
-        new("0.8.3", "OptiScaler NR 0.8.3 · standard",
-            "https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/releases/download/v0.8.3/OptiScaler-NR-v0.8.3.zip",
-            "3f2d26fb136d964a394bf50896d082156173153a2a55b88e1995277b4dabe3c8", null, null, false, true),
     };
 
     public static readonly Dictionary<string, string> FeederHashes = new(StringComparer.OrdinalIgnoreCase)

@@ -80,8 +80,6 @@ verified by SHA-256:
 
 - OptiScaler NR pre-SR multipass 0.9.72 -
   https://github.com/ShyVortex/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0)
-- OptiScaler NR pre-SR multipass 0.8.3 (standard) -
-  https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0)
 
 
 This application uses the Windows App SDK and .NET runtime, (c) Microsoft
