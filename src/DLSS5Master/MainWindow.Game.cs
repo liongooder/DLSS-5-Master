@@ -243,7 +243,7 @@ public sealed partial class MainWindow
             RouteWarning.IsOpen = warning is not null;
             RouteWarning.ActionButton = otherApp ? _removeOtherButton : unrecorded && warning is not null && warning.StartsWith("ReShade ") ? _removeReShadeButton : null;
             InstallButton.IsEnabled = !_busy && SelectedExe is not null && (opti ? chosen?.Unavailable is null : RouteBox.SelectedItem is not null);
-            InstallButton.Content = _scan.Manifest is null ? "Complete Installation" : "Reinstall";
+            InstallButton.Content = _scan.Manifest is null ? "Set up DLSS 5" : "Reinstall";
             RenderRouteCards(routes, opti, bits);
         }
         finally { _populating = false; }

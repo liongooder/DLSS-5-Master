@@ -422,8 +422,8 @@
         <Grid x:Name="CPrivatePage" Visibility="Collapsed" RowSpacing="10">
           <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
           <StackPanel>
-            <TextBlock Text="A PRIVATE LINE TO THE DEVELOPER" Style="{StaticResource SectionTitle}" />
-            <TextBlock Text="Only you and the developer can see what you write here." Foreground="{StaticResource MutedText}" FontSize="12" />
+            <TextBlock Text="ASK THE DEVELOPER" Style="{StaticResource SectionTitle}" />
+            <TextBlock Text="Messages here go only to the developer, never to the public chat." Foreground="{StaticResource MutedText}" FontSize="12" />
           </StackPanel>
           <Border Grid.Row="1" Style="{StaticResource Card}" Padding="0">
             <ScrollViewer x:Name="PrivateScroll" Padding="16,8">
@@ -433,7 +433,7 @@
           <Grid Grid.Row="2" ColumnSpacing="10">
             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
             <Button x:Name="PrivateAttach" ToolTipService.ToolTip="Attach a picture" Click="PrivateAttach_Click"><FontIcon Glyph="&#xE723;" FontSize="14" /></Button>
-            <TextBox Grid.Column="1" x:Name="PrivateInput" PlaceholderText="Write privately to the developer" MaxLength="2000" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120" />
+            <TextBox Grid.Column="1" x:Name="PrivateInput" PlaceholderText="Your question, bug report or idea…" MaxLength="2000" AcceptsReturn="True" TextWrapping="Wrap" MaxHeight="120" />
             <Button Grid.Column="2" x:Name="PrivateSend" Style="{StaticResource AccentButtonStyle}" Click="PrivateSend_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE724;" FontSize="13" /><TextBlock Text="Send" /></StackPanel></Button>
           </Grid>
         </Grid>
@@ -798,7 +798,7 @@
               <ProgressRing x:Name="BusyRing" IsActive="False" Width="20" Height="20" />
               <TextBlock x:Name="BusyText" Foreground="{StaticResource MutedText}" VerticalAlignment="Center" MaxWidth="320" TextTrimming="CharacterEllipsis" />
             </StackPanel>
-            <Button x:Name="InstallButton" Grid.Column="4" Content="Complete Installation" Style="{StaticResource AccentButtonStyle}"
+            <Button x:Name="InstallButton" Grid.Column="4" Content="Set up DLSS 5" Style="{StaticResource AccentButtonStyle}"
                     Height="44" Padding="26,0" FontWeight="SemiBold" Click="Install_Click" />
           </Grid>
         </Grid>

@@ -68,18 +68,18 @@ Bundled with this installer (unmodified, SHA-256 pinned):
   in payload\runtime\nvngx_dlss.license.txt, reflex.license.txt and
   nis.license.txt. These files are NVIDIA's property.
 
-- OptiScaler NR pre-SR multipass 0.8.3 RTX 40 MFG
-  (payload\optiscaler\OptiScaler-0_8_3-rtx40-mfg.zip, the unmodified
+- OptiScaler NR pre-SR multipass 0.9.72
+  (payload\optiscaler\OptiScaler-0_9_72-shyvortex.zip, the unmodified
   release file) - GPL-3.0; the licence text is the LICENSE file inside the zip.
-  Source code: https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass
-  (tag v0.8.3). The zip also contains AMD FidelityFX and Intel XeSS libraries
-  under the licences in its Licenses folder.
+  Source code: https://github.com/ShyVortex/OptiScaler-DLSSNR-PreSR-Multipass
+  (tag v0.9.72). The zip also contains NVIDIA Streamline, AMD FidelityFX and
+  Intel XeSS libraries under the licences in its Licenses folder.
 
 Not bundled; downloaded at install time from their authors' release pages and
 verified by SHA-256:
 
-- OptiScaler NR pre-SR multipass 0.9.72 -
-  https://github.com/ShyVortex/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0)
+- OptiScaler NR pre-SR multipass 0.8.3 RTX 40 MFG -
+  https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0)
 
 
 This application uses the Windows App SDK and .NET runtime, (c) Microsoft

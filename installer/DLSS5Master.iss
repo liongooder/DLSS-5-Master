@@ -65,6 +65,8 @@ Type: files; Name: "{autodesktop}\DLSS5 Master.lnk"
 ; zip stored under its old name, so nothing outdated stays behind in the install folder.
 Type: files; Name: "{app}\*.dll"
 Type: files; Name: "{app}\payload\optiscaler\OptiScaler-NR-v0.8.3-rtx40-mfg.zip"
+; 0.8.1 bundles OptiScaler NR 0.9.72 instead of 0.8.3, which is now downloaded when first chosen.
+Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_8_3-rtx40-mfg.zip"
 
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"

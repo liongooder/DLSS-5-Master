@@ -49,7 +49,7 @@ DLSS 5 Master checks GitHub for newer RenoDX, MFG unlock, Feeder and OptiScaler 
 
 1. **[Download the installer](../../releases/latest)** and run it. Everything is included: no other tools, no extra downloads.
 2. **Pick a game.** DLSS 5 Master finds your Steam, Epic, GOG, Ubisoft and Xbox games by itself and recommends the best route for each one.
-3. **Press *Complete Installation*** and play. Changed your mind? **Restore originals** puts the game back exactly as it was.
+3. **Press *Set up DLSS 5*** and play. Changed your mind? **Restore originals** puts the game back exactly as it was.
 
 > Windows may show *"Windows protected your PC"* because the installer is not code-signed yet. Click **More info → Run anyway**.
 

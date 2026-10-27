@@ -19,12 +19,12 @@ public sealed class Components
 
     public static readonly OptiBuild[] OptiBuilds =
     {
-        new("0.8.3-rtx40-mfg", "OptiScaler NR 0.8.3 · RTX 40 MFG (recommended)",
-            "https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/releases/download/v0.8.3/OptiScaler-NR-v0.8.3-rtx40-mfg.zip",
-            "aac7ea64d80604a5b79f686043ba28fbefefaf98818e861a377b78122cb24448", null, null, false, true),
-        new("0.9.72-shyvortex", "OptiScaler NR 0.9.72 · ShyVortex (newer)",
+        new("0.9.72-shyvortex", "OptiScaler NR 0.9.72 (recommended)",
             "https://github.com/ShyVortex/OptiScaler-DLSSNR-PreSR-Multipass/releases/download/v0.9.72/OptiScaler-NR-v0.9.72.zip",
             "3ba28becc5bb84f9c3f77677a35aa81fa63f0c4b00217ec921fa82c68754e28c", null, null, false, true, WholeBackend: true),
+        new("0.8.3-rtx40-mfg", "OptiScaler NR 0.8.3 · RTX 40 MFG (older)",
+            "https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/releases/download/v0.8.3/OptiScaler-NR-v0.8.3-rtx40-mfg.zip",
+            "aac7ea64d80604a5b79f686043ba28fbefefaf98818e861a377b78122cb24448", null, null, false, true),
     };
 
     public static readonly Dictionary<string, string> FeederHashes = new(StringComparer.OrdinalIgnoreCase)

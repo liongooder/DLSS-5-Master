@@ -72,8 +72,8 @@ public static partial class Updates
             UpdateKind.File, null, "1.5.8", new DateTime(2026, 10, 26, 19, 49, 57, DateTimeKind.Utc)),
         new("feeder", "DLSS5 Feeder", "jlrouzies-fr/DLSS5-Feeder", null, @"^DLSS5-Feeder-.*\.zip$",
             UpdateKind.Feeder, null, "1.19.0", new DateTime(2026, 10, 11, 5, 56, 10, DateTimeKind.Utc)),
-        new("optiscaler-nr", "OptiScaler NR (pre-SR multipass)", "wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass", null, @"^OptiScaler-NR-v[\d.]+(-rtx40-mfg)?\.zip$",
-            UpdateKind.OptiScaler, null, "0.8.3", new DateTime(2026, 9, 13, 6, 16, 54, DateTimeKind.Utc)),
+        new("optiscaler-nr", "OptiScaler NR (pre-SR multipass)", "ShyVortex/OptiScaler-DLSSNR-PreSR-Multipass", null, @"^OptiScaler-NR-v[\d.]+(-rtx40-mfg)?\.zip$",
+            UpdateKind.OptiScaler, null, "0.9.72", new DateTime(2026, 10, 22, 22, 8, 30, DateTimeKind.Utc)),
     };
 
     // Downloads (add-on files, the app installer in pieces): long timeout, but no reuse of dead connections.
@@ -340,9 +340,10 @@ public static partial class Updates
         foreach (var asset in a.Builds.OrderByDescending(b => b.Name.Contains("rtx40", StringComparison.OrdinalIgnoreCase)))
         {
             bool mfg = asset.Name.Contains("rtx40", StringComparison.OrdinalIgnoreCase);
+            // Newer builds carry their own Streamline and frame-generation modules in OptiScaler\: install the whole folder.
             yield return new OptiBuild($"{a.Version}{(mfg ? "-rtx40-mfg" : "")}",
-                $"OptiScaler NR {a.Version} · {(mfg ? "RTX 40 MFG" : "standard")} (updated)",
-                asset.Url, asset.Sha256, null, null, Forwarded: false, NeuralRendering: true);
+                $"OptiScaler NR {a.Version}{(mfg ? " · RTX 40 MFG" : "")} (updated)",
+                asset.Url, asset.Sha256, null, null, Forwarded: false, NeuralRendering: true, WholeBackend: true);
         }
     }
 }
