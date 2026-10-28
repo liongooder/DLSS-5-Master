@@ -196,6 +196,7 @@ struct App
     bool motion_on = true;
     bool reset = true;
     bool quit = false;
+    const char *volatile closing_step = "";   // where shutdown is, for the watchdog's log line
 };
 static App g;
 
@@ -1521,13 +1522,25 @@ int wmain(int argc, wchar_t **argv)
         }
     }
 
-    Log("closing");
+    Log(IsWindow(g.target) ? "closing" : "closing: the game's window closed");
     if (capped) RestoreFrameCap();
+    // Taking capture, NGX and the devices down can stall when the game has just gone (it once hung for minutes).
+    // The game's cap is already restored above, so past 3 seconds the helper simply ends.
+    CloseHandle(CreateThread(nullptr, 0, [](void *) -> DWORD {
+        Sleep(3000);
+        Log("closing took too long (stuck at: %s), ending", g.closing_step);
+        TerminateProcess(GetCurrentProcess(), 0);
+        return 0;
+    }, nullptr, 0, nullptr));
+    g.closing_step = "capture";
     if (g.session) g.session.Close();
     if (g.pool) g.pool.Close();
+    g.closing_step = "frame resources";
     ReleaseFrameResources();
+    g.closing_step = "NGX";
     if (g.params) NVSDK_NGX_D3D12_DestroyParameters(g.params);
     NVSDK_NGX_D3D12_Shutdown1(g.dev);
+    g.closing_step = "devices";
     // Take the swapchain and devices down in order, so ReShade and the DLSS 5 add-on see a normal
     // shutdown (the add-on records a process that just ends as an "unclean" session).
     for (auto &b : g.back) Release(b);
