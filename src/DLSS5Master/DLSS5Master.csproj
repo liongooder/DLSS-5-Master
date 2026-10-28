@@ -18,7 +18,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>0.8.2</Version>
+    <Version>0.9.0</Version>
     <Company>Liongooder</Company>
     <Copyright>Copyright (c) 2026 Liongooder</Copyright>
     <ApplicationIcon>Assets\DLSS5Master.ico</ApplicationIcon>
@@ -36,6 +36,8 @@
     <Content Include="Assets\BmcQr.png" CopyToOutputDirectory="PreserveNewest" />
     <!-- Third-party add-ons fetched and checksum-verified by build-installer.ps1 (see installer/THIRD-PARTY-NOTICES.txt). -->
     <Content Include="addons\*.addon64" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The overlay helper (src\Overlay) and its Visual C++ runtime, built and staged by build-installer.ps1. -->
+    <Content Include="overlay\*" CopyToOutputDirectory="PreserveNewest" />
     <!-- Bundled runtimes (NVIDIA, ReShade, RenoDX, DLSS5-Feeder), staged by build-installer.ps1 from installer\payload-manifest.csv. -->
     <Content Include="payload\**\*" CopyToOutputDirectory="PreserveNewest" />
     <!-- Our own list of what the Feeder folder contains. -->

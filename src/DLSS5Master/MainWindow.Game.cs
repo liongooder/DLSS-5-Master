@@ -63,6 +63,9 @@ public sealed partial class MainWindow
         Reveal(GamePanel);
         PanelTitle.Text = item.Name;
         PanelPoster.Source = item.Poster;
+        LiveOverlaySettings.Children.Clear();
+        LiveOverlaySettings.Children.Add(BuildOverlaySettings());
+        RefreshOverlayUi();
         await RescanAsync();
     }
 

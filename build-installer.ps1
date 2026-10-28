@@ -28,6 +28,15 @@ if ($Stage -in 'all', 'publish') {
         if ((Get-FileHash $mfg -Algorithm SHA256).Hash.ToLower() -ne $mfgSha) { Remove-Item $mfg; throw 'renodx-mfgunlock.addon64 failed its checksum' }
     }
 
+    # The overlay helper (C++, src\Overlay): built here and staged with its Visual C++ runtime into the app's overlay\ folder.
+    & cmd /c "`"$(Join-Path $root 'src\Overlay\build.bat')`""
+    if ($LASTEXITCODE -ne 0) { throw 'dlss5-overlay build failed' }
+    $overlay = Join-Path $root 'src\DLSS5Master\overlay'
+    New-Item -ItemType Directory -Force $overlay | Out-Null
+    foreach ($f in 'dlss5-overlay.exe', 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
+        Copy-Item (Join-Path $root "src\Overlay\build\$f") $overlay -Force
+    }
+
     # Bundled runtime payload: copied file by file and verified against the pinned manifest.
     $payload = Join-Path $root 'src\DLSS5Master\payload'
     foreach ($row in Import-Csv (Join-Path $root 'installer\payload-manifest.csv')) {
@@ -61,6 +70,7 @@ if ($Stage -in 'all', 'publish') {
     if ($LASTEXITCODE -ne 0) { throw 'dotnet publish failed' }
     if (-not (Test-Path (Join-Path $publish 'DLSS5Master.pri'))) { throw 'publish is missing DLSS5Master.pri (the app would crash on start)' }
     if (-not (Test-Path (Join-Path $publish 'addons\renodx-mfgunlock.addon64'))) { throw 'publish is missing the bundled MFG unlock add-on' }
+    if (-not (Test-Path (Join-Path $publish 'overlay\dlss5-overlay.exe'))) { throw 'publish is missing the overlay helper' }
     if (-not (Test-Path (Join-Path $publish 'payload\runtime\nvngx_dlssnr.dll'))) { throw 'publish is missing the bundled runtime payload' }
 }
 

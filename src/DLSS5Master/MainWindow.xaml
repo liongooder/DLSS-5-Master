@@ -54,18 +54,21 @@
       <!-- title, filters and summary for the library -->
       <StackPanel x:Name="GameTools" Spacing="10" Margin="30,6,34,4">
         <Grid ColumnSpacing="8">
-          <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
           <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
             <TextBlock Text="Games" FontSize="22" FontWeight="SemiBold" />
             <TextBlock x:Name="LibraryCount" Foreground="{StaticResource MutedText}" VerticalAlignment="Bottom" Margin="0,0,0,3" />
           </StackPanel>
-          <Button Grid.Column="1" ToolTipService.ToolTip="Add a game by its .exe" Click="AddGame_Click">
+          <Button Grid.Column="1" AutomationProperties.Name="DLSS 5 on any window" ToolTipService.ToolTip="Draw DLSS 5 over any open window: a game, a video or anything else. Nothing in that program is changed." Click="AnyWindow_Click">
+            <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE7F4;" FontSize="13" /><TextBlock Text="DLSS 5 on any window" /></StackPanel>
+          </Button>
+          <Button Grid.Column="2" ToolTipService.ToolTip="Add a game by its .exe" Click="AddGame_Click">
             <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE710;" FontSize="13" /><TextBlock Text="Add a game" /></StackPanel>
           </Button>
-          <Button Grid.Column="2" ToolTipService.ToolTip="Add a folder where every sub-folder is a game" Click="AddFolder_Click">
+          <Button Grid.Column="3" ToolTipService.ToolTip="Add a folder where every sub-folder is a game" Click="AddFolder_Click">
             <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8B7;" FontSize="13" /><TextBlock Text="Add a folder" /></StackPanel>
           </Button>
-          <Button Grid.Column="3" Style="{StaticResource AccentButtonStyle}" ToolTipService.ToolTip="Find and scan your games again" Click="Refresh_Click">
+          <Button Grid.Column="4" Style="{StaticResource AccentButtonStyle}" ToolTipService.ToolTip="Find and scan your games again" Click="Refresh_Click">
             <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE72C;" FontSize="13" /><TextBlock Text="Rescan" /></StackPanel>
           </Button>
         </Grid>
@@ -97,6 +100,10 @@
           </ComboBox>
           <Button x:Name="ClearFiltersButton" Grid.Column="4" Content="Clear filters" Visibility="Collapsed" Click="EmptyClear_Click" />
         </Grid>
+        <!-- the DLSS 5 overlay, while it runs (MainWindow.Overlay.cs) -->
+        <InfoBar x:Name="OverlayBar" Title="DLSS 5 overlay" Severity="Success" IsClosable="False" IsOpen="False">
+          <InfoBar.ActionButton><Button Content="Stop overlay" Click="OverlayStop_Click" /></InfoBar.ActionButton>
+        </InfoBar>
         <!-- clickable totals; each one applies its filter (filled in code) -->
         <StackPanel x:Name="SummaryChips" Orientation="Horizontal" Spacing="8" />
       </StackPanel>
@@ -540,7 +547,7 @@
         <Border Style="{StaticResource Card}">
           <StackPanel Spacing="8">
             <Image x:Name="AboutLogo" Height="150" HorizontalAlignment="Left" Stretch="Uniform" Margin="0,0,0,6" />
-            <TextBlock Text="DLSS 5 Master 0.8.2" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Text="DLSS 5 Master 0.9.0" FontSize="20" FontWeight="SemiBold" />
             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
                        Text="One place for ReShade + RenoDX neural rendering routes (Native, Multipass, Feeder), OptiScaler, and per-game DLL swapping. Every change is recorded in _DLSS5Master_Backup inside the game folder, and Restore originals puts the game back exactly as it was." />
           </StackPanel>
@@ -662,6 +669,22 @@
                   </ComboBox>
                   <ComboBox x:Name="RouteBox" SelectionChanged="RouteBox_SelectionChanged" />
                 </StackPanel>
+              </StackPanel>
+
+              <!-- OVERLAY: DLSS 5 drawn over the running game, nothing installed into it (MainWindow.Overlay.cs) -->
+              <StackPanel Spacing="8">
+                <TextBlock Text="DLSS 5 OVERLAY · NO GAME FILES CHANGED" Style="{StaticResource SectionTitle}" />
+                <Border Style="{StaticResource Card}">
+                  <StackPanel Spacing="12">
+                    <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
+                               Text="Draws DLSS 5 over the running game instead of installing anything into it: for games the routes above cannot reach, such as emulators, Vulkan and older games. Start the game in windowed or borderless mode first; exclusive fullscreen cannot be captured." />
+                    <StackPanel x:Name="LiveOverlaySettings" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                      <Button x:Name="LiveOverlayButton" Content="Start overlay" Style="{StaticResource AccentButtonStyle}" Click="LiveOverlay_Click" />
+                      <TextBlock x:Name="LiveOverlayStatus" VerticalAlignment="Center" Foreground="{StaticResource MutedText}" TextWrapping="Wrap" />
+                    </StackPanel>
+                  </StackPanel>
+                </Border>
               </StackPanel>
 
               <!-- OPTIONS -->

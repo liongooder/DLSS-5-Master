@@ -47,6 +47,7 @@ public sealed partial class MainWindow : Window
         NoticesText.Text = Notices;
         AboutCoffeeHost.Content = CoffeeButton();
         InitGamePanel();
+        InitOverlay();
         Root.Loaded += async (_, _) =>
         {
             var assets = Path.Combine(AppContext.BaseDirectory, "Assets");
@@ -526,7 +527,10 @@ public sealed partial class MainWindow : Window
         "• DLSS5-Feeder — github.com/jlrouzies-fr/DLSS5-Feeder (MIT)\n" +
         "• vort_Shaders — github.com/vortigern11/vort_Shaders (MIT)\n" +
         "• MFGAdaUnlock-RenoDx 1.6.0 — github.com/mavismmg/MFGAdaUnlock-RenoDx (MIT)\n" +
-        "• OptiScaler NR pre-SR MFG 0.9.80 — github.com/ShyVortex/OptiScaler-NR-PreSR-MFG (GPL-3.0; source code at tag v0.9.80)\n\n" +
+        "• OptiScaler NR pre-SR MFG 0.9.80 — github.com/ShyVortex/OptiScaler-NR-PreSR-MFG (GPL-3.0; source code at tag v0.9.80)\n" +
+        "• The overlay helper (dlss5-overlay.exe) is built with the NVIDIA NGX SDK (github.com/NVIDIA/DLSS, NVIDIA RTX SDKs license) " +
+        "and the NVIDIA Optical Flow SDK interface (BSD-3-Clause); its DLSS set-up follows DLSS5-Feeder's 64-bit helper (MIT). " +
+        "It ships with the Microsoft Visual C++ runtime (msvcp140, vcruntime140), redistributed under the Visual Studio license\n\n" +
         "Downloaded when first used, from their authors' release pages and verified by SHA-256:\n" +
         "• OptiScaler NR pre-SR multipass 0.8.3 RTX 40 MFG — github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0)";
 }

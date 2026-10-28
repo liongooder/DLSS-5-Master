@@ -75,6 +75,14 @@ Bundled with this installer (unmodified, SHA-256 pinned):
   (tag v0.9.80). The zip also contains NVIDIA Streamline, AMD FidelityFX and
   Intel XeSS libraries under the licences in its Licenses folder.
 
+- The overlay helper (overlay\dlss5-overlay.exe) is part of DLSS 5 Master. It is
+  built with the NVIDIA NGX SDK (https://github.com/NVIDIA/DLSS, NVIDIA RTX SDKs
+  licence) and the interface headers of the NVIDIA Optical Flow SDK
+  (BSD-3-Clause, Copyright (c) 2020 NVIDIA Corporation). Its DLSS set-up follows
+  the 64-bit helper of DLSS5-Feeder (MIT, see above). It ships with the
+  Microsoft Visual C++ runtime (overlay\msvcp140.dll, vcruntime140.dll,
+  vcruntime140_1.dll), redistributed under the Visual Studio licence terms.
+
 Not bundled; downloaded at install time from their authors' release pages and
 verified by SHA-256:
 
