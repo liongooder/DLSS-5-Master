@@ -48,7 +48,9 @@ public sealed class GameItem : INotifyPropertyChanged
     public RenderApi Api => Scan?.Primary?.Api ?? RenderApi.Unknown;
 
     /// <summary>Rendering API for the poster's corner badge; empty until the game is scanned.</summary>
-    public string ApiText => Scan?.Primary is null ? "" : Scanner.Label(Api);
+    /// <summary>Short API name for the poster corner ("DX12"), the same as on community cards; the full name is its tooltip.</summary>
+    public string ApiText => Scan?.Primary is null ? "" : Community.ApiLabel(Community.ApiKey(Api)) is { Length: > 0 } s ? s : Scanner.Label(Api);
+    public string ApiName => Scanner.Label(Api);
     public Visibility ApiVisibility => ApiText == "" ? Visibility.Collapsed : Visibility.Visible;
     /// <summary>DirectX 12 is the API every DLSS 5 route supports, so it gets the accent colour.</summary>
     public Brush ApiBackground => Res(Api == RenderApi.DX12 ? "ApiStrongBackground" : "ApiBackground");
@@ -96,7 +98,7 @@ public sealed class GameItem : INotifyPropertyChanged
     public void SetScan(GameScan? scan)
     {
         Scan = scan;
-        foreach (var p in new[] { nameof(Badge), nameof(BadgeVisibility), nameof(Subtitle), nameof(IsInstalled), nameof(ApiText), nameof(ApiVisibility),
+        foreach (var p in new[] { nameof(Badge), nameof(BadgeVisibility), nameof(Subtitle), nameof(IsInstalled), nameof(ApiText), nameof(ApiName), nameof(ApiVisibility),
                                   nameof(ApiBackground), nameof(ApiForeground), nameof(DlssText), nameof(DlssDot), nameof(FrameGenVisibility), nameof(FactsVisibility) })
             Raise(p);
     }

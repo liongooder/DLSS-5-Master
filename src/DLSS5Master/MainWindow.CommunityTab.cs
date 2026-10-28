@@ -37,7 +37,7 @@ public sealed partial class MainWindow
         try
         {
             _me = await CommunityHub.MeAsync();
-            NicknameText.Text = _me.Nickname is { } n ? n + (_me.IsDev ? "  · developer" : "") : "Choose a nickname";
+            NicknameText.Text = _me.Nickname is { } n ? n + (_me.IsDev ? " · developer" : "") : "Choose a nickname";
             CTabPrivate.Text = _me.UnreadPrivate > 0 ? $"PRIVATE ● {_me.UnreadPrivate}" : "PRIVATE";
         }
         catch (Exception ex) { NicknameText.Text = "Offline"; ToolTipService.SetToolTip(NicknameButton, ex.Message); }

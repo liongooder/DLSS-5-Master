@@ -294,7 +294,8 @@ public sealed partial class MainWindow : Window
             finally
             {
                 gate.Release();
-                ScanStatus.Text = ++done < items.Count ? $"Scanning games… {done}/{items.Count}" : $"{items.Count} games";
+                // The title already shows the total, so the corner is only used while scanning.
+                ScanStatus.Text = ++done < items.Count ? $"Scanning games… {done}/{items.Count}" : "";
                 if (done % 10 == 0) RefreshLibrarySummary();
             }
         });

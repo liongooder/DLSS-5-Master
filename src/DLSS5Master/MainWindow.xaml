@@ -162,10 +162,10 @@
             </GroupStyle.HeaderTemplate>
           </GroupStyle>
         </GridView.GroupStyle>
-        <!-- Rows are centred so the space left over by the last column is shared evenly on both sides. -->
+        <!-- Rows start at the left edge, in line with the filters, "Recently modded" and the store headings. -->
         <GridView.ItemsPanel>
           <ItemsPanelTemplate>
-            <ItemsWrapGrid Orientation="Horizontal" HorizontalAlignment="Center" />
+            <ItemsWrapGrid Orientation="Horizontal" HorizontalAlignment="Left" />
           </ItemsPanelTemplate>
         </GridView.ItemsPanel>
         <GridView.ItemTemplate>
@@ -193,11 +193,11 @@
                 <!-- what this app (or another one) installed here -->
                 <Border Visibility="{x:Bind BadgeVisibility, Mode=OneWay}" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="8,8,8,0"
                         Background="#E0101410" CornerRadius="8" Padding="8,3" BorderThickness="1" BorderBrush="{ThemeResource AccentFillColorDefaultBrush}">
-                  <TextBlock Text="{x:Bind Badge, Mode=OneWay}" FontSize="11" Foreground="{StaticResource AccentText}" MaxWidth="110" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Text="{x:Bind Badge, Mode=OneWay}" FontSize="11" Foreground="{StaticResource AccentText}" MaxWidth="104" TextTrimming="CharacterEllipsis" />
                 </Border>
                 <!-- rendering API -->
                 <Border Visibility="{x:Bind ApiVisibility, Mode=OneWay}" VerticalAlignment="Top" HorizontalAlignment="Right" Margin="8"
-                        Background="{x:Bind ApiBackground, Mode=OneWay}" CornerRadius="8" Padding="8,3">
+                        Background="{x:Bind ApiBackground, Mode=OneWay}" CornerRadius="8" Padding="8,3" ToolTipService.ToolTip="{x:Bind ApiName, Mode=OneWay}">
                   <TextBlock Text="{x:Bind ApiText, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Foreground="{x:Bind ApiForeground, Mode=OneWay}" />
                 </Border>
                 <!-- DLSS version and Frame Generation on a dark strip at the bottom of the poster -->

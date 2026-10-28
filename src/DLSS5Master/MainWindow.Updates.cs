@@ -94,7 +94,7 @@ public sealed partial class MainWindow
             UpdateRows.Children.Add(grid);
         }
         UpdateStatus.Text = _updating ? "Checking for updates…" : Updates.State.LastCheck is { } t
-            ? $"Last checked {t.ToLocalTime():g}. {(Updates.AvailableCount == 0 ? "Everything is up to date." : $"{Updates.AvailableCount} update(s) available.")}"
+            ? $"Last checked {t.ToLocalTime():d MMM yyyy} at {t.ToLocalTime():t}. {Updates.AvailableCount switch { 0 => "Everything is up to date.", 1 => "1 update available.", var n => $"{n} updates available." }}"
             : "Not checked yet.";
     }
 
