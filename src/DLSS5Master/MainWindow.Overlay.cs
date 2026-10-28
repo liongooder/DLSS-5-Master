@@ -81,7 +81,8 @@ public sealed partial class MainWindow
         OverlayBar.IsOpen = target is not null;
         if (target is not null)
             OverlayBar.Message = $"Running on “{target.Title}”. F9 switches DLSS 5 on and off while you play." +
-                                 (Overlay.FrameGenNotice() is { } notice ? " " + notice : "");
+                                 (Overlay.FrameGenNotice() is { } notice ? " " + notice : "") +
+                                 " Not showing? Set the game to Windowed or Borderless: exclusive Fullscreen hides every overlay.";
 
         if (_game is null) return;
         bool mine = target is not null && IsThisGame(target);
