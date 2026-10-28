@@ -214,10 +214,12 @@ public static class Overlay
             if (log.Contains("dlssg_for_sm86 did not load")) return "Frame generation could not start on this graphics card (it needs NVIDIA driver R580 or newer).";
             if (log.Contains("frame cap:") && log.Contains("needs administrator rights"))
                 return "The game could not be capped (that needs administrator rights), so it may leave the overlay little room.";
-            // The cap follows the overlay's pace; the latest value is what runs now.
-            var cap = System.Text.RegularExpressions.Regex.Matches(log, @"frame cap: .+ capped at (\d+) fps|frame cap now (\d+) fps");
-            var capFps = cap.Count == 0 ? "" : cap[^1].Groups[1].Success ? cap[^1].Groups[1].Value : cap[^1].Groups[2].Value;
-            var capped = capFps.Length > 0 ? $" The game is capped at {capFps} fps while the overlay runs." : "";
+            // NVIDIA's limiter does not reach every game, and a running game may only pick it up at its next start.
+            var cap = System.Text.RegularExpressions.Regex.Match(log, @"frame cap: .+ capped at (\d+) fps");
+            var capped = !cap.Success ? ""
+                : log.Contains("frame cap: the game ignores it")
+                    ? $" This game ignores NVIDIA's frame cap: set its own FPS limit to {cap.Groups[1].Value} for the smoothest result."
+                    : $" NVIDIA's frame cap for this game is set to {cap.Groups[1].Value} fps (if the game was already running, it may need a restart to apply).";
             // The helper fits frame generation to the screen; the latest decision is what runs now.
             var fit = System.Text.RegularExpressions.Regex.Matches(log, @"frame generation now (\d)x: the game runs at (\d+) fps on a (\d+) Hz screen");
             if (fit.Count > 0)

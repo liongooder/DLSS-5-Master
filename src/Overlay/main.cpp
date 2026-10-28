@@ -192,8 +192,7 @@ struct App
     IDCompositionVisual *dcomp_visual = nullptr;
 
     std::wstring stop_file;              // DLSS 5 Master creates this file to stop the overlay (works across elevation)
-    std::wstring cap_exe;                // the capped game's program, and its cap now (0: not capped)
-    UINT cap_fps = 0;
+    UINT cap_fps = 0;                    // the game's frame cap (0: not capped)
     bool dlss_on = true;
     bool motion_on = true;
     bool reset = true;
@@ -1116,56 +1115,18 @@ static void RestoreFrameCap()
     if (done) DeleteFileW(CapRestoreFile().c_str());
 }
 
-// Caps the target window's program at fps.
-static void ApplyFrameCap(UINT fps);
 
-// Moves the cap with the overlay's own pace, every 5 seconds of play: when the overlay processes clearly fewer
-// frames than the game is allowed, the game is capped just above the overlay's pace (frames it would drop only take
-// GPU time from it); when the overlay keeps up, the cap goes back up 3 at a time, to refresh / (1 + in-between
-// frames now). A raise the overlay could not follow (the game took the GPU time back) returns to the level that
-// worked and stays at or under it for a minute, instead of see-sawing. At most one change every 10 seconds.
-static void AdaptFrameCap(double captured_fps)
+// NVIDIA's limiter does not reach every game (a running game may only pick the cap up at its next start, and some
+// never do: the Bloodborne port ran on at full speed even after a restart). When the overlay keeps getting clearly
+// more frames than the cap for 10 seconds of play, the log says so once, for DLSS 5 Master to tell the player.
+static void CheckFrameCap(double captured_fps)
 {
-    if (g.cap_fps == 0) return;
-    static ULONGLONG next_change = 0, ceiling_until = 0;
-    static UINT raised_from = 0, ceiling = 0;   // the level before the last raise; the level held after one failed
-    const ULONGLONG now = GetTickCount64();
-    if (now < next_change) return;
-    const UINT in_between = g.fg_feature ? g.fg_now : 0;
-    UINT top = std::max(20u, static_cast<UINT>(RefreshRate() / (in_between + 1) + 0.5));
-    if (now < ceiling_until) top = std::min(top, ceiling);
-    UINT want = g.cap_fps;
-    if (g.cap_fps > top) want = top;
-    else if (captured_fps < g.cap_fps * 0.9)
-    {
-        want = std::max(15u, static_cast<UINT>(captured_fps + 0.5) + 2);
-        if (raised_from > 0 && raised_from < g.cap_fps)
-        {
-            want = std::max(want, raised_from);
-            ceiling = raised_from;
-            ceiling_until = now + 60000;
-        }
-    }
-    else if (captured_fps >= g.cap_fps - 1.5 && g.cap_fps < top) want = std::min(top, g.cap_fps + 3);
-    if (want == g.cap_fps) return;
-    raised_from = want > g.cap_fps ? g.cap_fps : 0;
-
-    DrsSession drs;
-    NvAPI_UnicodeString name;
-    CopyName(name, g.cap_exe);
-    NvDRSProfileHandle profile = nullptr;
-    NVDRS_APPLICATION app = {};
-    app.version = NVDRS_APPLICATION_VER;
-    if (!drs.ok || NvAPI_DRS_FindApplicationByName(drs.s, name, &profile, &app) != NVAPI_OK) return;
-    NVDRS_SETTING st = {};
-    st.version = NVDRS_SETTING_VER;
-    st.settingId = FRL_FPS_ID;
-    st.settingType = NVDRS_DWORD_TYPE;
-    st.u32CurrentValue = want;
-    if (NvAPI_DRS_SetSetting(drs.s, profile, &st) != NVAPI_OK || NvAPI_DRS_SaveSettings(drs.s) != NVAPI_OK) return;
-    Log("frame cap now %u fps: the overlay processed %.0f frames a second, the cap was %u", want, captured_fps, g.cap_fps);
-    g.cap_fps = want;
-    next_change = GetTickCount64() + 10000;
+    static int over = 0;
+    if (g.cap_fps == 0 || over < 0) return;
+    over = captured_fps > g.cap_fps + 2.0 ? over + 1 : 0;
+    if (over < 2) return;
+    Log("frame cap: the game ignores it (%.0f fps against a cap of %u)", captured_fps, g.cap_fps);
+    over = -1;
 }
 
 static void ApplyFrameCap(UINT fps)
@@ -1226,7 +1187,6 @@ static void ApplyFrameCap(UINT fps)
     if (save == NVAPI_OK)
     {
         Log("frame cap: %ls capped at %u fps (NVIDIA Max Frame Rate) while the overlay runs", exe.c_str(), fps);
-        g.cap_exe = exe;
         g.cap_fps = fps;
     }
     else
@@ -1576,7 +1536,7 @@ int wmain(int argc, wchar_t **argv)
                 g.dlss_on ? "DLSS 5 on" : "original picture", frames * 1000.0 / (t - t0), (g.presented - shown0) * 1000.0 / (t - t0),
                 g.w, g.h, g.base_ms, g.fg_ms);
             shown0 = g.presented;
-            if (!window_paused) AdaptFrameCap(frames * 1000.0 / (t - t0));
+            if (!window_paused) CheckFrameCap(frames * 1000.0 / (t - t0));
             window_paused = false;
             frames = 0;
             t0 = t;
