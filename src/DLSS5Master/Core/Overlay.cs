@@ -39,7 +39,7 @@ public static class Overlay
     public static bool HelperInstalled => File.Exists(Path.Combine(HelperDir, "dlss5-overlay.exe"));
 
     /// <summary>Copies what the overlay needs into its folder; only files that changed are copied again.</summary>
-    public static async Task PrepareAsync(Components components, IProgress<string>? p, CancellationToken ct)
+    public static async Task PrepareAsync(Components components, int frameGen, IProgress<string>? p, CancellationToken ct)
     {
         if (!HelperInstalled) throw new InvalidOperationException("The overlay helper is missing from the install folder. Reinstall DLSS 5 Master.");
         var runtime = components.RuntimeFiles();
@@ -54,6 +54,11 @@ public static class Overlay
         copies.Add((addon, "renodx-dlss5.addon64"));
         copies.Add((dlss, "nvngx_dlss.dll"));
         copies.Add((neural, "nvngx_dlssnr.dll"));
+        if (runtime.TryGetValue("nvngx_dlssg.dll", out var framegen)) copies.Add((framegen, "nvngx_dlssg.dll"));
+        // 3x and 4x frame generation on RTX 40 need the MFG unlock add-on; it is only loaded when asked for.
+        var mfg = Path.Combine(Folder, Components.MfgAddon);
+        if (frameGen >= 2) copies.Add((await components.MfgUnlockAsync(p, ct), Components.MfgAddon));
+        else { try { File.Delete(mfg); } catch { } }
         Directory.CreateDirectory(Folder);
         await Task.Run(() =>
         {
@@ -92,13 +97,14 @@ public static class Overlay
     {
         await StopAsync();
         if (!IsWindow(target.Handle)) throw new InvalidOperationException("That window is not open any more.");
-        await PrepareAsync(components, p, ct);
+        var frameGen = Math.Clamp(settings.OverlayFrameGen, 0, 3);
+        await PrepareAsync(components, frameGen, p, ct);
         WriteSettings(settings);
         try { File.Delete(StopFile); } catch { }
         try { File.Delete(LogFile); } catch { }
 
         var elevated = !IsElevatedSelf() && IsElevated(target.Handle);
-        var args = $"--hwnd {(ulong)target.Handle} --stop-file \"{StopFile}\"";
+        var args = $"--hwnd {(ulong)target.Handle} --stop-file \"{StopFile}\"" + (frameGen > 0 ? $" --fg {frameGen}" : "");
         var psi = new ProcessStartInfo(Path.Combine(Folder, "dlss5-overlay.exe"), args) { WorkingDirectory = Folder };
         if (elevated) { psi.UseShellExecute = true; psi.Verb = "runas"; }
         p?.Report(elevated ? "Starting the overlay as administrator (the game runs that way)…" : "Starting the overlay…");
@@ -110,7 +116,7 @@ public static class Overlay
         _process.EnableRaisingEvents = true;
         _process.Exited += (_, _) => { Target = null; AppPaths.Log("Overlay stopped. " + (LastLogError() ?? "")); Changed?.Invoke(); };
         AppPaths.Log($"Overlay started on \"{target.Title}\" ({target.Process}){(elevated ? " as administrator" : "")}: style {settings.OverlayStyle}, " +
-                     $"strength {settings.OverlayStrength} %, {settings.OverlayPasses} pass(es).");
+                     $"strength {settings.OverlayStrength} %, {settings.OverlayPasses} pass(es), frame generation {(frameGen == 0 ? "off" : $"{frameGen + 1}x")}.");
         Changed?.Invoke();
 
         // A window that cannot be captured ends the helper within a few seconds; say why here.

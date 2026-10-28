@@ -14,6 +14,9 @@ $files = @(
     @("$dlss/include/nvsdk_ngx_helpers_d3d.h",   'ngx\nvsdk_ngx_helpers_d3d.h',   'ec75224f36ed6580baaf250fa83620405ad81a1d98c2c436654a0c9cf6a6b8ba'),
     @("$dlss/include/nvsdk_ngx_helpers_cuda.h",  'ngx\nvsdk_ngx_helpers_cuda.h',  'f2851a76107bdf4fbcb7b261f3c35573c312d8ecb4bc18fb02d9e2cec7705042'),
     @("$dlss/include/nvsdk_ngx_loader.h",        'ngx\nvsdk_ngx_loader.h',        'abdf5f66a692620538357d29fdf78e3e2a677ee8140b7a638962ecb766585e75'),
+    @("$dlss/include/nvsdk_ngx_helpers_dlssg_d3d.h", 'ngx\nvsdk_ngx_helpers_dlssg_d3d.h', '6335ebcb95de39a361e87fe0257d6ce0723e5d8deaa15db3b35afacf2b3f4220'),
+    @("$dlss/include/nvsdk_ngx_defs_dlssg.h",    'ngx\nvsdk_ngx_defs_dlssg.h',    'c29765ab9e0125f9d724ae9811cc2abe03738d17486ec8eee80d78a1504549e1'),
+    @("$dlss/include/nvsdk_ngx_params_dlssg.h",  'ngx\nvsdk_ngx_params_dlssg.h',  'c24fa5aa68ffa2808c828b75cfa32843f1606f80a145f84055ac450d7e6c74ad'),
     @("$dlss/lib/Windows_x86_64/x64/nvsdk_ngx_d.lib", 'ngx\lib\nvsdk_ngx_d.lib', 'bc43df9ec032004fde681d3e3afd01cde239e03a0125b822e88674c84287f99c'),
     @("$nvof/nvOpticalFlowCommon.h",             'nvof\nvOpticalFlowCommon.h',    'cdbdbf0797fc02d2de1051520d4164bb1e36b7722009f46cb16216675319436a'),
     @("$nvof/nvOpticalFlowD3D11.h",              'nvof\nvOpticalFlowD3D11.h',     'c33a4da15d849e26270bd9f3aff9fe06e0b60eedfbf5bc455b4e326dd1796003')

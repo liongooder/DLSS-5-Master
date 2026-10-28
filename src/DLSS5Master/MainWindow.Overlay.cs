@@ -17,7 +17,7 @@ public sealed partial class MainWindow
         RefreshOverlayUi();
     }
 
-    /// <summary>Style, strength and passes; every change is saved and used at the next start. Motion tracking
+    /// <summary>Style, passes, frame generation and strength; every change is saved and used at the next start. Motion tracking
     /// always runs: it only helps, and a switch for it confused more than it offered.</summary>
     private StackPanel BuildOverlaySettings()
     {
@@ -42,10 +42,18 @@ public sealed partial class MainWindow
             _settings.Save();
         };
 
+        var framegen = new ComboBox { Header = "Frame generation", MinWidth = 150 };
+        foreach (var s in new[] { "Off", "2x", "3x", "4x" }) framegen.Items.Add(s);
+        framegen.SelectedIndex = Math.Clamp(_settings.OverlayFrameGen, 0, 3);
+        ToolTipService.SetToolTip(framegen, "DLSS Frame Generation adds in-between frames for smoother motion: 2x on RTX 40 and 50, 3x and 4x on RTX 50, " +
+            "or on RTX 40 through the bundled MFG unlock. Best on a high-refresh screen: 2x of a 60 fps game needs 120 Hz.");
+        framegen.SelectionChanged += (_, _) => { _settings.OverlayFrameGen = framegen.SelectedIndex; _settings.Save(); };
+
         // Two rows, so it fits the narrow window-picker dialog as well as the game panel.
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16 };
         row.Children.Add(style);
         row.Children.Add(passes);
+        row.Children.Add(framegen);
         var panel = new StackPanel { Spacing = 8 };
         panel.Children.Add(row);
         panel.Children.Add(strength);

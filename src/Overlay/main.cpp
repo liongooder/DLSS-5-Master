@@ -36,6 +36,7 @@
 
 #include <nvsdk_ngx.h>
 #include <nvsdk_ngx_helpers.h>
+#include <nvsdk_ngx_helpers_dlssg_d3d.h>
 #include <nvOpticalFlowCommon.h>
 #include <nvOpticalFlowD3D11.h>
 
@@ -130,6 +131,13 @@ struct App
     // NGX
     NVSDK_NGX_Parameter *params = nullptr;
     NVSDK_NGX_Handle *feature = nullptr;
+
+    // Frame generation (DLSS-G): fg_frames in-between frames per captured frame (0 = off, 1 = 2x, 3 = 4x)
+    UINT fg_frames = 0;
+    NVSDK_NGX_Handle *fg_feature = nullptr;
+    ID3D12Resource *interp[3] = {};
+    bool fg_have_prev = false;            // DLSS-G needs a previous real frame to interpolate from
+    UINT64 presented = 0;                 // frames shown, real and generated
 
     UINT w = 0, h = 0;                   // current picture size
     // DirectComposition: lets the swapchain sit in a click-through overlay window
@@ -450,7 +458,54 @@ static bool InitNgx()
     int dlss = 0;
     g.params->Get(NVSDK_NGX_Parameter_SuperSampling_Available, &dlss);
     Log("DLSS available: %s", dlss ? "yes" : "no");
+    if (g.fg_frames > 0)
+    {
+        int fg = 0;
+        unsigned int fg_max = 0;
+        g.params->Get(NVSDK_NGX_Parameter_FrameGeneration_Available, &fg);
+        g.params->Get(NVSDK_NGX_DLSSG_Parameter_MultiFrameCountMax, &fg_max);
+        Log("frame generation available: %s, up to %u in-between frame(s)", fg ? "yes" : "no", fg_max);
+        if (!fg) { Log("frame generation is not available on this GPU or driver: off"); g.fg_frames = 0; }
+        else if (fg_max > 0 && g.fg_frames > fg_max)
+        {
+            Log("asked for %u in-between frames, this GPU allows %u", g.fg_frames, fg_max);
+            g.fg_frames = fg_max;
+        }
+    }
     return dlss != 0;
+}
+
+// Frame generation for a picture of w x h: the DLSS-G feature and the textures it writes the in-between
+// frames into. Failing leaves the overlay running without it.
+static void BuildFrameGeneration(UINT w, UINT h)
+{
+    if (g.fg_frames == 0 || !g.params) return;
+    for (UINT i = 0; i < g.fg_frames; ++i)
+        g.interp[i] = MakeTex(w, h, DXGI_FORMAT_B8G8R8A8_UNORM, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_HEAP_FLAG_NONE,
+                              D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    NVSDK_NGX_DLSSG_Create_Params cp = {};
+    cp.Width = w;
+    cp.Height = h;
+    cp.NativeBackbufferFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
+    cp.RenderWidth = w;
+    cp.RenderHeight = h;
+    g.alloc->Reset();
+    g.list->Reset(g.alloc, nullptr);
+    const NVSDK_NGX_Result r = NGX_D3D12_CREATE_DLSSG(g.list, 1, 1, &g.fg_feature, g.params, &cp);
+    g.list->Close();
+    ID3D12CommandList *lists[] = { g.list };
+    g.queue->ExecuteCommandLists(1, lists);
+    WaitGpu();
+    Log("frame generation %ux (%u in-between frame(s)) %ux%u: 0x%08X", g.fg_frames + 1, g.fg_frames, w, h, r);
+    if (NVSDK_NGX_FAILED(r)) g.fg_feature = nullptr;
+    g.fg_have_prev = false;
+}
+
+static void ReleaseFrameGeneration()
+{
+    if (g.fg_feature) { NVSDK_NGX_D3D12_ReleaseFeature(g.fg_feature); g.fg_feature = nullptr; }
+    for (auto &t : g.interp) Release(t);
+    g.fg_have_prev = false;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -672,6 +727,7 @@ static void ReleaseFrameResources()
 {
     WaitGpu();
     if (g.feature) { NVSDK_NGX_D3D12_ReleaseFeature(g.feature); g.feature = nullptr; }
+    ReleaseFrameGeneration();
     ReleaseMotion();
     Release(g.mv11);
     Release(g.color11);
@@ -732,6 +788,7 @@ static bool BuildFrameResources(UINT w, UINT h)
     WaitGpu();
     Log("DLSS feature %ux%u DLAA: 0x%08X", w, h, r);
     g.reset = true;
+    BuildFrameGeneration(w, h);
     return NVSDK_NGX_SUCCEED(r) && g.feature != nullptr;
 }
 
@@ -745,6 +802,24 @@ static void ResizeSwapchain(UINT w, UINT h)
     Release(g.back[1]);
     g.swap->ResizeBuffers(2, w, h, DXGI_FORMAT_B8G8R8A8_UNORM, 0);
     for (UINT i = 0; i < 2; ++i) g.swap->GetBuffer(i, IID_PPV_ARGS(&g.back[i]));
+}
+
+// Copies a finished frame into the back buffer and shows it (waits for the screen's next refresh).
+static void PresentTexture(ID3D12Resource *src, D3D12_RESOURCE_STATES state)
+{
+    ID3D12Resource *bb = g.back[g.swap->GetCurrentBackBufferIndex()];
+    g.alloc->Reset();
+    g.list->Reset(g.alloc, nullptr);
+    if (state != D3D12_RESOURCE_STATE_COMMON) Barrier(src, state, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    Barrier(bb, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_DEST);
+    g.list->CopyResource(bb, src);
+    Barrier(bb, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT);
+    if (state != D3D12_RESOURCE_STATE_COMMON) Barrier(src, D3D12_RESOURCE_STATE_COPY_SOURCE, state);
+    g.list->Close();
+    ID3D12CommandList *lists[] = { g.list };
+    g.queue->ExecuteCommandLists(1, lists);
+    g.swap->Present(1, 0);
+    WaitGpu();
 }
 
 static bool Frame()
@@ -785,9 +860,9 @@ static bool Frame()
     g.ctx11->Flush();
     g.queue->Wait(g.copy_fence, g.copy_value);
 
-    ID3D12Resource *bb = g.back[g.swap->GetCurrentBackBufferIndex()];
     g.alloc->Reset();
     g.list->Reset(g.alloc, nullptr);
+    const bool reset = g.reset;
     bool shown_dlss = false;
     if (g.dlss_on && g.feature)
     {
@@ -807,27 +882,57 @@ static bool Frame()
         static bool said = false;
         if (NVSDK_NGX_FAILED(r) || !said) { Log("DLSS evaluate: 0x%08X", r); said = true; }
         g.reset = false;
-        if (NVSDK_NGX_SUCCEED(r))
-        {
-            Barrier(g.output, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
-            Barrier(bb, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_DEST);
-            g.list->CopyResource(bb, g.output);
-            Barrier(bb, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT);
-            Barrier(g.output, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-            shown_dlss = true;
-        }
+        shown_dlss = NVSDK_NGX_SUCCEED(r);
     }
-    if (!shown_dlss)
+    // The real frame: DLSS 5's answer, or the captured picture itself.
+    ID3D12Resource *real = shown_dlss ? g.output : g.color;
+    const D3D12_RESOURCE_STATES real_state = shown_dlss ? D3D12_RESOURCE_STATE_UNORDERED_ACCESS : D3D12_RESOURCE_STATE_COMMON;
+
+    // Frame generation: the in-between frames from the previous real frame to this one, shown before it.
+    UINT generated = 0;
+    if (g.fg_feature && g.fg_have_prev)
     {
-        Barrier(bb, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_DEST);
-        g.list->CopyResource(bb, g.color);
-        Barrier(bb, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT);
+        if (shown_dlss) Barrier(real, real_state, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+        for (UINT i = 1; i <= g.fg_frames; ++i)
+        {
+            NVSDK_NGX_D3D12_DLSSG_Eval_Params ep = {};
+            ep.pBackbuffer = real;
+            ep.pDepth = g.depth;
+            ep.pMVecs = g.mv;
+            ep.pOutputInterpFrame = g.interp[i - 1];
+            NVSDK_NGX_DLSSG_Opt_Eval_Params op = {};
+            op.multiFrameCount = g.fg_frames;
+            op.multiFrameIndex = i;
+            // A captured picture has no camera: identity matrices, and the motion is all on screen.
+            for (int k = 0; k < 4; ++k)
+                op.cameraViewToClip[k][k] = op.clipToCameraView[k][k] = op.clipToLensClip[k][k] = op.clipToPrevClip[k][k] = op.prevClipToClip[k][k] = 1.0f;
+            op.mvecScale[0] = 1.0f / w;   // our motion is in pixels; DLSS-G wants it as a fraction of the picture
+            op.mvecScale[1] = 1.0f / h;
+            op.cameraNear = 0.1f;
+            op.cameraFar = 1000.0f;
+            op.cameraFOV = 1.0472f;
+            op.cameraAspectRatio = static_cast<float>(w) / h;
+            op.depthInverted = true;
+            op.cameraMotionIncluded = true;
+            op.reset = reset;
+            op.minRelativeLinearDepthObjectSeparation = 40.0f;
+            const NVSDK_NGX_Result r = NGX_D3D12_EVALUATE_DLSSG(g.list, g.fg_feature, g.params, &ep, &op);
+            static bool said = false;
+            if (NVSDK_NGX_FAILED(r) || !said) { Log("frame generation evaluate %u/%u: 0x%08X", i, g.fg_frames, r); said = true; }
+            if (NVSDK_NGX_FAILED(r)) break;
+            generated = i;
+        }
+        if (shown_dlss) Barrier(real, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, real_state);
     }
     g.list->Close();
     ID3D12CommandList *lists[] = { g.list };
     g.queue->ExecuteCommandLists(1, lists);
-    g.swap->Present(1, 0);
     WaitGpu();
+    g.fg_have_prev = g.fg_feature != nullptr;
+
+    for (UINT i = 0; i < generated; ++i) PresentTexture(g.interp[i], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    PresentTexture(real, real_state);
+    g.presented += generated + 1;
     return true;
 }
 
@@ -850,7 +955,7 @@ int wmain(int argc, wchar_t **argv)
     g_log = _wfsopen((ExeDir() + L"dlss5-overlay.log").c_str(), L"w", _SH_DENYNO);   // readable while running
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
 
-    // dlss5-overlay.exe --hwnd <window> [--no-motion] [--stop-file <path>]   (DLSS 5 Master)
+    // dlss5-overlay.exe --hwnd <window> [--fg <1-3>] [--no-motion] [--stop-file <path>]   (DLSS 5 Master)
     // dlss5-overlay.exe "part of a window title"                              (by hand)
     std::wstring title_part;
     for (int i = 1; i < argc; ++i)
@@ -858,6 +963,7 @@ int wmain(int argc, wchar_t **argv)
         const std::wstring a = argv[i];
         if (a == L"--hwnd" && i + 1 < argc) g.target = reinterpret_cast<HWND>(static_cast<uintptr_t>(_wcstoui64(argv[++i], nullptr, 10)));
         else if (a == L"--no-motion") g.motion_on = false;
+        else if (a == L"--fg" && i + 1 < argc) g.fg_frames = std::min(3u, static_cast<UINT>(_wtoi(argv[++i])));
         else if (a == L"--stop-file" && i + 1 < argc) g.stop_file = argv[++i];
         else title_part = a;
     }
@@ -911,7 +1017,10 @@ int wmain(int argc, wchar_t **argv)
         const ULONGLONG t = GetTickCount64();
         if (t - t0 >= 5000)
         {
-            Log("%s, %.0f fps, %ux%u", g.dlss_on ? "DLSS 5 on" : "original picture", frames * 1000.0 / (t - t0), g.w, g.h);
+            static UINT64 shown0 = 0;
+            Log("%s, %.0f captured fps, %.0f shown fps, %ux%u", g.dlss_on ? "DLSS 5 on" : "original picture",
+                frames * 1000.0 / (t - t0), (g.presented - shown0) * 1000.0 / (t - t0), g.w, g.h);
+            shown0 = g.presented;
             frames = 0;
             t0 = t;
         }
@@ -923,5 +1032,22 @@ int wmain(int argc, wchar_t **argv)
     ReleaseFrameResources();
     if (g.params) NVSDK_NGX_D3D12_DestroyParameters(g.params);
     NVSDK_NGX_D3D12_Shutdown1(g.dev);
+    // Take the swapchain and devices down in order, so ReShade and the DLSS 5 add-on see a normal
+    // shutdown (the add-on records a process that just ends as an "unclean" session).
+    Release(g.back[0]);
+    Release(g.back[1]);
+    Release(g.dcomp_visual);
+    Release(g.dcomp_target);
+    Release(g.dcomp);
+    Release(g.swap);
+    Release(g.list);
+    Release(g.alloc);
+    Release(g.fence);
+    Release(g.queue);
+    Release(g.ctx11);
+    Release(g.dev11);
+    Release(g.dev);
+    DestroyWindow(g.window);
+    Log("closed");
     return 0;
 }
