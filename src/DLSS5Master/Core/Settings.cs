@@ -51,6 +51,8 @@ public sealed class AppSettings
     public int OverlayPasses { get; set; } = 1;
     /// <summary>Overlay: in-between frames from DLSS Frame Generation per real frame (0 off, 1 = 2x … 3 = 4x).</summary>
     public int OverlayFrameGen { get; set; }
+    /// <summary>Overlay: resolution of the neural pass, 0 Quality (100 %), 1 Balanced (75 %), 2 Performance (50 %).</summary>
+    public int OverlayQuality { get; set; }
     public Dictionary<string, GameOverride> Overrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };

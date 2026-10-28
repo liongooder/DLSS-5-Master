@@ -148,6 +148,12 @@ struct App
     // Smart limit: no more in-between frames than the screen can show. A 60 fps game on a 120 Hz screen
     // gets 1 (2x); asking for 4x there only slowed the real frames to 30 per second.
     double refresh_hz = 60.0;
+    // Memory guard: Windows gives each process a share (budget) of the graphics memory; when the game and the
+    // overlay together need more, everything is paged and slows to a crawl. Over budget for a few seconds turns
+    // frame generation off (the biggest saving), and says so if that was not enough.
+    IDXGIAdapter3 *adapter = nullptr;
+    int over_budget_s = 0;
+    bool memory_warned = false;
     double game_interval = 0.0;           // smoothed time between the game's frames, in seconds
     INT64 last_frame_time = 0;            // the capture's timestamp of the previous frame (100 ns units)
     UINT fg_now = 0;                      // in-between frames used for this frame
@@ -377,6 +383,7 @@ static bool InitD3D12()
     IDXGIFactory4 *factory = nullptr;
     if (FAILED(create_factory(0, IID_PPV_ARGS(&factory)))) { Log("no DXGI factory"); return false; }
     if (FAILED(create_device(nullptr, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&g.dev)))) { Log("no D3D12 device"); return false; }
+    factory->EnumAdapterByLuid(g.dev->GetAdapterLuid(), IID_PPV_ARGS(&g.adapter));
 
     D3D12_COMMAND_QUEUE_DESC qd = {};
     qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -890,6 +897,33 @@ static void ChooseFrameGeneration()
     held = 0;
 }
 
+// Called once a second while the overlay draws.
+static void CheckMemory()
+{
+    if (!g.adapter) return;
+    DXGI_QUERY_VIDEO_MEMORY_INFO mi = {};
+    if (FAILED(g.adapter->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &mi))) return;
+    static bool said = false;
+    if (!said) { said = true; Log("memory: budget %llu MB, the overlay uses %llu MB", mi.Budget >> 20, mi.CurrentUsage >> 20); }
+    if (mi.CurrentUsage <= mi.Budget) { g.over_budget_s = 0; return; }
+    ++g.over_budget_s;
+    if (g.over_budget_s == 3 && g.fg_feature)
+    {
+        WaitGpu();
+        ReleaseFrameGeneration();
+        g.fg_frames = g.fg_now = 0;
+        Log("memory: graphics memory is full (budget %llu MB, the overlay needs %llu MB): frame generation turned off",
+            mi.Budget >> 20, mi.CurrentUsage >> 20);
+        g.over_budget_s = 0;
+    }
+    else if (g.over_budget_s >= 5 && !g.memory_warned)
+    {
+        g.memory_warned = true;
+        Log("memory: graphics memory is still full (budget %llu MB, the overlay needs %llu MB): lower the game's settings or use Performance",
+            mi.Budget >> 20, mi.CurrentUsage >> 20);
+    }
+}
+
 static bool Frame()
 {
     // Take the newest frame and drop older ones, so the picture is never behind. Every frame passed over
@@ -1105,6 +1139,8 @@ int wmain(int argc, wchar_t **argv)
             if (GetFileAttributesW(g.stop_file.c_str()) != INVALID_FILE_ATTRIBUTES) { DeleteFileW(g.stop_file.c_str()); Log("stopped by DLSS 5 Master"); break; }
         }
         if (!TrackTarget()) { g.reset = true; Sleep(16); continue; }   // the game is not in front: nothing to draw
+        static ULONGLONG next_memory_check = 0;
+        if (GetTickCount64() >= next_memory_check) { next_memory_check = GetTickCount64() + 1000; CheckMemory(); }
         if (!Frame()) { Sleep(1); continue; }
         ++frames;
         const ULONGLONG t = GetTickCount64();
@@ -1129,6 +1165,7 @@ int wmain(int argc, wchar_t **argv)
     // shutdown (the add-on records a process that just ends as an "unclean" session).
     for (auto &b : g.back) Release(b);
     for (auto &a : g.ring) Release(a);
+    Release(g.adapter);
     Release(g.dcomp_visual);
     Release(g.dcomp_target);
     Release(g.dcomp);

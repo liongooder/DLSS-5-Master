@@ -135,6 +135,8 @@ public static class Overlay
         Set("NRStyle", Math.Clamp(s.OverlayStyle, 0, 2).ToString(CultureInfo.InvariantCulture));
         Set("NRIntensity", (Math.Clamp(s.OverlayStrength, 0, 100) / 100.0).ToString("0.##", CultureInfo.InvariantCulture));
         Set("NRPasses", Math.Clamp(s.OverlayPasses, 1, 2).ToString(CultureInfo.InvariantCulture));
+        // Quality / Balanced / Performance: the add-on runs the neural pass at this share of the picture size.
+        Set("NRResolutionScale", Math.Clamp(s.OverlayQuality, 0, 2) switch { 1 => "0.75", 2 => "0.5", _ => "1" });
         File.WriteAllText(ini, text);
     }
 
@@ -163,7 +165,8 @@ public static class Overlay
         _process.EnableRaisingEvents = true;
         _process.Exited += (_, _) => { Target = null; AppPaths.Log("Overlay stopped. " + (LastLogError() ?? "")); Changed?.Invoke(); };
         AppPaths.Log($"Overlay started on \"{target.Title}\" ({target.Process}){(elevated ? " as administrator" : "")}: style {settings.OverlayStyle}, " +
-                     $"strength {settings.OverlayStrength} %, {settings.OverlayPasses} pass(es), frame generation {(frameGen == 0 ? "off" : $"{frameGen + 1}x")}.");
+                     $"strength {settings.OverlayStrength} %, {settings.OverlayPasses} pass(es), quality {settings.OverlayQuality}, " +
+                     $"frame generation {(frameGen == 0 ? "off" : $"{frameGen + 1}x")}.");
         Changed?.Invoke();
 
         // A window that cannot be captured ends the helper within a few seconds; say why here.
@@ -191,6 +194,10 @@ public static class Overlay
         {
             using var fs = new FileStream(LogFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             var log = new StreamReader(fs).ReadToEnd();
+            if (log.Contains("memory: graphics memory is still full"))
+                return "Graphics memory is full: lower the game's settings, turn off the game's own frame generation, or set Quality to Performance.";
+            if (log.Contains("memory: graphics memory is full"))
+                return "Graphics memory was full, so the overlay turned its frame generation off. Lowering the game's settings frees room for it.";
             if (log.Contains("frame generation is not available")) return "Frame generation is not available on this graphics card or driver, so it is off.";
             if (log.Contains("dlssg_for_sm86 did not load")) return "Frame generation could not start on this graphics card (it needs NVIDIA driver R580 or newer).";
             // The helper fits frame generation to the screen; the latest decision is what runs now.

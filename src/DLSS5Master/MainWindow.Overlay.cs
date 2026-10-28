@@ -26,7 +26,7 @@ public sealed partial class MainWindow
     /// always runs: it only helps, and a switch for it confused more than it offered.</summary>
     private StackPanel BuildOverlaySettings()
     {
-        var style = new ComboBox { Header = "Style", MinWidth = 190 };
+        var style = new ComboBox { Header = "Style", MinWidth = 160 };
         foreach (var s in new[] { "Default", "Natural", "Cinematic" }) style.Items.Add(s);
         style.SelectedIndex = Math.Clamp(_settings.OverlayStyle, 0, 2);
         ToolTipService.SetToolTip(style, "Which of the neural model's three looks to ask for. Natural and Cinematic can darken very bright highlights.");
@@ -55,9 +55,17 @@ public sealed partial class MainWindow
             "Best on a high-refresh screen: 2x of a 60 fps game needs 120 Hz.");
         framegen.SelectionChanged += (_, _) => { _settings.OverlayFrameGen = framegen.SelectedIndex; _settings.Save(); };
 
+        var quality = new ComboBox { Header = "Quality", MinWidth = 150 };
+        foreach (var s in new[] { "Quality", "Balanced", "Performance" }) quality.Items.Add(s);
+        quality.SelectedIndex = Math.Clamp(_settings.OverlayQuality, 0, 2);
+        ToolTipService.SetToolTip(quality, "How large a picture the neural pass works on: Quality 100 %, Balanced 75 %, Performance 50 %. " +
+            "Lower is faster and uses less graphics memory, with a little less fine detail.");
+        quality.SelectionChanged += (_, _) => { _settings.OverlayQuality = quality.SelectedIndex; _settings.Save(); };
+
         // Two rows, so it fits the narrow window-picker dialog as well as the game panel.
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16 };
         row.Children.Add(style);
+        row.Children.Add(quality);
         row.Children.Add(passes);
         row.Children.Add(framegen);
         var panel = new StackPanel { Spacing = 8 };
