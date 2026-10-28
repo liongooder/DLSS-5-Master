@@ -98,6 +98,24 @@ public sealed partial class MainWindow
     private async Task StartOverlayAsync(OverlayWindow window)
     {
         if (_overlayBusy) return;
+        // A game already set up with DLSS 5 Master has DLSS 5 in its own picture: the overlay would run the same
+        // model over it again, for little visible change and the GPU cost of a second DLSS 5.
+        var setUp = window.ExePath is null ? null : _all.FirstOrDefault(g => g.IsInstalled &&
+            window.ExePath.StartsWith(g.Entry.Dir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase));
+        if (setUp is not null && await new ContentDialog
+            {
+                XamlRoot = Root.XamlRoot, Title = $"{setUp.Name} already has DLSS 5",
+                Content = new TextBlock
+                {
+                    TextWrapping = TextWrapping.Wrap,
+                    Text = "This game is set up with DLSS 5 Master, so DLSS 5 is already in its picture, with the game's own depth " +
+                           "and motion. The overlay would apply DLSS 5 a second time: little visible change, for extra GPU time.\n\n" +
+                           "To use the overlay on this game instead, click Restore originals on the game's page first.",
+                },
+                PrimaryButtonText = "Start the overlay anyway",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Close,
+            }.ShowAsync() != ContentDialogResult.Primary) return;
         _overlayBusy = true;
         RefreshOverlayUi();
         var progress = new Progress<string>(t => { if (_game is not null) LiveOverlayStatus.Text = t; });

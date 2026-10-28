@@ -406,6 +406,14 @@ static void CheckStarved(double captured_fps)
         captured_fps, frame_ms);
 }
 
+// Whether the game's window is in front of the overlay in Windows' stacking order.
+static bool GameAboveOverlay()
+{
+    for (HWND h = GetWindow(g.window, GW_HWNDPREV); h; h = GetWindow(h, GW_HWNDPREV))
+        if (h == g.target || GetAncestor(h, GA_ROOTOWNER) == g.target) return true;
+    return false;
+}
+
 // Keep the overlay exactly over the game's client area, and show it only while the game
 // (or the overlay itself, in settings mode) is the window in front.
 static bool TrackTarget()
@@ -427,6 +435,14 @@ static bool TrackTarget()
     if (!IsWindowVisible(g.window) || !EqualRect(&want, &have))
         SetWindowPos(g.window, HWND_TOPMOST, want.left, want.top, want.right - want.left, want.bottom - want.top,
                      SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    else if (GameAboveOverlay())
+    {
+        // Unreal Engine games (and others) make their window topmost while active: among topmost windows the one
+        // raised last is in front, so the game covers the overlay, which keeps drawing unseen.
+        static bool told = false;
+        if (!told) { Log("the game put its window above the overlay; the overlay keeps itself on top"); told = true; }
+        SetWindowPos(g.window, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    }
     return true;
 }
 
