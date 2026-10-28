@@ -97,6 +97,10 @@ struct App
     UINT64 ring_value[8] = {};
     UINT ring_next = 0;
     ID3D12CommandAllocator *ring_current = nullptr;
+    // One frame in flight: a new frame starts only once the GPU has finished the previous one. Without this, a
+    // heavy setting (2 passes at 4K, about 25 ms a frame) queued work faster than the GPU did it, and the
+    // picture fell further and further behind (92 ms a frame, then a frame a second, in Chrome).
+    UINT64 frame_done_value = 0;
 
     ID3D12Resource *color = nullptr;     // shared with D3D11: the captured picture
     ID3D12Resource *output = nullptr;    // DLSS writes here
@@ -1037,6 +1041,13 @@ static void CheckMemory()
 
 static bool Frame()
 {
+    // Wait for the previous frame first, then take the newest capture: the picture is as fresh as the GPU allows.
+    if (g.frame_done_value && g.fence->GetCompletedValue() < g.frame_done_value)
+    {
+        g.fence->SetEventOnCompletion(g.frame_done_value, g.fence_event);
+        WaitForSingleObject(g.fence_event, 2000);
+    }
+
     // Take the newest frame and drop older ones, so the picture is never behind. Every frame passed over
     // still counts towards the game's frame rate, which decides how many in-between frames fit.
     wgc::Direct3D11CaptureFrame frame{ nullptr };
@@ -1171,6 +1182,7 @@ static bool Frame()
 
     for (UINT i = 0; i < generated; ++i) PresentTexture(g.interp[i], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     PresentTexture(real, real_state);
+    g.frame_done_value = g.fence_value;   // PresentTexture's EndList signalled this after the frame's last work
     // The last read of the picture and the motion is queued: tell D3D11 when the GPU is past it.
     g.queue->Signal(g.copy_fence, ++g.copy_value);
     g.presented += generated + 1;
