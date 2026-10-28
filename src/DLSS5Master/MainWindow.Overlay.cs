@@ -12,6 +12,11 @@ public sealed partial class MainWindow
     private void InitOverlay()
     {
         Overlay.Changed += () => DispatcherQueue.TryEnqueue(RefreshOverlayUi);
+        // While it runs, the overlay adapts frame generation to the game; keep the bar's note current.
+        var timer = DispatcherQueue.CreateTimer();
+        timer.Interval = TimeSpan.FromSeconds(5);
+        timer.Tick += (_, _) => { if (Overlay.Running) RefreshOverlayUi(); };
+        timer.Start();
         // The overlay belongs to this session: closing the app stops it.
         Closed += (_, _) => { try { _ = Overlay.StopAsync(); } catch { } };
         RefreshOverlayUi();

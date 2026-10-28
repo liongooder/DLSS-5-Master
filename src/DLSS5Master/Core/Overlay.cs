@@ -193,6 +193,15 @@ public static class Overlay
             var log = new StreamReader(fs).ReadToEnd();
             if (log.Contains("frame generation is not available")) return "Frame generation is not available on this graphics card or driver, so it is off.";
             if (log.Contains("dlssg_for_sm86 did not load")) return "Frame generation could not start on this graphics card (it needs NVIDIA driver R580 or newer).";
+            // The helper fits frame generation to the screen; the latest decision is what runs now.
+            var fit = System.Text.RegularExpressions.Regex.Matches(log, @"frame generation now (\d)x: the game runs at (\d+) fps on a (\d+) Hz screen");
+            if (fit.Count > 0)
+            {
+                var g = fit[^1].Groups;
+                return g[1].Value == "1"
+                    ? $"Frame generation is resting: the game already runs at {g[2].Value} fps, as fast as your {g[3].Value} Hz screen."
+                    : $"Frame generation {g[1].Value}x: the game runs at {g[2].Value} fps on your {g[3].Value} Hz screen.";
+            }
             var m = System.Text.RegularExpressions.Regex.Match(log, @"asked for (\d) in-between frames, this GPU allows (\d)");
             if (m.Success) return $"This graphics card allows frame generation up to {int.Parse(m.Groups[2].Value) + 1}x, so {int.Parse(m.Groups[2].Value) + 1}x is used.";
             return null;

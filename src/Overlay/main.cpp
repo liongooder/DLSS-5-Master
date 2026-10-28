@@ -83,20 +83,27 @@ struct App
     // D3D12: NGX, the swapchain and the shared textures
     ID3D12Device *dev = nullptr;
     ID3D12CommandQueue *queue = nullptr;
-    ID3D12CommandAllocator *alloc = nullptr;
+    ID3D12CommandAllocator *alloc = nullptr;   // set-up work that is waited for (feature creation)
     ID3D12GraphicsCommandList *list = nullptr;
     ID3D12Fence *fence = nullptr;        // our own frame fence
     UINT64 fence_value = 0;
     HANDLE fence_event = nullptr;
     IDXGISwapChain3 *swap = nullptr;
-    ID3D12Resource *back[2] = {};
+    ID3D12Resource *back[6] = {};        // enough to queue a real frame and up to three generated ones ahead
+
+    // Per-frame work is not waited for: each recording uses the next allocator of a ring, and an allocator is
+    // only reused once the GPU has passed the fence value of its last recording.
+    ID3D12CommandAllocator *ring[8] = {};
+    UINT64 ring_value[8] = {};
+    UINT ring_next = 0;
+    ID3D12CommandAllocator *ring_current = nullptr;
 
     ID3D12Resource *color = nullptr;     // shared with D3D11: the captured picture
     ID3D12Resource *output = nullptr;    // DLSS writes here
     ID3D12Resource *depth = nullptr;     // constant: far plane
     ID3D12Resource *mv = nullptr;        // zero motion
-    ID3D12Fence *copy_fence = nullptr;   // shared with D3D11: "the captured picture is in color"
-    UINT64 copy_value = 0;
+    ID3D12Fence *copy_fence = nullptr;   // shared with D3D11, both ways: "the picture is in color" (D3D11 signals)
+    UINT64 copy_value = 0;               // and "D3D12 is done reading it" (D3D12 signals); one rising counter
 
     // D3D11: Windows Graphics Capture
     ID3D11Device5 *dev11 = nullptr;
@@ -138,6 +145,12 @@ struct App
     ID3D12Resource *interp[3] = {};
     bool fg_have_prev = false;            // DLSS-G needs a previous real frame to interpolate from
     UINT64 presented = 0;                 // frames shown, real and generated
+    // Smart limit: no more in-between frames than the screen can show. A 60 fps game on a 120 Hz screen
+    // gets 1 (2x); asking for 4x there only slowed the real frames to 30 per second.
+    double refresh_hz = 60.0;
+    double game_interval = 0.0;           // smoothed time between the game's frames, in seconds
+    INT64 last_frame_time = 0;            // the capture's timestamp of the previous frame (100 ns units)
+    UINT fg_now = 0;                      // in-between frames used for this frame
 
     UINT w = 0, h = 0;                   // current picture size
     // DirectComposition: lets the swapchain sit in a click-through overlay window
@@ -165,6 +178,32 @@ static void WaitGpu()
         g.fence->SetEventOnCompletion(v, g.fence_event);
         WaitForSingleObject(g.fence_event, 5000);
     }
+}
+
+// Starts recording a per-frame command list on the next allocator of the ring.
+static void BeginList()
+{
+    const UINT i = g.ring_next;
+    g.ring_next = (g.ring_next + 1) % 8;
+    if (g.fence->GetCompletedValue() < g.ring_value[i])
+    {
+        g.fence->SetEventOnCompletion(g.ring_value[i], g.fence_event);
+        WaitForSingleObject(g.fence_event, 5000);
+    }
+    g.ring[i]->Reset();
+    g.list->Reset(g.ring[i], nullptr);
+    g.ring_current = g.ring[i];
+}
+
+// Submits the list and marks its allocator as busy until the GPU gets this far. Nothing waits here.
+static void EndList()
+{
+    g.list->Close();
+    ID3D12CommandList *lists[] = { g.list };
+    g.queue->ExecuteCommandLists(1, lists);
+    const UINT64 v = ++g.fence_value;
+    g.queue->Signal(g.fence, v);
+    for (UINT k = 0; k < 8; ++k) if (g.ring[k] == g.ring_current) g.ring_value[k] = v;
 }
 
 static void Barrier(ID3D12Resource *r, D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
@@ -345,6 +384,7 @@ static bool InitD3D12()
     g.dev->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&g.alloc));
     g.dev->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, g.alloc, nullptr, IID_PPV_ARGS(&g.list));
     g.list->Close();
+    for (auto &a : g.ring) g.dev->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&a));
     g.dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&g.fence));
     g.fence_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
 
@@ -370,7 +410,7 @@ static bool InitD3D12()
     sd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
     sd.SampleDesc.Count = 1;
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    sd.BufferCount = 2;
+    sd.BufferCount = 6;
     sd.Scaling = DXGI_SCALING_STRETCH;
     sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     sd.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
@@ -387,7 +427,7 @@ static bool InitD3D12()
         FAILED(hr = g.dcomp->Commit()))
     { Log("DirectComposition set-up failed: 0x%08X", hr); return false; }
     sc1->Release();
-    for (UINT i = 0; i < 2; ++i) g.swap->GetBuffer(i, IID_PPV_ARGS(&g.back[i]));
+    for (UINT i = 0; i < 6; ++i) g.swap->GetBuffer(i, IID_PPV_ARGS(&g.back[i]));
 
     D3D12_FEATURE_DATA_FORMAT_SUPPORT fs = { DXGI_FORMAT_B8G8R8A8_UNORM };
     g.dev->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &fs, sizeof(fs));
@@ -431,7 +471,7 @@ static bool InitCapture()
     if (FAILED(hr)) { Log("this window cannot be captured: 0x%08X", hr); return false; }
 
     const auto size = g.item.Size();
-    g.pool = wgc::Direct3D11CaptureFramePool::CreateFreeThreaded(g.rt_device, wdx::DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, size);
+    g.pool = wgc::Direct3D11CaptureFramePool::CreateFreeThreaded(g.rt_device, wdx::DirectXPixelFormat::B8G8R8A8UIntNormalized, 3, size);
     g.session = g.pool.CreateCaptureSession(g.item);
     try { g.session.IsCursorCaptureEnabled(false); } catch (...) {}
     try { g.session.IsBorderRequired(false); } catch (...) {}
@@ -499,6 +539,7 @@ static void BuildFrameGeneration(UINT w, UINT h)
     Log("frame generation %ux (%u in-between frame(s)) %ux%u: 0x%08X", g.fg_frames + 1, g.fg_frames, w, h, r);
     if (NVSDK_NGX_FAILED(r)) g.fg_feature = nullptr;
     g.fg_have_prev = false;
+    g.fg_now = g.fg_frames;
 }
 
 static void ReleaseFrameGeneration()
@@ -798,36 +839,75 @@ static bool BuildFrameResources(UINT w, UINT h)
 static void ResizeSwapchain(UINT w, UINT h)
 {
     WaitGpu();
-    Release(g.back[0]);
-    Release(g.back[1]);
-    g.swap->ResizeBuffers(2, w, h, DXGI_FORMAT_B8G8R8A8_UNORM, 0);
-    for (UINT i = 0; i < 2; ++i) g.swap->GetBuffer(i, IID_PPV_ARGS(&g.back[i]));
+    for (auto &b : g.back) Release(b);
+    g.swap->ResizeBuffers(6, w, h, DXGI_FORMAT_B8G8R8A8_UNORM, 0);
+    for (UINT i = 0; i < 6; ++i) g.swap->GetBuffer(i, IID_PPV_ARGS(&g.back[i]));
 }
 
-// Copies a finished frame into the back buffer and shows it (waits for the screen's next refresh).
+// Copies a finished frame into the next back buffer and queues it to be shown at a screen refresh. The
+// queue holds several, so this only blocks when it is full; the next frame is processed meanwhile.
 static void PresentTexture(ID3D12Resource *src, D3D12_RESOURCE_STATES state)
 {
     ID3D12Resource *bb = g.back[g.swap->GetCurrentBackBufferIndex()];
-    g.alloc->Reset();
-    g.list->Reset(g.alloc, nullptr);
+    BeginList();
     if (state != D3D12_RESOURCE_STATE_COMMON) Barrier(src, state, D3D12_RESOURCE_STATE_COPY_SOURCE);
     Barrier(bb, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_DEST);
     g.list->CopyResource(bb, src);
     Barrier(bb, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT);
     if (state != D3D12_RESOURCE_STATE_COMMON) Barrier(src, D3D12_RESOURCE_STATE_COPY_SOURCE, state);
-    g.list->Close();
-    ID3D12CommandList *lists[] = { g.list };
-    g.queue->ExecuteCommandLists(1, lists);
+    EndList();
     g.swap->Present(1, 0);
-    WaitGpu();
+}
+
+// The screen's refresh rate where the game window is.
+static double RefreshRate()
+{
+    MONITORINFOEXW mi = {};
+    mi.cbSize = sizeof(mi);
+    DEVMODEW dm = {};
+    dm.dmSize = sizeof(dm);
+    if (GetMonitorInfoW(MonitorFromWindow(g.target, MONITOR_DEFAULTTONEAREST), &mi) &&
+        EnumDisplaySettingsW(mi.szDevice, ENUM_CURRENT_SETTINGS, &dm) && dm.dmDisplayFrequency > 1)
+        return dm.dmDisplayFrequency;
+    return 60.0;
+}
+
+// How many in-between frames fit: real frames times (1 + generated) may not exceed the screen's refresh rate,
+// or the queue fills and holds the real frames back. Changes only after holding for about a second.
+static void ChooseFrameGeneration()
+{
+    if (!g.fg_feature || g.game_interval <= 0.0) { g.fg_now = g.fg_frames; return; }
+    const int fit = static_cast<int>(std::floor(g.refresh_hz * g.game_interval + 0.25)) - 1;
+    const UINT want = static_cast<UINT>(std::clamp(fit, 0, static_cast<int>(g.fg_frames)));
+    static UINT pending = UINT_MAX;
+    static int held = 0;
+    if (want == g.fg_now) { held = 0; return; }
+    if (want != pending) { pending = want; held = 0; }
+    if (++held < 30) return;
+    Log("frame generation now %ux: the game runs at %.0f fps on a %.0f Hz screen%s", want + 1, 1.0 / g.game_interval, g.refresh_hz,
+        want < g.fg_frames ? " (more would not fit on the screen)" : "");
+    g.fg_now = want;
+    held = 0;
 }
 
 static bool Frame()
 {
-    // Take the newest frame and drop older ones, so the picture is never behind.
+    // Take the newest frame and drop older ones, so the picture is never behind. Every frame passed over
+    // still counts towards the game's frame rate, which decides how many in-between frames fit.
     wgc::Direct3D11CaptureFrame frame{ nullptr };
-    for (auto f = g.pool.TryGetNextFrame(); f; f = g.pool.TryGetNextFrame()) frame = f;
+    for (auto f = g.pool.TryGetNextFrame(); f; f = g.pool.TryGetNextFrame())
+    {
+        const INT64 t = f.SystemRelativeTime().count();
+        if (g.last_frame_time != 0)
+        {
+            const double dt = (t - g.last_frame_time) / 1e7;
+            if (dt > 0.0 && dt < 0.25) g.game_interval = g.game_interval > 0.0 ? g.game_interval * 0.9 + dt * 0.1 : dt;
+        }
+        g.last_frame_time = t;
+        frame = f;
+    }
     if (!frame) return false;
+    ChooseFrameGeneration();
 
     // The capture is the whole window, frame and title bar included; DLSS and the overlay use only
     // the client area, found from where it sits inside the window's visible bounds.
@@ -844,9 +924,11 @@ static bool Frame()
     if (w < 64 || h < 64) return false;
     if (w != g.w || h != g.h)
     {
-        g.pool.Recreate(g.rt_device, wdx::DirectXPixelFormat::B8G8R8A8UIntNormalized, 2, size);
+        g.pool.Recreate(g.rt_device, wdx::DirectXPixelFormat::B8G8R8A8UIntNormalized, 3, size);
         ResizeSwapchain(w, h);
         if (!BuildFrameResources(w, h)) { Log("could not build DLSS for %ux%u", w, h); return false; }
+        g.refresh_hz = RefreshRate();
+        Log("screen refresh: %.0f Hz", g.refresh_hz);
     }
     if (!g.color11 || !g.copy_fence11) return false;   // this size failed to build; wait for another
 
@@ -854,14 +936,16 @@ static bool Frame()
     winrt::com_ptr<ID3D11Texture2D> src;
     access->GetInterface(IID_PPV_ARGS(src.put()));
     D3D11_BOX box = { ox, oy, 0, ox + w, oy + h, 1 };
+    // Nothing waits on the CPU: D3D11 waits on the GPU until D3D12 has finished reading the previous picture and
+    // motion, then writes the new ones and lets D3D12 go on.
+    if (g.copy_value > 0) g.ctx11->Wait(g.copy_fence11, g.copy_value);
     g.ctx11->CopySubresourceRegion(g.color11, 0, 0, 0, 0, src.get(), 0, &box);
     RunMotion();
     g.ctx11->Signal(g.copy_fence11, ++g.copy_value);
     g.ctx11->Flush();
     g.queue->Wait(g.copy_fence, g.copy_value);
 
-    g.alloc->Reset();
-    g.list->Reset(g.alloc, nullptr);
+    BeginList();
     const bool reset = g.reset;
     bool shown_dlss = false;
     if (g.dlss_on && g.feature)
@@ -893,7 +977,7 @@ static bool Frame()
     if (g.fg_feature && g.fg_have_prev)
     {
         if (shown_dlss) Barrier(real, real_state, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        for (UINT i = 1; i <= g.fg_frames; ++i)
+        for (UINT i = 1; i <= g.fg_now; ++i)
         {
             NVSDK_NGX_D3D12_DLSSG_Eval_Params ep = {};
             ep.pBackbuffer = real;
@@ -901,7 +985,7 @@ static bool Frame()
             ep.pMVecs = g.mv;
             ep.pOutputInterpFrame = g.interp[i - 1];
             NVSDK_NGX_DLSSG_Opt_Eval_Params op = {};
-            op.multiFrameCount = g.fg_frames;
+            op.multiFrameCount = g.fg_now;
             op.multiFrameIndex = i;
             // A captured picture has no camera: identity matrices, and the motion is all on screen.
             for (int k = 0; k < 4; ++k)
@@ -918,20 +1002,19 @@ static bool Frame()
             op.minRelativeLinearDepthObjectSeparation = 40.0f;
             const NVSDK_NGX_Result r = NGX_D3D12_EVALUATE_DLSSG(g.list, g.fg_feature, g.params, &ep, &op);
             static bool said = false;
-            if (NVSDK_NGX_FAILED(r) || !said) { Log("frame generation evaluate %u/%u: 0x%08X", i, g.fg_frames, r); said = true; }
+            if (NVSDK_NGX_FAILED(r) || !said) { Log("frame generation evaluate %u/%u: 0x%08X", i, g.fg_now, r); said = true; }
             if (NVSDK_NGX_FAILED(r)) break;
             generated = i;
         }
         if (shown_dlss) Barrier(real, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, real_state);
     }
-    g.list->Close();
-    ID3D12CommandList *lists[] = { g.list };
-    g.queue->ExecuteCommandLists(1, lists);
-    WaitGpu();
+    EndList();
     g.fg_have_prev = g.fg_feature != nullptr;
 
     for (UINT i = 0; i < generated; ++i) PresentTexture(g.interp[i], D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     PresentTexture(real, real_state);
+    // The last read of the picture and the motion is queued: tell D3D11 when the GPU is past it.
+    g.queue->Signal(g.copy_fence, ++g.copy_value);
     g.presented += generated + 1;
     return true;
 }
@@ -1044,8 +1127,8 @@ int wmain(int argc, wchar_t **argv)
     NVSDK_NGX_D3D12_Shutdown1(g.dev);
     // Take the swapchain and devices down in order, so ReShade and the DLSS 5 add-on see a normal
     // shutdown (the add-on records a process that just ends as an "unclean" session).
-    Release(g.back[0]);
-    Release(g.back[1]);
+    for (auto &b : g.back) Release(b);
+    for (auto &a : g.ring) Release(a);
     Release(g.dcomp_visual);
     Release(g.dcomp_target);
     Release(g.dcomp);
