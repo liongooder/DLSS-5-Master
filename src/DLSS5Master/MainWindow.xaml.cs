@@ -71,16 +71,18 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void UpdateTitleBarRegions()
     {
-        if (TitleBar.XamlRoot is null) return;
+        // Layout events still arrive while the window closes, when AppWindow is already gone.
+        var appWindow = AppWindow;
+        if (TitleBar.XamlRoot is null || appWindow is null) return;
         double scale = TitleBar.XamlRoot.RasterizationScale;
-        TitleBar.Padding = new Thickness(20, 0, AppWindow.TitleBar.RightInset / scale + 8, 0);
+        TitleBar.Padding = new Thickness(20, 0, appWindow.TitleBar.RightInset / scale + 8, 0);
 
         var rects = new List<Windows.Graphics.RectInt32>();
         // Caption buttons occupy the top band; never cover them with a clickable region.
-        double captionBottom = AppWindow.TitleBar.Height / scale;
+        double captionBottom = appWindow.TitleBar.Height / scale;
         void Add(FrameworkElement e, bool belowCaption = false)
         {
-            if (e.Visibility != Visibility.Visible || e.ActualWidth <= 0 || !e.IsHitTestVisible) return;
+            if (e.XamlRoot is null || e.Visibility != Visibility.Visible || e.ActualWidth <= 0 || !e.IsHitTestVisible) return;
             var r = e.TransformToVisual(null).TransformBounds(new Windows.Foundation.Rect(0, 0, e.ActualWidth, e.ActualHeight));
             if (belowCaption && r.Y < captionBottom) { r.Height -= captionBottom - r.Y; r.Y = captionBottom; }
             if (r.Height <= 0) return;
@@ -89,7 +91,7 @@ public sealed partial class MainWindow : Window
         Add(Tabs);
         Add(AppUpdateButton);
         if (GameOverlay.Visibility == Visibility.Visible) Add(GamePanel, belowCaption: true);
-        Microsoft.UI.Input.InputNonClientPointerSource.GetForWindowId(AppWindow.Id)
+        Microsoft.UI.Input.InputNonClientPointerSource.GetForWindowId(appWindow.Id)
             .SetRegionRects(Microsoft.UI.Input.NonClientRegionKind.Passthrough, rects.ToArray());
     }
 
