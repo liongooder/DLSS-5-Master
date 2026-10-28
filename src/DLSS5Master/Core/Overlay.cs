@@ -157,9 +157,6 @@ public static class Overlay
         // Quality: everything runs on the window's picture at 100 / 67 / 50 % of its size, stretched back over it.
         var scale = Math.Clamp(settings.OverlayQuality, 0, 2) switch { 1 => "0.67", 2 => "0.5", _ => "1" };
         var args = $"--hwnd {(ulong)target.Handle} --stop-file \"{StopFile}\" --scale {scale}" + (frameGen > 0 ? $" --fg {frameGen}" : "");
-        // Games are capped at what reaches the screen (refresh / frame generation), so the GPU keeps room for the
-        // overlay; browsers, the desktop and other everyday programs are left alone.
-        if (frameGen > 0 && !NeverCapped.Contains(target.Process)) args += " --cap";
         var psi = new ProcessStartInfo(Path.Combine(Folder, "dlss5-overlay.exe"), args) { WorkingDirectory = Folder };
         if (elevated) { psi.UseShellExecute = true; psi.Verb = "runas"; }
         p?.Report(elevated ? "Starting the overlay as administrator (the game runs that way)…" : "Starting the overlay…");
@@ -179,12 +176,6 @@ public static class Overlay
         for (int i = 0; i < 40 && Running; i++) await Task.Delay(100, ct);
         if (!Running) throw new InvalidOperationException(LastLogError() ?? "The overlay stopped right after starting.");
     }
-
-    static readonly HashSet<string> NeverCapped = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "chrome", "msedge", "firefox", "opera", "opera_gx", "brave", "vivaldi", "explorer", "vlc", "mpc-hc64", "mpc-be64",
-        "PotPlayerMini64", "Spotify", "Discord", "ApplicationFrameHost",
-    };
 
     /// <summary>Asks the overlay to stop (through the stop file, which works whatever its rights) and waits for it.</summary>
     public static async Task StopAsync()
@@ -212,14 +203,7 @@ public static class Overlay
                 return "Graphics memory was full, so the overlay turned its frame generation off. Lowering the game's settings frees room for it.";
             if (log.Contains("frame generation is not available")) return "Frame generation is not available on this graphics card or driver, so it is off.";
             if (log.Contains("dlssg_for_sm86 did not load")) return "Frame generation could not start on this graphics card (it needs NVIDIA driver R580 or newer).";
-            if (log.Contains("frame cap:") && log.Contains("needs administrator rights"))
-                return "The game could not be capped (that needs administrator rights), so it may leave the overlay little room.";
-            // NVIDIA's limiter does not reach every game, and a running game may only pick it up at its next start.
-            var cap = System.Text.RegularExpressions.Regex.Match(log, @"frame cap: .+ capped at (\d+) fps");
-            var capped = !cap.Success ? ""
-                : log.Contains("frame cap: the game ignores it")
-                    ? $" This game ignores NVIDIA's frame cap: set its own FPS limit to {cap.Groups[1].Value} for the smoothest result."
-                    : $" NVIDIA's frame cap for this game is set to {cap.Groups[1].Value} fps (if the game was already running, it may need a restart to apply).";
+            var limit = FpsLimitAdvice(log);
             // The helper fits frame generation to the screen; the latest decision is what runs now.
             var fit = System.Text.RegularExpressions.Regex.Matches(log, @"frame generation now (\d)x: the game runs at (\d+) fps on a (\d+) Hz screen");
             if (fit.Count > 0)
@@ -227,15 +211,34 @@ public static class Overlay
                 var g = fit[^1].Groups;
                 return (g[1].Value == "1"
                     ? $"Frame generation is resting: the game already runs at {g[2].Value} fps, as fast as your {g[3].Value} Hz screen."
-                    : $"Frame generation {g[1].Value}x: the game runs at {g[2].Value} fps on your {g[3].Value} Hz screen.") + capped;
+                    : $"Frame generation {g[1].Value}x: the game runs at {g[2].Value} fps on your {g[3].Value} Hz screen.") + limit;
             }
-            if (capped.Length > 0) return capped.TrimStart();
             var m = System.Text.RegularExpressions.Regex.Match(log, @"asked for (\d) in-between frames, this GPU allows (\d)");
-            if (m.Success) return $"This graphics card allows frame generation up to {int.Parse(m.Groups[2].Value) + 1}x, so {int.Parse(m.Groups[2].Value) + 1}x is used.";
-            return null;
+            if (m.Success) return $"This graphics card allows frame generation up to {int.Parse(m.Groups[2].Value) + 1}x, so {int.Parse(m.Groups[2].Value) + 1}x is used." + limit;
+            return limit.Length > 0 ? limit.TrimStart() : null;
         }
         catch { return null; }
     }
+
+    /// <summary>With frame generation on, a game drawing more frames than the screen can show of it (refresh / multiplier)
+    /// only takes GPU time from the overlay. The game's own FPS limit is the one that reliably holds it there
+    /// (NVIDIA's driver cap does not reach a game that is already running).</summary>
+    private static string FpsLimitAdvice(string log)
+    {
+        if (Target is { } t && NoFpsLimit.Contains(t.Process)) return "";
+        var fg = System.Text.RegularExpressions.Regex.Match(log, @"frame generation (\d)x \(\d+ in-between");
+        var hz = System.Text.RegularExpressions.Regex.Match(log, @"screen refresh: (\d+) Hz");
+        if (!fg.Success || !hz.Success || fg.Groups[1].Value == "1") return "";
+        var fps = (int)Math.Round(int.Parse(hz.Groups[1].Value, CultureInfo.InvariantCulture) / (double)int.Parse(fg.Groups[1].Value, CultureInfo.InvariantCulture));
+        return $" For the smoothest result, set the game's own FPS limit to {fps}.";
+    }
+
+    /// <summary>Browsers, the desktop and players: no FPS limit to set.</summary>
+    private static readonly HashSet<string> NoFpsLimit = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "chrome", "msedge", "firefox", "opera", "opera_gx", "brave", "vivaldi", "explorer", "vlc", "mpc-hc64", "mpc-be64",
+        "PotPlayerMini64", "Spotify", "Discord", "ApplicationFrameHost",
+    };
 
     /// <summary>The helper's last "error: ..." line, for telling the user why it stopped.</summary>
     public static string? LastLogError()

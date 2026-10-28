@@ -39,8 +39,6 @@
 #include <nvsdk_ngx_helpers_dlssg_d3d.h>
 #include <nvOpticalFlowCommon.h>
 #include <nvOpticalFlowD3D11.h>
-#include <nvapi.h>
-#include <NvApiDriverSettings.h>
 
 namespace wgc = winrt::Windows::Graphics::Capture;
 namespace wdx = winrt::Windows::Graphics::DirectX;
@@ -192,7 +190,6 @@ struct App
     IDCompositionVisual *dcomp_visual = nullptr;
 
     std::wstring stop_file;              // DLSS 5 Master creates this file to stop the overlay (works across elevation)
-    UINT cap_fps = 0;                    // the game's frame cap (0: not capped)
     bool dlss_on = true;
     bool motion_on = true;
     bool reset = true;
@@ -1041,162 +1038,6 @@ static double RefreshRate()
     return 60.0;
 }
 
-// ---------------------------------------------------------------------------------------------
-// Frame cap. A game drawing frames the overlay drops only takes GPU time from it, so while the overlay runs the
-// game is capped at what reaches the screen: refresh / (1 + in-between frames). It is NVIDIA's own "Max Frame
-// Rate" (FRL_FPS_ID) on the game's driver profile, set through NVAPI and put back exactly when the overlay
-// stops: the earlier value (or none), and a profile this created is deleted. What to put back is written to
-// framecap-restore.txt first, so a crash is undone at the next start.
-
-static std::wstring CapRestoreFile() { return ExeDir() + L"framecap-restore.txt"; }
-
-struct DrsSession
-{
-    NvDRSSessionHandle s = nullptr;
-    bool ok = false;
-    DrsSession()
-    {
-        ok = NvAPI_Initialize() == NVAPI_OK && NvAPI_DRS_CreateSession(&s) == NVAPI_OK && NvAPI_DRS_LoadSettings(s) == NVAPI_OK;
-    }
-    ~DrsSession() { if (s) NvAPI_DRS_DestroySession(s); }
-};
-
-static void CopyName(NvAPI_UnicodeString dst, const std::wstring &src)
-{
-    memset(dst, 0, sizeof(NvAPI_UnicodeString));
-    wcsncpy_s(reinterpret_cast<wchar_t *>(dst), NVAPI_UNICODE_STRING_MAX, src.c_str(), _TRUNCATE);
-}
-
-static std::wstring CapProfileName(const std::wstring &exe) { return L"DLSS 5 Master overlay: " + exe; }
-
-// Puts the game's profile back as it was (from the restore file).
-static void RestoreFrameCap()
-{
-    FILE *f = nullptr;
-    if (_wfopen_s(&f, CapRestoreFile().c_str(), L"r, ccs=UTF-8") != 0 || !f) return;
-    wchar_t exe[512] = {};
-    int created = 0, had_old = 0;
-    unsigned old_value = 0;
-    const int n = fwscanf_s(f, L"%511[^\n]\n%d %d %u", exe, 512u, &created, &had_old, &old_value);
-    fclose(f);
-    DrsSession drs;
-    bool done = false;
-    if (n == 4 && drs.ok)
-    {
-        NvAPI_UnicodeString name;
-        NvDRSProfileHandle profile = nullptr;
-        if (created)
-        {
-            CopyName(name, CapProfileName(exe));
-            if (NvAPI_DRS_FindProfileByName(drs.s, name, &profile) == NVAPI_OK) NvAPI_DRS_DeleteProfile(drs.s, profile);
-        }
-        else
-        {
-            NVDRS_APPLICATION app = {};
-            app.version = NVDRS_APPLICATION_VER;
-            CopyName(name, exe);
-            if (NvAPI_DRS_FindApplicationByName(drs.s, name, &profile, &app) == NVAPI_OK)
-            {
-                if (had_old)
-                {
-                    NVDRS_SETTING st = {};
-                    st.version = NVDRS_SETTING_VER;
-                    st.settingId = FRL_FPS_ID;
-                    st.settingType = NVDRS_DWORD_TYPE;
-                    st.u32CurrentValue = old_value;
-                    NvAPI_DRS_SetSetting(drs.s, profile, &st);
-                }
-                else NvAPI_DRS_DeleteProfileSetting(drs.s, profile, FRL_FPS_ID);
-            }
-        }
-        done = NvAPI_DRS_SaveSettings(drs.s) == NVAPI_OK;
-    }
-    Log(done ? "frame cap removed from %ls" : "frame cap on %ls could not be removed (it stays in the NVIDIA profile)", exe);
-    if (done) DeleteFileW(CapRestoreFile().c_str());
-}
-
-
-// NVIDIA's limiter does not reach every game (a running game may only pick the cap up at its next start, and some
-// never do: the Bloodborne port ran on at full speed even after a restart). When the overlay keeps getting clearly
-// more frames than the cap for 10 seconds of play, the log says so once, for DLSS 5 Master to tell the player.
-static void CheckFrameCap(double captured_fps)
-{
-    static int over = 0;
-    if (g.cap_fps == 0 || over < 0) return;
-    over = captured_fps > g.cap_fps + 2.0 ? over + 1 : 0;
-    if (over < 2) return;
-    Log("frame cap: the game ignores it (%.0f fps against a cap of %u)", captured_fps, g.cap_fps);
-    over = -1;
-}
-
-static void ApplyFrameCap(UINT fps)
-{
-    DWORD pid = 0;
-    GetWindowThreadProcessId(g.target, &pid);
-    wchar_t path[MAX_PATH] = {};
-    DWORD len = MAX_PATH;
-    HANDLE proc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
-    const bool have_path = proc && QueryFullProcessImageNameW(proc, 0, path, &len);
-    if (proc) CloseHandle(proc);
-    if (!have_path) { Log("frame cap: the game's program could not be found"); return; }
-    const wchar_t *slash = wcsrchr(path, L'\\');
-    const std::wstring exe = slash ? slash + 1 : path;
-
-    DrsSession drs;
-    if (!drs.ok) { Log("frame cap: NVIDIA's driver settings are not available"); return; }
-    NvAPI_UnicodeString name;
-    CopyName(name, exe);
-    NvDRSProfileHandle profile = nullptr;
-    NVDRS_APPLICATION app = {};
-    app.version = NVDRS_APPLICATION_VER;
-    bool created = false, had_old = false;
-    unsigned old_value = 0;
-    if (NvAPI_DRS_FindApplicationByName(drs.s, name, &profile, &app) == NVAPI_OK)
-    {
-        NVDRS_SETTING st = {};
-        st.version = NVDRS_SETTING_VER;
-        if (NvAPI_DRS_GetSetting(drs.s, profile, FRL_FPS_ID, &st) == NVAPI_OK && st.settingLocation == NVDRS_CURRENT_PROFILE_LOCATION)
-        { had_old = true; old_value = st.u32CurrentValue; }
-    }
-    else
-    {
-        NVDRS_PROFILE p = {};
-        p.version = NVDRS_PROFILE_VER;
-        CopyName(p.profileName, CapProfileName(exe));
-        NVDRS_APPLICATION a = {};
-        a.version = NVDRS_APPLICATION_VER;
-        CopyName(a.appName, exe);
-        if (NvAPI_DRS_CreateProfile(drs.s, &p, &profile) != NVAPI_OK || NvAPI_DRS_CreateApplication(drs.s, profile, &a) != NVAPI_OK)
-        { Log("frame cap: no NVIDIA profile could be made for %ls", exe.c_str()); return; }
-        created = true;
-    }
-
-    FILE *f = nullptr;   // what to put back, before anything is saved
-    if (_wfopen_s(&f, CapRestoreFile().c_str(), L"w, ccs=UTF-8") == 0 && f)
-    {
-        fwprintf(f, L"%ls\n%d %d %u\n", exe.c_str(), created ? 1 : 0, had_old ? 1 : 0, old_value);
-        fclose(f);
-    }
-    NVDRS_SETTING st = {};
-    st.version = NVDRS_SETTING_VER;
-    st.settingId = FRL_FPS_ID;
-    st.settingType = NVDRS_DWORD_TYPE;
-    st.u32CurrentValue = fps;
-    const NvAPI_Status set = NvAPI_DRS_SetSetting(drs.s, profile, &st);
-    const NvAPI_Status save = set == NVAPI_OK ? NvAPI_DRS_SaveSettings(drs.s) : set;
-    if (save == NVAPI_OK)
-    {
-        Log("frame cap: %ls capped at %u fps (NVIDIA Max Frame Rate) while the overlay runs", exe.c_str(), fps);
-        g.cap_fps = fps;
-    }
-    else
-    {
-        Log("frame cap: NVIDIA did not accept the cap for %ls (%d)%s", exe.c_str(), save,
-            save == NVAPI_INVALID_USER_PRIVILEGE ? ": it needs administrator rights" : "");
-        DeleteFileW(CapRestoreFile().c_str());
-    }
-}
-
 // How many in-between frames: real frames times (1 + generated) may not exceed the screen's refresh rate, or the
 // queue fills and holds the real frames back. For each multiplier, real frames come at the slower of the game's
 // pace and the overlay's own (GPU cost of DLSS + the neural pass, plus each in-between frame), and the screen shows
@@ -1442,10 +1283,9 @@ int wmain(int argc, wchar_t **argv)
     g_log = _wfsopen((ExeDir() + L"dlss5-overlay.log").c_str(), L"w", _SH_DENYNO);   // readable while running
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
 
-    // dlss5-overlay.exe --hwnd <window> [--fg <1-3>] [--scale <0.4-1>] [--cap] [--no-motion] [--stop-file <path>]   (DLSS 5 Master)
+    // dlss5-overlay.exe --hwnd <window> [--fg <1-3>] [--scale <0.4-1>] [--no-motion] [--stop-file <path>]   (DLSS 5 Master)
     // dlss5-overlay.exe "part of a window title"                              (by hand)
     std::wstring title_part;
-    bool cap = false;
     for (int i = 1; i < argc; ++i)
     {
         const std::wstring a = argv[i];
@@ -1454,7 +1294,6 @@ int wmain(int argc, wchar_t **argv)
         else if (a == L"--fg" && i + 1 < argc) g.fg_frames = std::min(3u, static_cast<UINT>(_wtoi(argv[++i])));
         else if (a == L"--scale" && i + 1 < argc) g.scale = std::clamp(static_cast<float>(_wtof(argv[++i])), 0.4f, 1.0f);
         else if (a == L"--stop-file" && i + 1 < argc) g.stop_file = argv[++i];
-        else if (a == L"--cap") cap = true;
         else title_part = a;
     }
     if (!g.target && !title_part.empty())
@@ -1468,17 +1307,6 @@ int wmain(int argc, wchar_t **argv)
     GetWindowTextW(g.target, title, 512);
     Log("target window: \"%ls\"", title);
     if (!g.stop_file.empty()) DeleteFileW(g.stop_file.c_str());
-
-    // A cap left behind by an overlay that did not close properly goes first; then this game's cap: what reaches
-    // the screen, refresh / (1 + in-between frames).
-    RestoreFrameCap();
-    bool capped = false;
-    if (cap)
-    {
-        const UINT fps = static_cast<UINT>(RefreshRate() / (g.fg_frames + 1) + 0.5);
-        ApplyFrameCap(std::max(fps, 20u));
-        capped = GetFileAttributesW(CapRestoreFile().c_str()) != INVALID_FILE_ATTRIBUTES;
-    }
 
     // RTX 20 / 30: DLSS 5 Master puts dlssg_for_sm86 (sdli1995) beside this exe when frame generation is on. It
     // enables DLSS Frame Generation on those cards and must be in the process before D3D12 and NGX start.
@@ -1510,7 +1338,6 @@ int wmain(int argc, wchar_t **argv)
     Log("drawing over the game: F9 DLSS 5 on/off, Ctrl+F9 quit");
     UINT frames = 0;
     ULONGLONG t0 = GetTickCount64();
-    bool window_paused = false;          // the game left the front during these 5 seconds: their pace says nothing
     while (!g.quit && IsWindow(g.target))
     {
         MSG msg;
@@ -1523,7 +1350,7 @@ int wmain(int argc, wchar_t **argv)
             next_stop_check = GetTickCount64() + 250;
             if (GetFileAttributesW(g.stop_file.c_str()) != INVALID_FILE_ATTRIBUTES) { DeleteFileW(g.stop_file.c_str()); Log("stopped by DLSS 5 Master"); break; }
         }
-        if (!TrackTarget()) { g.reset = true; window_paused = true; Sleep(16); continue; }   // the game is not in front: nothing to draw
+        if (!TrackTarget()) { g.reset = true; Sleep(16); continue; }   // the game is not in front: nothing to draw
         static ULONGLONG next_memory_check = 0;
         if (GetTickCount64() >= next_memory_check) { next_memory_check = GetTickCount64() + 1000; CheckMemory(); }
         if (!Frame()) { Sleep(1); continue; }
@@ -1536,17 +1363,14 @@ int wmain(int argc, wchar_t **argv)
                 g.dlss_on ? "DLSS 5 on" : "original picture", frames * 1000.0 / (t - t0), (g.presented - shown0) * 1000.0 / (t - t0),
                 g.w, g.h, g.base_ms, g.fg_ms);
             shown0 = g.presented;
-            if (!window_paused) CheckFrameCap(frames * 1000.0 / (t - t0));
-            window_paused = false;
             frames = 0;
             t0 = t;
         }
     }
 
     Log(IsWindow(g.target) ? "closing" : "closing: the game's window closed");
-    if (capped) RestoreFrameCap();
-    // Taking capture, NGX and the devices down can stall when the game has just gone (it once hung for minutes).
-    // The game's cap is already restored above, so past 3 seconds the helper simply ends.
+    // Taking capture, NGX and the devices down can stall when the game has just gone (it once hung for minutes),
+    // so past 3 seconds the helper simply ends.
     CloseHandle(CreateThread(nullptr, 0, [](void *) -> DWORD {
         Sleep(3000);
         Log("closing took too long (stuck at: %s), ending", g.closing_step);

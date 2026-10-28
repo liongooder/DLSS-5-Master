@@ -78,10 +78,8 @@ Bundled with this installer (unmodified, SHA-256 pinned):
 - The overlay helper (overlay\dlss5-overlay.exe) is part of DLSS 5 Master. It is
   built with the NVIDIA NGX SDK (https://github.com/NVIDIA/DLSS, NVIDIA RTX SDKs
   licence) and the interface headers of the NVIDIA Optical Flow SDK
-  (BSD-3-Clause, Copyright (c) 2020 NVIDIA Corporation), and links NVIDIA NVAPI
-  (https://github.com/NVIDIA/nvapi, MIT, Copyright (c) 2019-2026 NVIDIA
-  Corporation & affiliates) to cap a game's frame rate while it runs. Its DLSS
-  set-up follows the 64-bit helper of DLSS5-Feeder (MIT, see above). It ships with the
+  (BSD-3-Clause, Copyright (c) 2020 NVIDIA Corporation). Its DLSS set-up follows
+  the 64-bit helper of DLSS5-Feeder (MIT, see above). It ships with the
   Microsoft Visual C++ runtime (overlay\msvcp140.dll, vcruntime140.dll,
   vcruntime140_1.dll), redistributed under the Visual Studio licence terms.
   On RTX 20 / 30 cards, with frame generation on, the overlay unpacks
