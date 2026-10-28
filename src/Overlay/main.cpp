@@ -1037,29 +1037,39 @@ static double RefreshRate()
     return 60.0;
 }
 
-// How many in-between frames fit: real frames times (1 + generated) may not exceed the screen's refresh rate,
-// or the queue fills and holds the real frames back. Changes only after holding for about a second.
-// For each multiplier: real frames come at the slower of the game's pace and the overlay's own (GPU cost of DLSS
-// + the neural pass, plus each in-between frame), and the screen shows at most its refresh rate. The multiplier
-// that shows the most frames wins; a bigger one only when it shows clearly more (5 %).
+// How many in-between frames: real frames times (1 + generated) may not exceed the screen's refresh rate, or the
+// queue fills and holds the real frames back. For each multiplier, real frames come at the slower of the game's
+// pace and the overlay's own (GPU cost of DLSS + the neural pass, plus each in-between frame), and the screen shows
+// at most its refresh rate; the multiplier that shows the most frames wins.
+// The measured costs move with the choice itself (the game, the neural pass and the in-between frames share the
+// GPU: 13 ms a frame at 2x became 25 ms at 4x in Bloodborne), so the choice is kept calm: another multiplier must
+// promise at least 10 % more frames on screen, hold for a second, and at most one change every 10 seconds.
 static void ChooseFrameGeneration()
 {
     if (!g.fg_feature || g.game_interval <= 0.0) { g.fg_now = g.fg_frames; return; }
-    double best_shown = 0.0;
-    UINT want = 0;
-    double interval = g.game_interval;
-    for (UINT n = 0; n <= g.fg_frames; ++n)
+    auto shown_with = [](UINT n, double *real_interval)
     {
         const double work_s = (g.base_ms + n * g.fg_ms) / 1000.0;
-        const double real_interval = std::max(g.game_interval, work_s);
-        const double shown = std::min(g.refresh_hz, (n + 1) / real_interval);
-        if (shown > best_shown * 1.05) { best_shown = shown; want = n; interval = real_interval; }
+        *real_interval = std::max(g.game_interval, work_s);
+        return std::min(g.refresh_hz, (n + 1) / *real_interval);
+    };
+    double interval = g.game_interval, ignored = 0.0;
+    UINT want = 0;
+    double best_shown = 0.0;
+    for (UINT n = 0; n <= g.fg_frames; ++n)
+    {
+        double ri = 0.0;
+        const double shown = shown_with(n, &ri);
+        if (shown > best_shown * 1.05) { best_shown = shown; want = n; interval = ri; }
     }
+    if (want != g.fg_now && best_shown < shown_with(g.fg_now, &ignored) * 1.10) want = g.fg_now;   // not worth a change
     static UINT pending = UINT_MAX;
     static int held = 0;
+    static ULONGLONG last_change = 0;
     if (want == g.fg_now) { held = 0; return; }
     if (want != pending) { pending = want; held = 0; }
-    if (++held < 30) return;
+    if (++held < 30 || GetTickCount64() - last_change < 10000) return;
+    last_change = GetTickCount64();
     Log("frame generation now %ux: the game runs at %.0f fps on a %.0f Hz screen%s%s", want + 1, 1.0 / interval, g.refresh_hz,
         interval > g.game_interval * 1.01 ? " (the overlay's own pace)" : "", want < g.fg_frames ? " (more would not fit on the screen)" : "");
     g.fg_now = want;
