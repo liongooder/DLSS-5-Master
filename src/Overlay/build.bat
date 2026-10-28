@@ -6,7 +6,7 @@ rem   external\ngx       NVIDIA NGX headers and nvsdk_ngx_d.lib  (https://github
 rem   external\nvof      nvOpticalFlowCommon.h, nvOpticalFlowD3D11.h  (NVIDIA Optical Flow SDK, BSD)
 cd /d "%~dp0"
 if not exist external\ngx\lib\nvsdk_ngx_d.lib powershell -NoProfile -ExecutionPolicy Bypass -File fetch-sdk.ps1 || exit /b 1
-call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" >nul || exit /b 1
+call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1 || exit /b 1
 if not exist build mkdir build
 cl /nologo /EHsc /O2 /MD /W4 /std:c++20 /permissive- /DUNICODE /D_UNICODE /Iexternal\ngx /Iexternal\nvof /Fobuild\ /Fdbuild\ main.cpp ^
    /link /OUT:build\dlss5-overlay.exe /SUBSYSTEM:WINDOWS /ENTRY:wmainCRTStartup external\ngx\lib\nvsdk_ngx_d.lib ^

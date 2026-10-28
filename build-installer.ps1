@@ -29,7 +29,10 @@ if ($Stage -in 'all', 'publish') {
     }
 
     # The overlay helper (C++, src\Overlay): built here and staged with its Visual C++ runtime into the app's overlay\ folder.
-    & cmd /c "`"$(Join-Path $root 'src\Overlay\build.bat')`""
+    # Its exit code decides, not stray stderr text (Windows PowerShell turns any into an error under 'Stop').
+    $ErrorActionPreference = 'Continue'
+    & cmd /c "`"$(Join-Path $root 'src\Overlay\build.bat')`" 2>&1"
+    $ErrorActionPreference = 'Stop'
     if ($LASTEXITCODE -ne 0) { throw 'dlss5-overlay build failed' }
     $overlay = Join-Path $root 'src\DLSS5Master\overlay'
     New-Item -ItemType Directory -Force $overlay | Out-Null
