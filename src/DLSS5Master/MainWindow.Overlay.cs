@@ -45,8 +45,9 @@ public sealed partial class MainWindow
         var framegen = new ComboBox { Header = "Frame generation", MinWidth = 150 };
         foreach (var s in new[] { "Off", "2x", "3x", "4x" }) framegen.Items.Add(s);
         framegen.SelectedIndex = Math.Clamp(_settings.OverlayFrameGen, 0, 3);
-        ToolTipService.SetToolTip(framegen, "DLSS Frame Generation adds in-between frames for smoother motion: 2x on RTX 40 and 50, 3x and 4x on RTX 50, " +
-            "or on RTX 40 through the bundled MFG unlock. Best on a high-refresh screen: 2x of a 60 fps game needs 120 Hz.");
+        ToolTipService.SetToolTip(framegen, "DLSS Frame Generation adds in-between frames for smoother motion. RTX 50: up to 4x. RTX 40: 2x, and 3x/4x " +
+            "through the bundled MFG unlock. RTX 20/30: up to 4x through dlssg_for_sm86 (needs NVIDIA driver R580 or newer). " +
+            "Best on a high-refresh screen: 2x of a 60 fps game needs 120 Hz.");
         framegen.SelectionChanged += (_, _) => { _settings.OverlayFrameGen = framegen.SelectedIndex; _settings.Save(); };
 
         // Two rows, so it fits the narrow window-picker dialog as well as the game panel.
@@ -65,7 +66,8 @@ public sealed partial class MainWindow
         var target = Overlay.Running ? Overlay.Target : null;
         OverlayBar.IsOpen = target is not null;
         if (target is not null)
-            OverlayBar.Message = $"Running on “{target.Title}”. F9 switches DLSS 5 on and off while you play.";
+            OverlayBar.Message = $"Running on “{target.Title}”. F9 switches DLSS 5 on and off while you play." +
+                                 (Overlay.FrameGenNotice() is { } notice ? " " + notice : "");
 
         if (_game is null) return;
         bool mine = target is not null && IsThisGame(target);
@@ -88,6 +90,8 @@ public sealed partial class MainWindow
         try
         {
             await Overlay.StartAsync(_components, _settings, window, progress, CancellationToken.None);
+            // The helper decides about frame generation once the first frame is in; show what it said.
+            _ = Task.Delay(TimeSpan.FromSeconds(10)).ContinueWith(_ => DispatcherQueue.TryEnqueue(RefreshOverlayUi));
         }
         catch (Exception ex)
         {
@@ -218,6 +222,14 @@ public sealed partial class MainWindow
         };
         // Wider than the 548 px a dialog allows by default, so the window titles fit.
         dialog.Resources["ContentDialogMaxWidth"] = 760.0;
+        // The app's own artwork behind it, like every page, instead of the plain grey dialog.
+        dialog.Background = new Microsoft.UI.Xaml.Media.ImageBrush
+        {
+            ImageSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(Path.Combine(AppContext.BaseDirectory, "Assets", "Background.jpg"))) { DecodePixelWidth = 1920 },
+            Stretch = Microsoft.UI.Xaml.Media.Stretch.UniformToFill,
+        };
+        dialog.Resources["ContentDialogTopOverlay"] = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        dialog.BorderBrush = Res("RowBorder");
         list.SelectionChanged += (_, _) => dialog.IsPrimaryButtonEnabled = list.SelectedItem is not null;
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
         if (((list.SelectedItem as ListViewItem)?.Content as FrameworkElement)?.Tag is OverlayWindow chosen) await StartOverlayAsync(chosen);

@@ -55,9 +55,14 @@ public static class Overlay
         copies.Add((dlss, "nvngx_dlss.dll"));
         copies.Add((neural, "nvngx_dlssnr.dll"));
         if (runtime.TryGetValue("nvngx_dlssg.dll", out var framegen)) copies.Add((framegen, "nvngx_dlssg.dll"));
-        // 3x and 4x frame generation on RTX 40 need the MFG unlock add-on; it is only loaded when asked for.
+        // Frame generation unlocks, only when asked for and never both (each warns against the other):
+        // RTX 20 / 30 run DLSS Frame Generation through dlssg_for_sm86, taken from the bundled OptiScaler package;
+        // RTX 40 needs the MFG unlock add-on for 3x and 4x. RTX 50 needs neither.
+        var sm86 = frameGen >= 1 && Gpu.HasRtx20or30;
+        if (sm86) await Task.Run(() => ExtractSm86(ct), ct);
+        else RemoveSm86();
         var mfg = Path.Combine(Folder, Components.MfgAddon);
-        if (frameGen >= 2) copies.Add((await components.MfgUnlockAsync(p, ct), Components.MfgAddon));
+        if (frameGen >= 2 && !sm86) copies.Add((await components.MfgUnlockAsync(p, ct), Components.MfgAddon));
         else { try { File.Delete(mfg); } catch { } }
         Directory.CreateDirectory(Folder);
         await Task.Run(() =>
@@ -74,6 +79,48 @@ public static class Overlay
                 File.Copy(from, dest, true);
             }
         }, ct);
+    }
+
+    private const string Sm86Prefix = "OptiScaler/dlssg_sm86/";
+
+    /// <summary>
+    /// dlssg_for_sm86 (sdli1995) enables DLSS Frame Generation on RTX 20 / 30. The OptiScaler package bundled with
+    /// the app ships it (OptiScaler sideloads it the same way), so it is unpacked from there: dlssg_sm86.dll, its
+    /// ini and its dlssg_sm86\ folder go beside the helper, which loads the DLL before NGX starts.
+    /// </summary>
+    private static void ExtractSm86(CancellationToken ct)
+    {
+        var zip = Path.Combine(Components.BundledPayload, "optiscaler", Components.BundledOptiZipName(Components.OptiBuilds[0]));
+        if (!File.Exists(zip)) throw new InvalidOperationException("Frame generation on this graphics card needs the bundled OptiScaler package, which is missing. Reinstall DLSS 5 Master.");
+        var marker = Path.Combine(Folder, "dlssg_sm86", "unpacked-from.txt");
+        var stamp = $"{Path.GetFileName(zip)} {new FileInfo(zip).Length}";
+        if (File.Exists(marker) && File.ReadAllText(marker) == stamp) return;
+        RemoveSm86();
+        using var archive = System.IO.Compression.ZipFile.OpenRead(zip);
+        foreach (var entry in archive.Entries)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!entry.FullName.StartsWith(Sm86Prefix, StringComparison.OrdinalIgnoreCase) || entry.Name.Length == 0) continue;
+            var rel = entry.FullName[Sm86Prefix.Length..].Replace('/', '\\');
+            // The DLL, its ini and its folder; the notices go into the folder with it. Docs and readmes stay out.
+            if (rel.Equals("THIRD_PARTY_NOTICES.txt", StringComparison.OrdinalIgnoreCase)) rel = @"dlssg_sm86\THIRD_PARTY_NOTICES.txt";
+            else if (!rel.Equals("dlssg_sm86.dll", StringComparison.OrdinalIgnoreCase) && !rel.Equals("dlssg_sm86.ini", StringComparison.OrdinalIgnoreCase) &&
+                     !rel.StartsWith(@"dlssg_sm86\", StringComparison.OrdinalIgnoreCase)) continue;
+            var dest = Path.GetFullPath(Path.Combine(Folder, rel));
+            if (!dest.StartsWith(Folder + "\\", StringComparison.OrdinalIgnoreCase)) continue;   // never outside the folder
+            Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+            System.IO.Compression.ZipFileExtensions.ExtractToFile(entry, dest, true);
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(marker)!);
+        File.WriteAllText(marker, stamp);
+        AppPaths.Log("Overlay: unpacked dlssg_for_sm86 (DLSS Frame Generation on RTX 20 / 30) from " + Path.GetFileName(zip));
+    }
+
+    private static void RemoveSm86()
+    {
+        try { File.Delete(Path.Combine(Folder, "dlssg_sm86.dll")); } catch { }
+        try { File.Delete(Path.Combine(Folder, "dlssg_sm86.ini")); } catch { }
+        try { Directory.Delete(Path.Combine(Folder, "dlssg_sm86"), true); } catch { }
     }
 
     /// <summary>Writes the neural renderer's settings where the add-on reads them at start.</summary>
@@ -135,6 +182,22 @@ public static class Overlay
         if (Running) { try { _process!.Kill(); } catch { } }
         _process = null;
         Target = null;
+    }
+
+    /// <summary>What the running helper says about frame generation, when it could not give what was asked for.</summary>
+    public static string? FrameGenNotice()
+    {
+        try
+        {
+            using var fs = new FileStream(LogFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var log = new StreamReader(fs).ReadToEnd();
+            if (log.Contains("frame generation is not available")) return "Frame generation is not available on this graphics card or driver, so it is off.";
+            if (log.Contains("dlssg_for_sm86 did not load")) return "Frame generation could not start on this graphics card (it needs NVIDIA driver R580 or newer).";
+            var m = System.Text.RegularExpressions.Regex.Match(log, @"asked for (\d) in-between frames, this GPU allows (\d)");
+            if (m.Success) return $"This graphics card allows frame generation up to {int.Parse(m.Groups[2].Value) + 1}x, so {int.Parse(m.Groups[2].Value) + 1}x is used.";
+            return null;
+        }
+        catch { return null; }
     }
 
     /// <summary>The helper's last "error: ..." line, for telling the user why it stopped.</summary>

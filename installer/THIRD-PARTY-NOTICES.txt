@@ -82,6 +82,11 @@ Bundled with this installer (unmodified, SHA-256 pinned):
   the 64-bit helper of DLSS5-Feeder (MIT, see above). It ships with the
   Microsoft Visual C++ runtime (overlay\msvcp140.dll, vcruntime140.dll,
   vcruntime140_1.dll), redistributed under the Visual Studio licence terms.
+  On RTX 20 / 30 cards, with frame generation on, the overlay unpacks
+  dlssg_for_sm86 0.4.1 (https://github.com/sdli1995/dlssg_for_sm86) from the
+  OptiScaler package above into its own folder. Its terms are in the
+  THIRD_PARTY_NOTICES.txt that comes with it; its kernel images and the NVIDIA
+  runtime inside it are NVIDIA's material.
 
 Not bundled; downloaded at install time from their authors' release pages and
 verified by SHA-256:

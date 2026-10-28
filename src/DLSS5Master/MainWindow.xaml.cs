@@ -530,7 +530,9 @@ public sealed partial class MainWindow : Window
         "• OptiScaler NR pre-SR MFG 0.9.80 — github.com/ShyVortex/OptiScaler-NR-PreSR-MFG (GPL-3.0; source code at tag v0.9.80)\n" +
         "• The overlay helper (dlss5-overlay.exe) is built with the NVIDIA NGX SDK (github.com/NVIDIA/DLSS, NVIDIA RTX SDKs license) " +
         "and the NVIDIA Optical Flow SDK interface (BSD-3-Clause); its DLSS set-up follows DLSS5-Feeder's 64-bit helper (MIT). " +
-        "It ships with the Microsoft Visual C++ runtime (msvcp140, vcruntime140), redistributed under the Visual Studio license\n\n" +
+        "It ships with the Microsoft Visual C++ runtime (msvcp140, vcruntime140), redistributed under the Visual Studio license\n" +
+        "• dlssg_for_sm86 0.4.1 — github.com/sdli1995/dlssg_for_sm86, inside the OptiScaler package above; the overlay unpacks it on " +
+        "RTX 20/30 cards for frame generation (terms in its THIRD_PARTY_NOTICES.txt; its kernel images and the NVIDIA runtime are NVIDIA's)\n\n" +
         "Downloaded when first used, from their authors' release pages and verified by SHA-256:\n" +
         "• OptiScaler NR pre-SR multipass 0.8.3 RTX 40 MFG — github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0)";
 }

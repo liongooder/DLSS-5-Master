@@ -979,6 +979,16 @@ int wmain(int argc, wchar_t **argv)
     Log("target window: \"%ls\"", title);
     if (!g.stop_file.empty()) DeleteFileW(g.stop_file.c_str());
 
+    // RTX 20 / 30: DLSS 5 Master puts dlssg_for_sm86 (sdli1995) beside this exe when frame generation is on. It
+    // enables DLSS Frame Generation on those cards and must be in the process before D3D12 and NGX start.
+    if (g.fg_frames > 0)
+    {
+        const std::wstring sm86 = ExeDir() + L"dlssg_sm86.dll";
+        if (GetFileAttributesW(sm86.c_str()) != INVALID_FILE_ATTRIBUTES)
+            Log(LoadLibraryW(sm86.c_str()) ? "dlssg_for_sm86 loaded: DLSS Frame Generation on RTX 20 / 30"
+                                           : "dlssg_for_sm86 did not load (error %lu): no frame generation on this card", GetLastError());
+    }
+
     if (!InitD3D12()) { Log("error: DirectX 12 could not start"); return 3; }
     if (!InitCapture()) { Log("error: Windows cannot capture this window (exclusive fullscreen? use borderless)"); return 4; }
     InitMotion();
