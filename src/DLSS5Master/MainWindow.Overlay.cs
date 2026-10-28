@@ -4,7 +4,8 @@ using DLSS5Master.Core;
 
 namespace DLSS5Master;
 
-/// <summary>The DLSS 5 overlay: Games page → "DLSS 5 on any window", and the overlay section of each game panel.</summary>
+/// <summary>The DLSS 5 overlay, for browsers, videos and other windows: Games page → "DLSS 5 on any window". Games use the
+/// in-game routes on their own page.</summary>
 public sealed partial class MainWindow
 {
     private bool _overlayBusy;
@@ -80,21 +81,10 @@ public sealed partial class MainWindow
         var target = Overlay.Running ? Overlay.Target : null;
         OverlayBar.IsOpen = target is not null;
         if (target is not null)
-            OverlayBar.Message = $"Running on “{target.Title}”. F9 switches DLSS 5 on and off while you play." +
+            OverlayBar.Message = $"Running on “{target.Title}”. F9 switches DLSS 5 on and off while that window is in front." +
                                  (Overlay.FrameGenNotice() is { } notice ? " " + notice : "") +
-                                 " Not showing? Set the game to Windowed or Borderless: exclusive Fullscreen hides every overlay.";
-
-        if (_game is null) return;
-        bool mine = target is not null && IsThisGame(target);
-        LiveOverlayButton.Content = mine ? "Stop overlay" : "Start overlay";
-        LiveOverlayButton.IsEnabled = !_overlayBusy;
-        LiveOverlayStatus.Text = mine ? "Running. F9 switches DLSS 5 on and off."
-            : target is not null ? $"The overlay runs on “{target.Title}”; starting it here moves it to this game." : "";
+                                 " Not showing? Exclusive fullscreen hides every overlay: use windowed or borderless.";
     }
-
-    private bool IsThisGame(OverlayWindow w) =>
-        _game is not null && w.ExePath is not null &&
-        w.ExePath.StartsWith(_game.Entry.Dir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase);
 
     private async Task StartOverlayAsync(OverlayWindow window)
     {
@@ -119,10 +109,9 @@ public sealed partial class MainWindow
             }.ShowAsync() != ContentDialogResult.Primary) return;
         _overlayBusy = true;
         RefreshOverlayUi();
-        var progress = new Progress<string>(t => { if (_game is not null) LiveOverlayStatus.Text = t; });
         try
         {
-            await Overlay.StartAsync(_components, _settings, window, progress, CancellationToken.None);
+            await Overlay.StartAsync(_components, _settings, window, null, CancellationToken.None);
             // The helper decides about frame generation once the first frame is in; show what it said.
             _ = Task.Delay(TimeSpan.FromSeconds(10)).ContinueWith(_ => DispatcherQueue.TryEnqueue(RefreshOverlayUi));
         }
@@ -149,25 +138,8 @@ public sealed partial class MainWindow
         RefreshOverlayUi();
     }
 
-    /// <summary>Game panel: start the overlay on this game's window, or stop it.</summary>
-    private async void LiveOverlay_Click(object sender, RoutedEventArgs e)
-    {
-        if (_game is null || _overlayBusy) return;
-        if (Overlay.Running && Overlay.Target is { } t && IsThisGame(t)) { await Overlay.StopAsync(); RefreshOverlayUi(); return; }
-        var exe = _settings.Overrides.GetValueOrDefault(_game.Entry.Dir)?.Exe ?? _game.Entry.Exe;
-        var window = exe is not null ? Overlay.WindowOfExe(Path.Combine(_game.Entry.Dir, exe)) : null;
-        window ??= Overlay.Windows().FirstOrDefault(IsThisGame);
-        if (window is null)
-        {
-            // Not running, or its window belongs to a program outside the game folder: let the user pick it.
-            await PickWindowAndStartAsync($"No window of {_game.Name} was found. Start the game in windowed or borderless mode, or pick its window here.");
-            return;
-        }
-        await StartOverlayAsync(window);
-    }
-
     private async void AnyWindow_Click(object sender, RoutedEventArgs e) =>
-        await PickWindowAndStartAsync("Pick a window: a game, a video or anything else. DLSS 5 is drawn over it, and nothing in that program is changed.");
+        await PickWindowAndStartAsync("Pick a window: a browser, a video or anything else on screen. DLSS 5 is drawn over it, and nothing in that program is changed.");
 
     // An icon for the kind of program behind a window, so the list reads at a glance.
     private string WindowGlyph(OverlayWindow w) => w.Process.ToLowerInvariant() switch
@@ -184,7 +156,7 @@ public sealed partial class MainWindow
     private async Task PickWindowAndStartAsync(string intro)
     {
         var list = new ListView { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 236, Padding = new Thickness(0) };
-        var empty = new TextBlock { Text = "No windows to show. Open the game or video first, then refresh.", Foreground = Res("MutedText"), TextWrapping = TextWrapping.Wrap };
+        var empty = new TextBlock { Text = "No windows to show. Open the browser or video first, then refresh.", Foreground = Res("MutedText"), TextWrapping = TextWrapping.Wrap };
         void Fill()
         {
             list.Items.Clear();

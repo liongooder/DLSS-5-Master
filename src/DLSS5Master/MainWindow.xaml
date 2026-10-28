@@ -59,7 +59,7 @@
             <TextBlock Text="Games" FontSize="22" FontWeight="SemiBold" />
             <TextBlock x:Name="LibraryCount" Foreground="{StaticResource MutedText}" VerticalAlignment="Bottom" Margin="0,0,0,3" />
           </StackPanel>
-          <Button Grid.Column="1" AutomationProperties.Name="DLSS 5 on any window" ToolTipService.ToolTip="Draw DLSS 5 over any open window: a game, a video or anything else. Nothing in that program is changed." Click="AnyWindow_Click">
+          <Button Grid.Column="1" AutomationProperties.Name="DLSS 5 on any window" ToolTipService.ToolTip="Draw DLSS 5 over a browser, a video or any other open window. Nothing in that program is changed." Click="AnyWindow_Click">
             <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE7F4;" FontSize="13" /><TextBlock Text="DLSS 5 on any window" /></StackPanel>
           </Button>
           <Button Grid.Column="2" ToolTipService.ToolTip="Add a game by its .exe" Click="AddGame_Click">
@@ -669,22 +669,6 @@
                   </ComboBox>
                   <ComboBox x:Name="RouteBox" SelectionChanged="RouteBox_SelectionChanged" />
                 </StackPanel>
-              </StackPanel>
-
-              <!-- OVERLAY: DLSS 5 drawn over the running game, nothing installed into it (MainWindow.Overlay.cs) -->
-              <StackPanel Spacing="8">
-                <TextBlock Text="DLSS 5 OVERLAY · NO GAME FILES CHANGED" Style="{StaticResource SectionTitle}" />
-                <Border Style="{StaticResource Card}">
-                  <StackPanel Spacing="12">
-                    <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
-                               Text="Draws DLSS 5 over the running game instead of installing anything into it: for games the routes above cannot reach, such as emulators, Vulkan and older games. Start the game in windowed or borderless mode first; exclusive fullscreen cannot be captured." />
-                    <StackPanel x:Name="LiveOverlaySettings" />
-                    <StackPanel Orientation="Horizontal" Spacing="12">
-                      <Button x:Name="LiveOverlayButton" Content="Start overlay" Style="{StaticResource AccentButtonStyle}" Click="LiveOverlay_Click" />
-                      <TextBlock x:Name="LiveOverlayStatus" VerticalAlignment="Center" Foreground="{StaticResource MutedText}" TextWrapping="Wrap" />
-                    </StackPanel>
-                  </StackPanel>
-                </Border>
               </StackPanel>
 
               <!-- OPTIONS -->

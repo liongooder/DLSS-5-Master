@@ -286,16 +286,6 @@ public static class Overlay
         return list;
     }
 
-    /// <summary>The main window of a running game, found by its exe path.</summary>
-    public static OverlayWindow? WindowOfExe(string exe)
-    {
-        var full = Path.GetFullPath(exe);
-        var dir = Path.GetDirectoryName(full) ?? "";
-        var all = Windows();
-        return all.FirstOrDefault(w => string.Equals(w.ExePath, full, StringComparison.OrdinalIgnoreCase))
-            ?? all.FirstOrDefault(w => w.ExePath is not null && w.ExePath.StartsWith(dir + "\\", StringComparison.OrdinalIgnoreCase));
-    }
-
     private static string? ProcessPath(uint pid)
     {
         var h = OpenProcess(0x1000 /* PROCESS_QUERY_LIMITED_INFORMATION */, false, pid);
