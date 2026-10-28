@@ -28,8 +28,12 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        _single = new Mutex(true, @"Local\DLSS5Master.SingleInstance", out bool first);
-        _showRequest = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\DLSS5Master.ShowWindow");
+        // A copy started on a test data folder (DLSS5MASTER_DATA) is its own instance, so checks can run next to the real app.
+        var scope = Environment.GetEnvironmentVariable("DLSS5MASTER_DATA") is { Length: > 0 }
+            ? "." + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(AppPaths.Root.ToUpperInvariant())))[..12]
+            : "";
+        _single = new Mutex(true, @"Local\DLSS5Master.SingleInstance" + scope, out bool first);
+        _showRequest = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\DLSS5Master.ShowWindow" + scope);
         if (!first)
         {
             // This start came from the user, so it may hand the foreground over to the running copy.

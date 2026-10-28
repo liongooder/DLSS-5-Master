@@ -50,7 +50,7 @@ public sealed partial class MainWindow : Window
         Root.Loaded += async (_, _) =>
         {
             var assets = Path.Combine(AppContext.BaseDirectory, "Assets");
-            BackgroundArt.Source = await LoadImageAsync(Path.Combine(assets, "Background.jpg"), 2560);
+            BackgroundArt.Source = await LoadImageAsync(Path.Combine(assets, "Background.jpg"), 3840);
             var logo = Path.Combine(assets, "Logo.png");
             HeaderLogo.Source = await LoadImageAsync(logo, 400);
             AboutLogo.Source = await LoadImageAsync(logo, 600);
