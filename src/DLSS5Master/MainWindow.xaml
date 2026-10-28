@@ -106,39 +106,6 @@
           <SolidColorBrush x:Key="GridViewItemBackgroundPointerOver" Color="Transparent" />
           <SolidColorBrush x:Key="GridViewItemBackgroundPressed" Color="Transparent" />
         </GridView.Resources>
-        <!-- Games this app set up, newest first (filled in code; hidden while a filter or search is active). -->
-        <GridView.Header>
-          <StackPanel x:Name="RecentPanel" Spacing="8" Margin="6,6,6,10" Visibility="Collapsed">
-            <TextBlock Text="RECENTLY MODDED" Style="{StaticResource SectionTitle}" />
-            <ScrollViewer HorizontalScrollMode="Enabled" HorizontalScrollBarVisibility="Auto" VerticalScrollMode="Disabled" VerticalScrollBarVisibility="Disabled">
-              <ItemsControl x:Name="RecentList" Padding="0,0,0,12">
-                <ItemsControl.ItemsPanel>
-                  <ItemsPanelTemplate><StackPanel Orientation="Horizontal" Spacing="10" /></ItemsPanelTemplate>
-                </ItemsControl.ItemsPanel>
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate x:DataType="views:GameItem">
-                    <Button Width="290" Height="112" Padding="8" CornerRadius="12" Background="{StaticResource RowBackground}" BorderBrush="{StaticResource RowBorder}"
-                            HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" Click="RecentGame_Click" Tag="{x:Bind}">
-                      <Grid ColumnSpacing="12">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="64" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                        <Grid CornerRadius="8" Background="#CC0D1824">
-                          <TextBlock Text="{x:Bind Initials}" Visibility="{x:Bind PlaceholderVisibility, Mode=OneWay}" FontSize="18" FontWeight="Black"
-                                     Foreground="#40FFFFFF" HorizontalAlignment="Center" VerticalAlignment="Center" />
-                          <Image Source="{x:Bind Poster, Mode=OneWay}" Stretch="UniformToFill" />
-                        </Grid>
-                        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
-                          <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" />
-                          <TextBlock Text="{x:Bind Badge, Mode=OneWay}" FontSize="12" Foreground="{StaticResource AccentText}" TextTrimming="CharacterEllipsis" />
-                          <TextBlock Text="{x:Bind Subtitle, Mode=OneWay}" FontSize="12" Foreground="{StaticResource MutedText}" />
-                        </StackPanel>
-                      </Grid>
-                    </Button>
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
-            </ScrollViewer>
-          </StackPanel>
-        </GridView.Header>
         <!-- One section per store: "Steam  73 · 72 ready for DLSS 5". -->
         <GridView.GroupStyle>
           <GroupStyle HidesIfEmpty="True">
@@ -162,7 +129,7 @@
             </GroupStyle.HeaderTemplate>
           </GroupStyle>
         </GridView.GroupStyle>
-        <!-- Rows start at the left edge, in line with the filters, "Recently modded" and the store headings. -->
+        <!-- Rows start at the left edge, in line with the filters and the store headings. -->
         <GridView.ItemsPanel>
           <ItemsPanelTemplate>
             <ItemsWrapGrid Orientation="Horizontal" HorizontalAlignment="Left" />

@@ -76,7 +76,7 @@ public sealed partial class MainWindow
         GameOverlay.Visibility = Visibility.Collapsed;
         _game = null;
         _scan = null;
-        // An install or restore in the panel changes the totals and the "Recently modded" row.
+        // An install or restore in the panel changes the totals.
         RefreshLibrarySummary();
     }
 

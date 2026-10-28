@@ -7,7 +7,7 @@ using DLSS5Master.Views;
 
 namespace DLSS5Master;
 
-/// <summary>The Games page around the grid: search and filters, totals, store groups and "Recently modded".</summary>
+/// <summary>The Games page around the grid: search and filters, totals and store groups.</summary>
 public sealed partial class MainWindow
 {
     private readonly CollectionViewSource _gamesView = new() { IsSourceGrouped = true };
@@ -93,7 +93,7 @@ public sealed partial class MainWindow
         return null;
     }
 
-    /// <summary>The "N of M shown" count, the clickable totals and the "Recently modded" row.</summary>
+    /// <summary>The "N of M shown" count and the clickable totals.</summary>
     private void RefreshLibrarySummary()
     {
         bool active = FiltersActive;
@@ -109,10 +109,6 @@ public sealed partial class MainWindow
             AddChip(_all.Count(g => g.HasFrameGen), "with Frame Generation", () => DlssFilter.SelectedIndex = 2);
             AddChip(_all.Count(g => g.IsInstalled), "set up with DLSS 5 Master", () => StateFilter.SelectedIndex = 2);
         }
-
-        var recent = _all.Where(g => g.Scan?.Manifest is not null).OrderByDescending(g => g.Scan!.Manifest!.Date).Take(12).ToList();
-        if (!(RecentList.ItemsSource is List<GameItem> shown && shown.SequenceEqual(recent))) RecentList.ItemsSource = recent;
-        RecentPanel.Visibility = recent.Count > 0 && !active ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void AddChip(int count, string label, Action apply)
@@ -125,10 +121,5 @@ public sealed partial class MainWindow
         ToolTipService.SetToolTip(chip, "Show only these games");
         chip.Click += (_, _) => apply();
         SummaryChips.Children.Add(chip);
-    }
-
-    private async void RecentGame_Click(object sender, RoutedEventArgs e)
-    {
-        if ((sender as FrameworkElement)?.Tag is GameItem item) await OpenGameAsync(item);
     }
 }
