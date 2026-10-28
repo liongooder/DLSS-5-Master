@@ -1121,20 +1121,34 @@ static void ApplyFrameCap(UINT fps);
 
 // Moves the cap with the overlay's own pace, every 5 seconds of play: when the overlay processes clearly fewer
 // frames than the game is allowed, the game is capped just above the overlay's pace (frames it would drop only take
-// GPU time from it); when the overlay keeps up, the cap goes back up 5 at a time, to refresh / (1 + in-between
-// frames now). At most one change every 10 seconds.
+// GPU time from it); when the overlay keeps up, the cap goes back up 3 at a time, to refresh / (1 + in-between
+// frames now). A raise the overlay could not follow (the game took the GPU time back) returns to the level that
+// worked and stays at or under it for a minute, instead of see-sawing. At most one change every 10 seconds.
 static void AdaptFrameCap(double captured_fps)
 {
     if (g.cap_fps == 0) return;
-    static ULONGLONG next_change = 0;
-    if (GetTickCount64() < next_change) return;
+    static ULONGLONG next_change = 0, ceiling_until = 0;
+    static UINT raised_from = 0, ceiling = 0;   // the level before the last raise; the level held after one failed
+    const ULONGLONG now = GetTickCount64();
+    if (now < next_change) return;
     const UINT in_between = g.fg_feature ? g.fg_now : 0;
-    const UINT top = std::max(20u, static_cast<UINT>(RefreshRate() / (in_between + 1) + 0.5));
+    UINT top = std::max(20u, static_cast<UINT>(RefreshRate() / (in_between + 1) + 0.5));
+    if (now < ceiling_until) top = std::min(top, ceiling);
     UINT want = g.cap_fps;
     if (g.cap_fps > top) want = top;
-    else if (captured_fps < g.cap_fps * 0.9) want = std::max(15u, static_cast<UINT>(captured_fps + 0.5) + 2);
-    else if (captured_fps >= g.cap_fps - 1.5 && g.cap_fps < top) want = std::min(top, g.cap_fps + 5);
+    else if (captured_fps < g.cap_fps * 0.9)
+    {
+        want = std::max(15u, static_cast<UINT>(captured_fps + 0.5) + 2);
+        if (raised_from > 0 && raised_from < g.cap_fps)
+        {
+            want = std::max(want, raised_from);
+            ceiling = raised_from;
+            ceiling_until = now + 60000;
+        }
+    }
+    else if (captured_fps >= g.cap_fps - 1.5 && g.cap_fps < top) want = std::min(top, g.cap_fps + 3);
     if (want == g.cap_fps) return;
+    raised_from = want > g.cap_fps ? g.cap_fps : 0;
 
     DrsSession drs;
     NvAPI_UnicodeString name;
