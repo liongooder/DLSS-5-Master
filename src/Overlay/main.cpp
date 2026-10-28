@@ -390,18 +390,19 @@ static void PollKeys(bool in_front)
 
 // A game running free can take the whole GPU; the overlay's work then waits behind it and the picture drops to a
 // frame a second, so the player cannot even reach the game's settings. When that holds for two 5-second readings
-// (few frames AND slow GPU work: a paused game or still page also sends few frames, but quickly), the overlay
-// steps aside and the game shows as it is until F9.
+// (few frames AND slow GPU work for each, in-between frames included, since the wait can land on either; a paused
+// game or still page also sends few frames, but quickly), the overlay steps aside and the game shows as it is until F9.
 static void CheckStarved(double captured_fps)
 {
     static int low = 0;
     if (!g.dlss_on || g.stepped_aside) { low = 0; return; }
-    low = captured_fps < 10.0 && g.base_ms > 50.0 ? low + 1 : 0;
+    const double frame_ms = g.base_ms + (g.fg_feature ? g.fg_now : 0) * g.fg_ms;
+    low = captured_fps < 10.0 && frame_ms > 50.0 ? low + 1 : 0;
     if (low < 2) return;
     low = 0;
     g.stepped_aside = true;
-    Log("stepped aside: the game is using the whole GPU (%.0f real frames a second, %.0f ms a frame); F9 brings DLSS 5 back",
-        captured_fps, g.base_ms);
+    Log("stepped aside: the game is using the whole GPU (%.0f real frames a second, %.0f ms of GPU work each); F9 brings DLSS 5 back",
+        captured_fps, frame_ms);
 }
 
 // Keep the overlay exactly over the game's client area, and show it only while the game
