@@ -19,12 +19,33 @@ public partial class App : Application
         TaskScheduler.UnobservedTaskException += (_, e) => { AppPaths.Log("Unobserved task: " + e.Exception); e.SetObserved(); };
     }
 
+    // One DLSS 5 Master per Windows user: a second start wakes the first one's window and quits.
+    private static Mutex? _single;
+    private static EventWaitHandle? _showRequest;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool AllowSetForegroundWindow(int processId);
+    private const int AsfwAny = -1;
+
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        _single = new Mutex(true, @"Local\DLSS5Master.SingleInstance", out bool first);
+        _showRequest = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\DLSS5Master.ShowWindow");
+        if (!first)
+        {
+            // This start came from the user, so it may hand the foreground over to the running copy.
+            AllowSetForegroundWindow(AsfwAny);
+            _showRequest.Set();
+            Exit();
+            return;
+        }
         try
         {
             Window = new MainWindow();
             Window.Activate();
+            var ui = Window.DispatcherQueue;
+            var show = _showRequest;
+            new Thread(() => { while (show.WaitOne()) ui.TryEnqueue(() => Window?.BringToFront()); })
+                { IsBackground = true, Name = "Show window on second start" }.Start();
         }
         catch (Exception e)
         {

@@ -139,6 +139,16 @@ public sealed partial class MainWindow : Window
     }
 
     [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern uint GetDpiForWindow(nint hwnd);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint hwnd);
+
+    /// <summary>Shows this window on top (restored if minimised) when DLSS 5 Master is started a second time.</summary>
+    public void BringToFront()
+    {
+        if (AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized } p) p.Restore();
+        AppWindow.Show();
+        Activate();
+        SetForegroundWindow(Hwnd);
+    }
 
     /// <summary>AppWindow sizes are physical pixels: scale 1480×960 by the monitor's DPI and fit the work area.</summary>
     private void SizeToScreen()
