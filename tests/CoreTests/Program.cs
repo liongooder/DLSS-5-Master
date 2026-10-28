@@ -278,8 +278,8 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Check("routekey", Installers.RouteKey(Route.Feeder) == "feeder" && Installers.RouteKey(Route.OptiScaler) == "optiscaler");
     Check("apikey", Installers.ApiKey(RenderApi.DX12) == "dxgi" && Installers.ApiKey(RenderApi.DX11) == "dxgi" && Installers.ApiKey(RenderApi.Unknown) == "unknown" && Installers.ApiKey(RenderApi.OpenGL) == "opengl");
     Check("menukeys", Installers.MenuKeys.Length == 21 && Installers.MenuKeys[0] == ("Insert", "0x2D") && Installers.MenuKeys[17] == ("F12", "0x7B") && Installers.MenuKeys[^1] == ("Scroll Lock", "0x91"));
-    Check("opti builds", Components.OptiBuilds.Length == 2 && Components.OptiBuilds[0].Id == "0.9.72-shyvortex" && Components.OptiBuilds.All(b => b.Url is not null && b.Sha256 is { Length: 64 }));
-    Check("opti 0.9.72 whole backend", Components.OptiBuilds.Single(b => b.Id == "0.9.72-shyvortex") is { WholeBackend: true, NeuralRendering: true, Forwarded: false, Sha256.Length: 64 });
+    Check("opti builds", Components.OptiBuilds.Length == 2 && Components.OptiBuilds[0].Id == "0.9.80-shyvortex" && Components.OptiBuilds.All(b => b.Url is not null && b.Sha256 is { Length: 64 }));
+    Check("opti 0.9.80 whole backend", Components.OptiBuilds.Single(b => b.Id == "0.9.80-shyvortex") is { WholeBackend: true, NeuralRendering: true, Forwarded: false, Sha256.Length: 64 });
 
     // Feeder helpers
     Check("searchpaths merge", Installers.MergeSearchPaths(@".\reshade-shaders\Shaders\, D:\My\Shaders\**\**,./reshade-shaders/Shaders/**", @".\reshade-shaders\Shaders\**")

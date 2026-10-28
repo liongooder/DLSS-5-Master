@@ -95,7 +95,7 @@
             <ComboBoxItem Content="Modded by another app" Tag="other" />
             <ComboBoxItem Content="Not modded" Tag="clean" />
           </ComboBox>
-          <Button x:Name="ClearFiltersButton" Grid.Column="4" Content="Clear filters" IsEnabled="False" Click="EmptyClear_Click" />
+          <Button x:Name="ClearFiltersButton" Grid.Column="4" Content="Clear filters" Visibility="Collapsed" Click="EmptyClear_Click" />
         </Grid>
         <!-- clickable totals; each one applies its filter (filled in code) -->
         <StackPanel x:Name="SummaryChips" Orientation="Horizontal" Spacing="8" />
@@ -336,7 +336,7 @@
               <ComboBoxItem Content="Most reports" Tag="reports" />
               <ComboBoxItem Content="Name" Tag="name" />
             </ComboBox>
-            <Button x:Name="CgClear" Grid.Column="3" Content="Clear filters" VerticalAlignment="Center" IsEnabled="False" Click="CgClear_Click" />
+            <Button x:Name="CgClear" Grid.Column="3" Content="Clear filters" VerticalAlignment="Center" Visibility="Collapsed" Click="CgClear_Click" />
           <SelectorBar x:Name="CgView" SelectionChanged="CgView_SelectionChanged">
             <SelectorBarItem x:Name="CgViewAll" Text="Everyone" IsSelected="True" ToolTipService.ToolTip="Every game players reported">
               <SelectorBarItem.Icon><FontIcon Glyph="&#xE716;" /></SelectorBarItem.Icon>
@@ -573,7 +573,7 @@
         <Border Style="{StaticResource Card}">
           <StackPanel Spacing="8">
             <Image x:Name="AboutLogo" Height="150" HorizontalAlignment="Left" Stretch="Uniform" Margin="0,0,0,6" />
-            <TextBlock Text="DLSS 5 Master 0.8.1" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock Text="DLSS 5 Master 0.8.2" FontSize="20" FontWeight="SemiBold" />
             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
                        Text="One place for ReShade + RenoDX neural rendering routes (Native, Multipass, Feeder), OptiScaler, and per-game DLL swapping. Every change is recorded in _DLSS5Master_Backup inside the game folder, and Restore originals puts the game back exactly as it was." />
           </StackPanel>
@@ -712,7 +712,7 @@
                 </StackPanel>
                 <CheckBox x:Name="AddDlssBox" Content="Add nvngx_dlss.dll beside the game if it has none" />
                 <StackPanel>
-                  <CheckBox x:Name="MfgBox" Content="MFG unlock — multi frame generation: DLSS 3x/4x on RTX 40, or Intel XeSS 2x–6x on RTX 20–50 (MFGAdaUnlock 1.5.8)" />
+                  <CheckBox x:Name="MfgBox" Content="MFG unlock — multi frame generation: DLSS 3x/4x on RTX 40, or Intel XeSS 2x–6x on RTX 20–50 (MFGAdaUnlock 1.6.0)" />
                   <TextBlock x:Name="MfgNote" Margin="28,0,0,0" FontSize="12" Foreground="{StaticResource MutedText}" TextWrapping="Wrap" />
                 </StackPanel>
               </StackPanel>

@@ -19,9 +19,9 @@ public sealed class Components
 
     public static readonly OptiBuild[] OptiBuilds =
     {
-        new("0.9.72-shyvortex", "OptiScaler NR 0.9.72 (recommended)",
-            "https://github.com/ShyVortex/OptiScaler-DLSSNR-PreSR-Multipass/releases/download/v0.9.72/OptiScaler-NR-v0.9.72.zip",
-            "3ba28becc5bb84f9c3f77677a35aa81fa63f0c4b00217ec921fa82c68754e28c", null, null, false, true, WholeBackend: true),
+        new("0.9.80-shyvortex", "OptiScaler NR 0.9.80 (recommended)",
+            "https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/releases/download/v0.9.80/OptiScaler-NR-v0.9.80.zip",
+            "44a2d76fcd5c3c92e66983785c50b0b9cf6e1cbe4b9cd7a54d937e8e62107fb9", null, null, false, true, WholeBackend: true),
         new("0.8.3-rtx40-mfg", "OptiScaler NR 0.8.3 · RTX 40 MFG (older)",
             "https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/releases/download/v0.8.3/OptiScaler-NR-v0.8.3-rtx40-mfg.zip",
             "aac7ea64d80604a5b79f686043ba28fbefefaf98818e861a377b78122cb24448", null, null, false, true),
@@ -36,9 +36,9 @@ public sealed class Components
     };
 
     public const string MfgAddon = "renodx-mfgunlock.addon64";
-    public const string MfgVersion = "1.5.8";
-    public const string MfgUrl = "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/1.5.8/renodx-mfgunlock.addon64";
-    public const string MfgSha256 = "beae1bd3f46ba83f97bfcc53f612fb9e27b7dcc5a85f8e9c6c1c1ca75bee4e33";
+    public const string MfgVersion = "1.6.0";
+    public const string MfgUrl = "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/1.6.0/renodx-mfgunlock.addon64";
+    public const string MfgSha256 = "8f91b3f0a1b5752956111ba31b1d097ff2c5a1e0442ea991e27e6729c6c7f0e5";
 
     public static readonly string[] OptiLibraries =
     {
@@ -49,9 +49,9 @@ public sealed class Components
 
     // RenoDX add-on pins: (zip url, zip hash, file inside, file hash, cache folder name).
     private static readonly (string Url, string ZipSha, string Inner, string InnerSha, string Cache) ConsumerPin =
-        ("https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss5-6.5.3/renodx-dlss5_6.5.3.zip",
-         "553b1619b9e5ddfbcb4ebc7f2f3bffff9256a48a25b988f4817f5c63f4caa1de",
-         "renodx-dlss5.addon64", "342341f669f1d64e0c70c8593a07a2fab5075e073dfae97c331c9a6776260a0a", "renodx-dlss5-6.5.3");
+        ("https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss5-10.8.0/renodx-dlss5_10.8.0.zip",
+         "faba7814fa90b6b21786c98a45732dbe80f01fa36745c46324472e14ac0f440d",
+         "renodx-dlss5.addon64", "79871879324053d49931a9f8c1865fcb83e8146df4a56b146d7a8a14cc7e70fe", "renodx-dlss5-10.8.0");
 
     private static readonly (string Url, string ZipSha, string Inner, string InnerSha, string Cache) MultipassPin =
         ("https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss-SF-26.1016.1304/renodx-dlss_SF_26.1016.1304.zip",

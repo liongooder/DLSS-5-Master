@@ -98,7 +98,7 @@ public sealed partial class MainWindow
     {
         bool active = FiltersActive;
         LibraryCount.Text = _all.Count == 0 ? "" : active ? $"{_visible.Count} of {_all.Count} shown" : $"{_all.Count} games";
-        ClearFiltersButton.IsEnabled = active;
+        ClearFiltersButton.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
 
         SummaryChips.Children.Clear();
         if (_all.Count > 0)

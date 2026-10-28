@@ -160,7 +160,8 @@ public sealed partial class MainWindow
     {
         if (reset) { _cgOffset = 0; CgGrid.Children.Clear(); }
         var query = CgQuery();
-        CgClear.IsEnabled = query is not { Route: "", Api: "", Gpu: "", Result: "", Search: "" } || CgSort.SelectedIndex != 0;
+        CgClear.Visibility = query is not { Route: "", Api: "", Gpu: "", Result: "", Search: "" } || CgSort.SelectedIndex != 0
+            ? Visibility.Visible : Visibility.Collapsed;
         CgStatus.Text = "Loading…";
         CgMore.Visibility = Visibility.Collapsed;
         try

@@ -18,7 +18,7 @@ Third-party notices
 
 Bundled with this installer (unmodified, SHA-256 pinned):
 
-- MFGAdaUnlock-RenoDx 1.5.8 (renodx-mfgunlock.addon64) -
+- MFGAdaUnlock-RenoDx 1.6.0 (renodx-mfgunlock.addon64) -
   https://github.com/mavismmg/MFGAdaUnlock-RenoDx
 
   MIT License
@@ -48,7 +48,7 @@ Bundled with this installer (unmodified, SHA-256 pinned):
   BSD-3-Clause; full text in licenses\ReShade-LICENSE.md. Includes the
   ReShade.fxh / ReShadeUI.fxh shader headers in payload\feeder\reshade-shaders.
 
-- RenoDX DLSS5 add-on 6.5.3 and DLSS Tool SF 26.1016.1304
+- RenoDX DLSS5 add-on 10.8.0 and DLSS Tool SF 26.1016.1304
   (payload\renodx\) - https://github.com/clshortfuse/renodx,
   Copyright (c) 2025 Carlos Lopez Jr. MIT; full text in
   licenses\RenoDX-LICENSE.txt.
@@ -68,11 +68,11 @@ Bundled with this installer (unmodified, SHA-256 pinned):
   in payload\runtime\nvngx_dlss.license.txt, reflex.license.txt and
   nis.license.txt. These files are NVIDIA's property.
 
-- OptiScaler NR pre-SR multipass 0.9.72
-  (payload\optiscaler\OptiScaler-0_9_72-shyvortex.zip, the unmodified
+- OptiScaler NR pre-SR MFG 0.9.80
+  (payload\optiscaler\OptiScaler-0_9_80-shyvortex.zip, the unmodified
   release file) - GPL-3.0; the licence text is the LICENSE file inside the zip.
-  Source code: https://github.com/ShyVortex/OptiScaler-DLSSNR-PreSR-Multipass
-  (tag v0.9.72). The zip also contains NVIDIA Streamline, AMD FidelityFX and
+  Source code: https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG
+  (tag v0.9.80). The zip also contains NVIDIA Streamline, AMD FidelityFX and
   Intel XeSS libraries under the licences in its Licenses folder.
 
 Not bundled; downloaded at install time from their authors' release pages and
