@@ -130,6 +130,19 @@ struct App
     int cur = 0;                          // which luma[] holds this frame
     bool have_prev = false;
     bool motion_ready = false;
+
+    // Processing size: the window is captured at its own size (cw x ch), then everything -- DLSS, the neural pass,
+    // motion, frame generation -- runs on a picture scale times that size (w x h). The compositor stretches the
+    // finished picture back over the window. A game drawing 1440p into a 4K-sized window gains nothing from 4K.
+    float scale = 1.0f;
+    UINT cw = 0, ch = 0;
+    ID3D11Texture2D *cap11 = nullptr;              // the captured client area at full size (only when scaling)
+    ID3D11ShaderResourceView *cap_srv = nullptr;
+    ID3D11RenderTargetView *color_rtv = nullptr;
+    ID3D11VertexShader *vs_full = nullptr;
+    ID3D11PixelShader *ps_down = nullptr;
+    ID3D11SamplerState *linear_clamp = nullptr;
+    ID3D11Buffer *scale_cb = nullptr;
     wd3d::IDirect3DDevice rt_device{ nullptr };
     wgc::GraphicsCaptureItem item{ nullptr };
     wgc::Direct3D11CaptureFramePool pool{ nullptr };
@@ -617,20 +630,42 @@ void Motion(uint3 id : SV_DispatchThreadID)
     float2 c = flow[clamp(i + int2(0, 1), 0, hi)], d = flow[clamp(i + int2(1, 1), 0, hi)];
     mv[id.xy] = lerp(lerp(a, b, t.x), lerp(c, d, t.x), t.y) * scale;
 }
+
+// Down to the processing size: one triangle over the whole target, sampled with a linear filter (at 50 % that
+// is an even 2x2 average).
+Texture2D<float4> captured : register(t0);
+SamplerState linear_clamp : register(s0);
+float4 FullVS(uint id : SV_VertexID) : SV_Position
+{
+    float2 uv = float2((id << 1) & 2, id & 2);
+    return float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);
+}
+float4 DownPS(float4 pos : SV_Position) : SV_Target
+{
+    return captured.SampleLevel(linear_clamp, pos.xy / float2(size), 0);
+}
 )";
 
 struct MotionConstants { UINT w, h; float scale; UINT cell; };
 
-static ID3D11ComputeShader *CompileCS(const char *entry)
+static ID3DBlob *CompileBlob(const char *entry, const char *profile)
 {
     ID3DBlob *code = nullptr, *errors = nullptr;
-    HRESULT hr = D3DCompile(kShaders, sizeof(kShaders) - 1, "motion", nullptr, nullptr, entry, "cs_5_0",
+    HRESULT hr = D3DCompile(kShaders, sizeof(kShaders) - 1, "overlay", nullptr, nullptr, entry, profile,
                             D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors);
-    ID3D11ComputeShader *cs = nullptr;
-    if (SUCCEEDED(hr)) g.dev11->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &cs);
-    else Log("shader %s: %s", entry, errors ? static_cast<const char *>(errors->GetBufferPointer()) : "compile failed");
-    Release(code);
+    if (FAILED(hr)) Log("shader %s: %s", entry, errors ? static_cast<const char *>(errors->GetBufferPointer()) : "compile failed");
     Release(errors);
+    return code;
+}
+
+static ID3D11ComputeShader *CompileCS(const char *entry)
+{
+    ID3D11ComputeShader *cs = nullptr;
+    if (ID3DBlob *code = CompileBlob(entry, "cs_5_0"))
+    {
+        g.dev11->CreateComputeShader(code->GetBufferPointer(), code->GetBufferSize(), nullptr, &cs);
+        code->Release();
+    }
     return cs;
 }
 
@@ -645,6 +680,80 @@ static void InitMotion()
     D3D11_BUFFER_DESC bd = { 16, D3D11_USAGE_DEFAULT, D3D11_BIND_CONSTANT_BUFFER };
     g.dev11->CreateBuffer(&bd, nullptr, &g.cb);
     if (!g.cs_luma || !g.cs_mv || !g.cb) { Log("motion shaders not ready: no motion"); g.nvof_dll = nullptr; }
+}
+
+static void ReleaseScaler()
+{
+    Release(g.cap_srv);
+    Release(g.cap11);
+    Release(g.color_rtv);
+}
+
+// The full-size copy of the capture and the pass that shrinks it into color11 (shaders made once).
+static bool BuildScaler(UINT cw, UINT ch)
+{
+    ReleaseScaler();
+    if (!g.vs_full)
+    {
+        ID3DBlob *vs = CompileBlob("FullVS", "vs_5_0"), *ps = CompileBlob("DownPS", "ps_5_0");
+        if (vs) g.dev11->CreateVertexShader(vs->GetBufferPointer(), vs->GetBufferSize(), nullptr, &g.vs_full);
+        if (ps) g.dev11->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, &g.ps_down);
+        Release(vs);
+        Release(ps);
+        D3D11_SAMPLER_DESC sd = {};
+        sd.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+        sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+        g.dev11->CreateSamplerState(&sd, &g.linear_clamp);
+        D3D11_BUFFER_DESC bd = { 16, D3D11_USAGE_DEFAULT, D3D11_BIND_CONSTANT_BUFFER };
+        g.dev11->CreateBuffer(&bd, nullptr, &g.scale_cb);
+    }
+    D3D11_TEXTURE2D_DESC td = {};
+    td.Width = cw;
+    td.Height = ch;
+    td.MipLevels = 1;
+    td.ArraySize = 1;
+    td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    td.SampleDesc.Count = 1;
+    td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    g.dev11->CreateTexture2D(&td, nullptr, &g.cap11);
+    if (g.cap11) g.dev11->CreateShaderResourceView(g.cap11, nullptr, &g.cap_srv);
+    if (g.color11) g.dev11->CreateRenderTargetView(g.color11, nullptr, &g.color_rtv);
+    const bool ok = g.vs_full && g.ps_down && g.linear_clamp && g.scale_cb && g.cap_srv && g.color_rtv;
+    if (!ok) Log("the scaling pass could not be set up: processing at full size");
+    return ok;
+}
+
+// captured client area (cap11) -> color11 at the processing size
+static void ScaleDown()
+{
+    const MotionConstants c = { g.w, g.h, 0.0f, 0 };
+    g.ctx11->UpdateSubresource(g.scale_cb, 0, nullptr, &c, 0, 0);
+    const D3D11_VIEWPORT vp = { 0.0f, 0.0f, static_cast<float>(g.w), static_cast<float>(g.h), 0.0f, 1.0f };
+    g.ctx11->RSSetViewports(1, &vp);
+    g.ctx11->OMSetRenderTargets(1, &g.color_rtv, nullptr);
+    g.ctx11->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    g.ctx11->IASetInputLayout(nullptr);
+    g.ctx11->VSSetShader(g.vs_full, nullptr, 0);
+    g.ctx11->PSSetShader(g.ps_down, nullptr, 0);
+    g.ctx11->PSSetConstantBuffers(0, 1, &g.scale_cb);
+    g.ctx11->PSSetShaderResources(0, 1, &g.cap_srv);
+    g.ctx11->PSSetSamplers(0, 1, &g.linear_clamp);
+    g.ctx11->Draw(3, 0);
+    ID3D11ShaderResourceView *no_srv = nullptr;
+    ID3D11RenderTargetView *no_rtv = nullptr;
+    g.ctx11->PSSetShaderResources(0, 1, &no_srv);
+    g.ctx11->OMSetRenderTargets(1, &no_rtv, nullptr);
+}
+
+// The compositor stretches the processing-size picture over the window.
+static void StretchToWindow()
+{
+    D2D_MATRIX_3X2_F m = {};
+    m._11 = static_cast<float>(g.cw) / g.w;
+    m._22 = static_cast<float>(g.ch) / g.h;
+    g.dcomp_visual->SetBitmapInterpolationMode(DCOMPOSITION_BITMAP_INTERPOLATION_MODE_LINEAR);
+    g.dcomp_visual->SetTransform(m);
+    g.dcomp->Commit();
 }
 
 static void ReleaseMotion()
@@ -777,6 +886,8 @@ static void ReleaseFrameResources()
     if (g.feature) { NVSDK_NGX_D3D12_ReleaseFeature(g.feature); g.feature = nullptr; }
     ReleaseFrameGeneration();
     ReleaseMotion();
+    ReleaseScaler();
+    g.cw = g.ch = 0;
     Release(g.mv11);
     Release(g.color11);
     Release(g.copy_fence11);
@@ -953,14 +1064,22 @@ static bool Frame()
     ClientToScreen(g.target, &origin);
     const UINT ox = static_cast<UINT>(std::max<LONG>(origin.x - bounds.left, 0));
     const UINT oy = static_cast<UINT>(std::max<LONG>(origin.y - bounds.top, 0));
-    const UINT w = std::min<UINT>(client.right, size.Width > static_cast<int>(ox) ? size.Width - ox : 0) & ~1u;
-    const UINT h = std::min<UINT>(client.bottom, size.Height > static_cast<int>(oy) ? size.Height - oy : 0) & ~1u;
-    if (w < 64 || h < 64) return false;
-    if (w != g.w || h != g.h)
+    const UINT cw = std::min<UINT>(client.right, size.Width > static_cast<int>(ox) ? size.Width - ox : 0) & ~1u;
+    const UINT ch = std::min<UINT>(client.bottom, size.Height > static_cast<int>(oy) ? size.Height - oy : 0) & ~1u;
+    if (cw < 64 || ch < 64) return false;
+    // The processing size (w x h): the window's client area times the Quality scale.
+    const UINT w = std::max<UINT>(64, static_cast<UINT>(cw * g.scale + 0.5f) & ~1u);
+    const UINT h = std::max<UINT>(64, static_cast<UINT>(ch * g.scale + 0.5f) & ~1u);
+    if (cw != g.cw || ch != g.ch)
     {
         g.pool.Recreate(g.rt_device, wdx::DirectXPixelFormat::B8G8R8A8UIntNormalized, 3, size);
         ResizeSwapchain(w, h);
         if (!BuildFrameResources(w, h)) { Log("could not build DLSS for %ux%u", w, h); return false; }
+        g.cw = cw;
+        g.ch = ch;
+        if (w != cw && !BuildScaler(cw, ch)) return false;
+        StretchToWindow();
+        if (w != cw) Log("processing at %ux%u, %.0f %% of the %ux%u window", w, h, g.scale * 100.0f, cw, ch);
         g.refresh_hz = RefreshRate();
         Log("screen refresh: %.0f Hz", g.refresh_hz);
     }
@@ -969,11 +1088,16 @@ static bool Frame()
     auto access = frame.Surface().as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
     winrt::com_ptr<ID3D11Texture2D> src;
     access->GetInterface(IID_PPV_ARGS(src.put()));
-    D3D11_BOX box = { ox, oy, 0, ox + w, oy + h, 1 };
+    D3D11_BOX box = { ox, oy, 0, ox + cw, oy + ch, 1 };
     // Nothing waits on the CPU: D3D11 waits on the GPU until D3D12 has finished reading the previous picture and
     // motion, then writes the new ones and lets D3D12 go on.
     if (g.copy_value > 0) g.ctx11->Wait(g.copy_fence11, g.copy_value);
-    g.ctx11->CopySubresourceRegion(g.color11, 0, 0, 0, 0, src.get(), 0, &box);
+    if (w == cw) g.ctx11->CopySubresourceRegion(g.color11, 0, 0, 0, 0, src.get(), 0, &box);
+    else
+    {
+        g.ctx11->CopySubresourceRegion(g.cap11, 0, 0, 0, 0, src.get(), 0, &box);
+        ScaleDown();
+    }
     RunMotion();
     g.ctx11->Signal(g.copy_fence11, ++g.copy_value);
     g.ctx11->Flush();
@@ -1072,7 +1196,7 @@ int wmain(int argc, wchar_t **argv)
     g_log = _wfsopen((ExeDir() + L"dlss5-overlay.log").c_str(), L"w", _SH_DENYNO);   // readable while running
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
 
-    // dlss5-overlay.exe --hwnd <window> [--fg <1-3>] [--no-motion] [--stop-file <path>]   (DLSS 5 Master)
+    // dlss5-overlay.exe --hwnd <window> [--fg <1-3>] [--scale <0.4-1>] [--no-motion] [--stop-file <path>]   (DLSS 5 Master)
     // dlss5-overlay.exe "part of a window title"                              (by hand)
     std::wstring title_part;
     for (int i = 1; i < argc; ++i)
@@ -1081,6 +1205,7 @@ int wmain(int argc, wchar_t **argv)
         if (a == L"--hwnd" && i + 1 < argc) g.target = reinterpret_cast<HWND>(static_cast<uintptr_t>(_wcstoui64(argv[++i], nullptr, 10)));
         else if (a == L"--no-motion") g.motion_on = false;
         else if (a == L"--fg" && i + 1 < argc) g.fg_frames = std::min(3u, static_cast<UINT>(_wtoi(argv[++i])));
+        else if (a == L"--scale" && i + 1 < argc) g.scale = std::clamp(static_cast<float>(_wtof(argv[++i])), 0.4f, 1.0f);
         else if (a == L"--stop-file" && i + 1 < argc) g.stop_file = argv[++i];
         else title_part = a;
     }
@@ -1166,6 +1291,10 @@ int wmain(int argc, wchar_t **argv)
     for (auto &b : g.back) Release(b);
     for (auto &a : g.ring) Release(a);
     Release(g.adapter);
+    Release(g.vs_full);
+    Release(g.ps_down);
+    Release(g.linear_clamp);
+    Release(g.scale_cb);
     Release(g.dcomp_visual);
     Release(g.dcomp_target);
     Release(g.dcomp);

@@ -58,8 +58,9 @@ public sealed partial class MainWindow
         var quality = new ComboBox { Header = "Quality", MinWidth = 150 };
         foreach (var s in new[] { "Quality", "Balanced", "Performance" }) quality.Items.Add(s);
         quality.SelectedIndex = Math.Clamp(_settings.OverlayQuality, 0, 2);
-        ToolTipService.SetToolTip(quality, "How large a picture the neural pass works on: Quality 100 %, Balanced 75 %, Performance 50 %. " +
-            "Lower is faster and uses less graphics memory, with a little less fine detail.");
+        ToolTipService.SetToolTip(quality, "How large a picture the overlay works on, as a share of the window: Quality 100 %, Balanced 67 %, " +
+            "Performance 50 %. Everything (DLSS, the neural pass, frame generation) runs on that picture, then it is stretched over the window: " +
+            "lower is much faster and uses less graphics memory. A game drawing 1440p in a 4K-sized window loses nothing at Balanced.");
         quality.SelectionChanged += (_, _) => { _settings.OverlayQuality = quality.SelectedIndex; _settings.Save(); };
 
         // Two rows, so it fits the narrow window-picker dialog as well as the game panel.

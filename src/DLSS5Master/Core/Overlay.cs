@@ -135,8 +135,9 @@ public static class Overlay
         Set("NRStyle", Math.Clamp(s.OverlayStyle, 0, 2).ToString(CultureInfo.InvariantCulture));
         Set("NRIntensity", (Math.Clamp(s.OverlayStrength, 0, 100) / 100.0).ToString("0.##", CultureInfo.InvariantCulture));
         Set("NRPasses", Math.Clamp(s.OverlayPasses, 1, 2).ToString(CultureInfo.InvariantCulture));
-        // Quality / Balanced / Performance: the add-on runs the neural pass at this share of the picture size.
-        Set("NRResolutionScale", Math.Clamp(s.OverlayQuality, 0, 2) switch { 1 => "0.75", 2 => "0.5", _ => "1" });
+        // The add-on's own resolution scale saved next to nothing (14.3 ms at 50 % against 12.5 ms at 100 % in
+        // Bloodborne); Quality now sets the helper's processing size instead (--scale), so this stays at 100 %.
+        Set("NRResolutionScale", "1");
         File.WriteAllText(ini, text);
     }
 
@@ -153,7 +154,9 @@ public static class Overlay
         try { File.Delete(LogFile); } catch { }
 
         var elevated = !IsElevatedSelf() && IsElevated(target.Handle);
-        var args = $"--hwnd {(ulong)target.Handle} --stop-file \"{StopFile}\"" + (frameGen > 0 ? $" --fg {frameGen}" : "");
+        // Quality: everything runs on the window's picture at 100 / 67 / 50 % of its size, stretched back over it.
+        var scale = Math.Clamp(settings.OverlayQuality, 0, 2) switch { 1 => "0.67", 2 => "0.5", _ => "1" };
+        var args = $"--hwnd {(ulong)target.Handle} --stop-file \"{StopFile}\" --scale {scale}" + (frameGen > 0 ? $" --fg {frameGen}" : "");
         var psi = new ProcessStartInfo(Path.Combine(Folder, "dlss5-overlay.exe"), args) { WorkingDirectory = Folder };
         if (elevated) { psi.UseShellExecute = true; psi.Verb = "runas"; }
         p?.Report(elevated ? "Starting the overlay as administrator (the game runs that way)…" : "Starting the overlay…");
