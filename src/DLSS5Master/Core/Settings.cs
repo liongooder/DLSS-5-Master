@@ -49,8 +49,6 @@ public sealed class AppSettings
     public int OverlayStrength { get; set; } = 100;
     /// <summary>Overlay: neural passes per frame, 1 or 2.</summary>
     public int OverlayPasses { get; set; } = 1;
-    /// <summary>Overlay: measure the picture's motion with the GPU's optical-flow engine.</summary>
-    public bool OverlayMotion { get; set; } = true;
     public Dictionary<string, GameOverride> Overrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };

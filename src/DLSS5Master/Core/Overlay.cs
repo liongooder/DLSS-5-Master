@@ -98,7 +98,7 @@ public static class Overlay
         try { File.Delete(LogFile); } catch { }
 
         var elevated = !IsElevatedSelf() && IsElevated(target.Handle);
-        var args = $"--hwnd {(ulong)target.Handle} --stop-file \"{StopFile}\"" + (settings.OverlayMotion ? "" : " --no-motion");
+        var args = $"--hwnd {(ulong)target.Handle} --stop-file \"{StopFile}\"";
         var psi = new ProcessStartInfo(Path.Combine(Folder, "dlss5-overlay.exe"), args) { WorkingDirectory = Folder };
         if (elevated) { psi.UseShellExecute = true; psi.Verb = "runas"; }
         p?.Report(elevated ? "Starting the overlay as administrator (the game runs that way)…" : "Starting the overlay…");
@@ -110,7 +110,7 @@ public static class Overlay
         _process.EnableRaisingEvents = true;
         _process.Exited += (_, _) => { Target = null; AppPaths.Log("Overlay stopped. " + (LastLogError() ?? "")); Changed?.Invoke(); };
         AppPaths.Log($"Overlay started on \"{target.Title}\" ({target.Process}){(elevated ? " as administrator" : "")}: style {settings.OverlayStyle}, " +
-                     $"strength {settings.OverlayStrength} %, {settings.OverlayPasses} pass(es), motion {(settings.OverlayMotion ? "on" : "off")}.");
+                     $"strength {settings.OverlayStrength} %, {settings.OverlayPasses} pass(es).");
         Changed?.Invoke();
 
         // A window that cannot be captured ends the helper within a few seconds; say why here.

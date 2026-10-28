@@ -9,7 +9,7 @@
 // The NGX set-up follows DLSS5-Feeder's 64-bit helper (MIT, Jean-Laurent Rouzies):
 // load ReShade before d3d12.dll, let the add-on arm its hooks, then create a DLAA feature.
 //
-// F9 switches between DLSS 5 and the original picture, F8 motion on/off, Ctrl+F9 quits.
+// F9 switches between DLSS 5 and the original picture, Ctrl+F9 quits. --no-motion (by hand) turns motion off.
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -229,10 +229,10 @@ static LRESULT CALLBACK WndProc(HWND w, UINT m, WPARAM wp, LPARAM lp)
 }
 
 // The overlay never takes focus while you play, and the game keeps its keys to itself: neither
-// RegisterHotKey nor GetAsyncKeyState saw F8-F10 in Bloodborne. A low-level keyboard hook does --
+// RegisterHotKey nor GetAsyncKeyState saw F9 in Bloodborne. A low-level keyboard hook does --
 // Windows calls the most recently installed one first, so ours sees the key before the game's.
 // It runs on its own thread so a slow frame never delays the keyboard.
-enum : LONG { KEY_DLSS = 1, KEY_MOTION = 2, KEY_QUIT = 4 };
+enum : LONG { KEY_DLSS = 1, KEY_QUIT = 2 };
 static volatile LONG g_keys = 0;
 
 static LRESULT CALLBACK KeyboardHook(int code, WPARAM wp, LPARAM lp)
@@ -245,11 +245,11 @@ static LRESULT CALLBACK KeyboardHook(int code, WPARAM wp, LPARAM lp)
         if (k->vkCode < 256)
         {
             const bool first = press && !down[k->vkCode];   // not auto-repeat
-            down[k->vkCode] = press;            if (first)
+            down[k->vkCode] = press;
+            if (first && k->vkCode == VK_F9)
             {
                 const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0 || down[VK_LCONTROL] || down[VK_RCONTROL];
-                if (k->vkCode == VK_F9) InterlockedOr(&g_keys, ctrl ? KEY_QUIT : KEY_DLSS);
-                else if (k->vkCode == VK_F8) InterlockedOr(&g_keys, KEY_MOTION);
+                InterlockedOr(&g_keys, ctrl ? KEY_QUIT : KEY_DLSS);
             }
         }
     }
@@ -271,7 +271,6 @@ static void PollKeys(bool in_front)
     if (!in_front || keys == 0) return;
     if (keys & KEY_QUIT) { g.quit = true; return; }
     if (keys & KEY_DLSS) { g.dlss_on = !g.dlss_on; g.reset = true; Log("DLSS 5 %s", g.dlss_on ? "on" : "off (original picture)"); }
-    if (keys & KEY_MOTION) { g.motion_on = !g.motion_on; g.reset = true; Log("motion %s", g.motion_on ? "on" : "off (DLSS told nothing moves)"); }
 }
 
 // Keep the overlay exactly over the game's client area, and show it only while the game
@@ -891,7 +890,7 @@ int wmain(int argc, wchar_t **argv)
     }
     if (!ngx) { Log("NGX is not available: showing the original picture only"); g.dlss_on = false; }
 
-    Log("drawing over the game: F9 DLSS 5 on/off, F8 motion on/off, Ctrl+F9 quit");
+    Log("drawing over the game: F9 DLSS 5 on/off, Ctrl+F9 quit");
     UINT frames = 0;
     ULONGLONG t0 = GetTickCount64();
     while (!g.quit && IsWindow(g.target))

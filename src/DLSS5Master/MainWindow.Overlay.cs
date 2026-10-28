@@ -17,7 +17,8 @@ public sealed partial class MainWindow
         RefreshOverlayUi();
     }
 
-    /// <summary>Style, strength, passes and motion; every change is saved and used at the next start.</summary>
+    /// <summary>Style, strength and passes; every change is saved and used at the next start. Motion tracking
+    /// always runs: it only helps, and a switch for it confused more than it offered.</summary>
     private StackPanel BuildOverlaySettings()
     {
         var style = new ComboBox { Header = "Style", MinWidth = 190 };
@@ -41,15 +42,10 @@ public sealed partial class MainWindow
             _settings.Save();
         };
 
-        var motion = new CheckBox { Content = "Motion", IsChecked = _settings.OverlayMotion, VerticalAlignment = VerticalAlignment.Bottom };
-        ToolTipService.SetToolTip(motion, "Measure how the picture moves with the graphics card's optical-flow engine, so fast camera turns do not smear.");
-        motion.Click += (_, _) => { _settings.OverlayMotion = motion.IsChecked == true; _settings.Save(); };
-
         // Two rows, so it fits the narrow window-picker dialog as well as the game panel.
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16 };
         row.Children.Add(style);
         row.Children.Add(passes);
-        row.Children.Add(motion);
         var panel = new StackPanel { Spacing = 8 };
         panel.Children.Add(row);
         panel.Children.Add(strength);
@@ -61,13 +57,13 @@ public sealed partial class MainWindow
         var target = Overlay.Running ? Overlay.Target : null;
         OverlayBar.IsOpen = target is not null;
         if (target is not null)
-            OverlayBar.Message = $"Running on “{target.Title}”. F9 switches DLSS 5 on and off while you play, F8 motion.";
+            OverlayBar.Message = $"Running on “{target.Title}”. F9 switches DLSS 5 on and off while you play.";
 
         if (_game is null) return;
         bool mine = target is not null && IsThisGame(target);
         LiveOverlayButton.Content = mine ? "Stop overlay" : "Start overlay";
         LiveOverlayButton.IsEnabled = !_overlayBusy;
-        LiveOverlayStatus.Text = mine ? "Running. F9 switches DLSS 5 on and off, F8 motion."
+        LiveOverlayStatus.Text = mine ? "Running. F9 switches DLSS 5 on and off."
             : target is not null ? $"The overlay runs on “{target.Title}”; starting it here moves it to this game." : "";
     }
 
@@ -128,47 +124,94 @@ public sealed partial class MainWindow
     private async void AnyWindow_Click(object sender, RoutedEventArgs e) =>
         await PickWindowAndStartAsync("Pick a window: a game, a video or anything else. DLSS 5 is drawn over it, and nothing in that program is changed.");
 
+    // An icon for the kind of program behind a window, so the list reads at a glance.
+    private string WindowGlyph(OverlayWindow w) => w.Process.ToLowerInvariant() switch
+    {
+        "chrome" or "msedge" or "firefox" or "opera" or "brave" or "vivaldi" => "",   // globe
+        "explorer" => "",                                                              // folder
+        "vlc" or "mpc-hc64" or "mpc-be64" or "potplayermini64" or "wmplayer" or "video.ui" => "",   // video
+        _ when w.ExePath is not null && _all.Any(g => w.ExePath.StartsWith(g.Entry.Dir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)) => "",   // a game in the library
+        _ => "",                                                                       // app window
+    };
+
+    private TextBlock DialogSection(string text) => new() { Text = text, Style = (Style)Application.Current.Resources["SectionTitle"] };
+
     private async Task PickWindowAndStartAsync(string intro)
     {
-        var list = new ListView { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 320 };
+        var list = new ListView { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 236, Padding = new Thickness(0) };
+        var empty = new TextBlock { Text = "No windows to show. Open the game or video first, then refresh.", Foreground = Res("MutedText"), TextWrapping = TextWrapping.Wrap };
         void Fill()
         {
             list.Items.Clear();
             foreach (var w in Overlay.Windows())
             {
-                var row = new StackPanel { Padding = new Thickness(0, 4, 0, 4), Tag = w };
-                row.Children.Add(new TextBlock { Text = w.Title, TextTrimming = TextTrimming.CharacterEllipsis });
-                row.Children.Add(new TextBlock { Text = w.Process, FontSize = 12, Foreground = Res("MutedText") });
-                list.Items.Add(row);
+                var row = new Grid { ColumnSpacing = 12, Padding = new Thickness(10, 6, 10, 6), Tag = w };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                var badge = new Border
+                {
+                    Width = 30, Height = 30, CornerRadius = new CornerRadius(7), Background = Res("RowBackground"),
+                    Child = new FontIcon { Glyph = WindowGlyph(w), FontSize = 15, Foreground = Res("AccentText") },
+                };
+                var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                text.Children.Add(new TextBlock { Text = w.Title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+                text.Children.Add(new TextBlock { Text = w.Process, FontSize = 11, Foreground = Res("MutedText") });
+                Grid.SetColumn(text, 1);
+                row.Children.Add(badge);
+                row.Children.Add(text);
+                list.Items.Add(new ListViewItem
+                {
+                    Content = row, Padding = new Thickness(0), Margin = new Thickness(0, 0, 0, 4), MinHeight = 0, CornerRadius = new CornerRadius(9),
+                    Background = Res("RowBackground"), BorderBrush = Res("RowBorder"), BorderThickness = new Thickness(1),
+                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                });
             }
+            empty.Visibility = list.Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
         Fill();
-        var refresh = new HyperlinkButton { Content = "Refresh the list", Padding = new Thickness(0) };
-        refresh.Click += (_, _) => Fill();
 
-        var body = new StackPanel { Spacing = 12 };   // no MinWidth: a dialog is at most 548 wide and clips anything wider
-        body.Children.Add(new TextBlock { Text = intro, TextWrapping = TextWrapping.Wrap });
-        body.Children.Add(list);
-        body.Children.Add(refresh);
-        body.Children.Add(BuildOverlaySettings());
-        body.Children.Add(new TextBlock
+        var pickHeader = new Grid();
+        pickHeader.Children.Add(DialogSection("1 · PICK A WINDOW"));
+        var refresh = new HyperlinkButton { HorizontalAlignment = HorizontalAlignment.Right, Padding = new Thickness(4, 0, 4, 0) };
+        var refreshContent = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        refreshContent.Children.Add(new FontIcon { Glyph = "", FontSize = 12 });
+        refreshContent.Children.Add(new TextBlock { Text = "Refresh" });
+        refresh.Content = refreshContent;
+        refresh.Click += (_, _) => Fill();
+        pickHeader.Children.Add(refresh);
+
+        var hint = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        hint.Children.Add(new FontIcon { Glyph = "", FontSize = 15, Foreground = Res("MutedText"), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 2, 0, 0) });
+        hint.Children.Add(new TextBlock
         {
-            Text = "Exclusive fullscreen cannot be captured: use windowed or borderless. F9 switches DLSS 5 on and off while you play, F8 motion, Ctrl+F9 stops the overlay.",
-            TextWrapping = TextWrapping.Wrap, FontSize = 12, Foreground = Res("MutedText"),
+            Text = "F9 switches DLSS 5 on and off while you play, Ctrl+F9 stops it. Exclusive fullscreen cannot be captured: use windowed or borderless.",
+            TextWrapping = TextWrapping.Wrap, FontSize = 12, Foreground = Res("MutedText"), MaxWidth = 640,
         });
+
+        var body = new StackPanel { Spacing = 14, Width = 680 };
+        body.Children.Add(new TextBlock { Text = intro, TextWrapping = TextWrapping.Wrap, Foreground = Res("MutedText") });
+        body.Children.Add(pickHeader);
+        body.Children.Add(list);
+        body.Children.Add(empty);
+        body.Children.Add(DialogSection("2 · LOOK"));
+        body.Children.Add(BuildOverlaySettings());
+        body.Children.Add(hint);
 
         var dialog = new ContentDialog
         {
             XamlRoot = Root.XamlRoot,
             Title = "DLSS 5 on any window",
-            Content = new ScrollViewer { Content = body },
+            Content = new ScrollViewer { Content = body, Padding = new Thickness(0, 0, 12, 0) },
             PrimaryButtonText = "Start DLSS 5",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Primary,
+            PrimaryButtonStyle = (Style)Application.Current.Resources["AccentButtonStyle"],
             IsPrimaryButtonEnabled = false,
         };
+        // Wider than the 548 px a dialog allows by default, so the window titles fit.
+        dialog.Resources["ContentDialogMaxWidth"] = 760.0;
         list.SelectionChanged += (_, _) => dialog.IsPrimaryButtonEnabled = list.SelectedItem is not null;
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-        if ((list.SelectedItem as FrameworkElement)?.Tag is OverlayWindow chosen) await StartOverlayAsync(chosen);
+        if (((list.SelectedItem as ListViewItem)?.Content as FrameworkElement)?.Tag is OverlayWindow chosen) await StartOverlayAsync(chosen);
     }
 }

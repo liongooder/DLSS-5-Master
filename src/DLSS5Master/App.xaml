@@ -35,12 +35,23 @@
       <SolidColorBrush x:Key="ResultPartly" Color="#FFF2B84B" />
       <SolidColorBrush x:Key="ResultBroken" Color="#FFFF6B6B" />
 
+      <!-- App font: Bahnschrift (built into Windows). Controls take it from ContentControlThemeFontFamily, plain
+           text from the implicit TextBlock style; the named text styles below set it themselves, since an explicit
+           style replaces the implicit one. -->
+      <FontFamily x:Key="AppFont">Bahnschrift</FontFamily>
+      <FontFamily x:Key="ContentControlThemeFontFamily">Bahnschrift</FontFamily>
+      <Style TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
+      </Style>
+
       <Style x:Key="FieldLabel" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
         <Setter Property="Foreground" Value="{StaticResource MutedText}" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="Margin" Value="2,0,0,6" />
       </Style>
       <Style x:Key="SectionTitle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource AppFont}" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="CharacterSpacing" Value="120" />
