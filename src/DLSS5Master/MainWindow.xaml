@@ -129,10 +129,10 @@
             </GroupStyle.HeaderTemplate>
           </GroupStyle>
         </GridView.GroupStyle>
-        <!-- Rows start at the left edge, in line with the filters and the store headings. -->
+        <!-- Rows are centred so the space left over by the last column is shared evenly on both sides. -->
         <GridView.ItemsPanel>
           <ItemsPanelTemplate>
-            <ItemsWrapGrid Orientation="Horizontal" HorizontalAlignment="Left" />
+            <ItemsWrapGrid Orientation="Horizontal" HorizontalAlignment="Center" />
           </ItemsPanelTemplate>
         </GridView.ItemsPanel>
         <GridView.ItemTemplate>
