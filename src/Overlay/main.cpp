@@ -191,6 +191,7 @@ struct App
 
     std::wstring stop_file;              // DLSS 5 Master creates this file to stop the overlay (works across elevation)
     bool dlss_on = true;
+    bool stepped_aside = false;          // the game left the overlay no GPU time: hidden, the game shows as it is, until F9
     bool motion_on = true;
     bool reset = true;
     bool quit = false;
@@ -383,7 +384,24 @@ static void PollKeys(bool in_front)
     const LONG keys = InterlockedExchange(&g_keys, 0);
     if (!in_front || keys == 0) return;
     if (keys & KEY_QUIT) { g.quit = true; return; }
+    if (keys & KEY_DLSS && g.stepped_aside) { g.stepped_aside = false; g.dlss_on = true; g.reset = true; Log("DLSS 5 on"); return; }
     if (keys & KEY_DLSS) { g.dlss_on = !g.dlss_on; g.reset = true; Log("DLSS 5 %s", g.dlss_on ? "on" : "off (original picture)"); }
+}
+
+// A game running free can take the whole GPU; the overlay's work then waits behind it and the picture drops to a
+// frame a second, so the player cannot even reach the game's settings. When that holds for two 5-second readings
+// (few frames AND slow GPU work: a paused game or still page also sends few frames, but quickly), the overlay
+// steps aside and the game shows as it is until F9.
+static void CheckStarved(double captured_fps)
+{
+    static int low = 0;
+    if (!g.dlss_on || g.stepped_aside) { low = 0; return; }
+    low = captured_fps < 10.0 && g.base_ms > 50.0 ? low + 1 : 0;
+    if (low < 2) return;
+    low = 0;
+    g.stepped_aside = true;
+    Log("stepped aside: the game is using the whole GPU (%.0f real frames a second, %.0f ms a frame); F9 brings DLSS 5 back",
+        captured_fps, g.base_ms);
 }
 
 // Keep the overlay exactly over the game's client area, and show it only while the game
@@ -391,7 +409,7 @@ static void PollKeys(bool in_front)
 static bool TrackTarget()
 {
     const HWND fg = GetForegroundWindow();
-    const bool show = !IsIconic(g.target) && IsWindowVisible(g.target) && (fg == g.target || fg == g.window);
+    const bool show = !g.stepped_aside && !IsIconic(g.target) && IsWindowVisible(g.target) && (fg == g.target || fg == g.window);
     if (!show)
     {
         if (IsWindowVisible(g.window)) ShowWindow(g.window, SW_HIDE);
@@ -1338,6 +1356,7 @@ int wmain(int argc, wchar_t **argv)
     Log("drawing over the game: F9 DLSS 5 on/off, Ctrl+F9 quit");
     UINT frames = 0;
     ULONGLONG t0 = GetTickCount64();
+    bool window_paused = false;          // the game left the front (or the overlay stepped aside) during these 5 seconds
     while (!g.quit && IsWindow(g.target))
     {
         MSG msg;
@@ -1350,7 +1369,7 @@ int wmain(int argc, wchar_t **argv)
             next_stop_check = GetTickCount64() + 250;
             if (GetFileAttributesW(g.stop_file.c_str()) != INVALID_FILE_ATTRIBUTES) { DeleteFileW(g.stop_file.c_str()); Log("stopped by DLSS 5 Master"); break; }
         }
-        if (!TrackTarget()) { g.reset = true; Sleep(16); continue; }   // the game is not in front: nothing to draw
+        if (!TrackTarget()) { g.reset = true; window_paused = true; Sleep(16); continue; }   // the game is not in front: nothing to draw
         static ULONGLONG next_memory_check = 0;
         if (GetTickCount64() >= next_memory_check) { next_memory_check = GetTickCount64() + 1000; CheckMemory(); }
         if (!Frame()) { Sleep(1); continue; }
@@ -1363,6 +1382,8 @@ int wmain(int argc, wchar_t **argv)
                 g.dlss_on ? "DLSS 5 on" : "original picture", frames * 1000.0 / (t - t0), (g.presented - shown0) * 1000.0 / (t - t0),
                 g.w, g.h, g.base_ms, g.fg_ms);
             shown0 = g.presented;
+            if (!window_paused) CheckStarved(frames * 1000.0 / (t - t0));
+            window_paused = false;
             frames = 0;
             t0 = t;
         }

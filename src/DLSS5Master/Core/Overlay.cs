@@ -203,7 +203,15 @@ public static class Overlay
                 return "Graphics memory was full, so the overlay turned its frame generation off. Lowering the game's settings frees room for it.";
             if (log.Contains("frame generation is not available")) return "Frame generation is not available on this graphics card or driver, so it is off.";
             if (log.Contains("dlssg_for_sm86 did not load")) return "Frame generation could not start on this graphics card (it needs NVIDIA driver R580 or newer).";
-            var limit = FpsLimitAdvice(log);
+            // The helper steps aside when the game leaves it no GPU time, until F9 brings DLSS 5 back.
+            var aside = log.LastIndexOf("stepped aside:", StringComparison.Ordinal);
+            var back = System.Text.RegularExpressions.Regex.Matches(log, @"DLSS 5 on\r?$", System.Text.RegularExpressions.RegexOptions.Multiline);
+            if (aside >= 0 && (back.Count == 0 || back[^1].Index < aside))
+                return "The game was using the whole graphics card, so the overlay stepped aside. " +
+                       (FpsLimit(log) is { } cap ? $"Set the game's own FPS limit to {cap}" : "Set a lower FPS limit in the game") +
+                       ", then press F9 in the game to bring DLSS 5 back.";
+            var limit = FpsLimit(log) is { } fps && !(Target is { } t && NoFpsLimit.Contains(t.Process))
+                ? $" For the smoothest result, set the game's own FPS limit to {fps}." : "";
             // The helper fits frame generation to the screen; the latest decision is what runs now.
             var fit = System.Text.RegularExpressions.Regex.Matches(log, @"frame generation now (\d)x: the game runs at (\d+) fps on a (\d+) Hz screen");
             if (fit.Count > 0)
@@ -223,14 +231,12 @@ public static class Overlay
     /// <summary>With frame generation on, a game drawing more frames than the screen can show of it (refresh / multiplier)
     /// only takes GPU time from the overlay. The game's own FPS limit is the one that reliably holds it there
     /// (NVIDIA's driver cap does not reach a game that is already running).</summary>
-    private static string FpsLimitAdvice(string log)
+    private static int? FpsLimit(string log)
     {
-        if (Target is { } t && NoFpsLimit.Contains(t.Process)) return "";
         var fg = System.Text.RegularExpressions.Regex.Match(log, @"frame generation (\d)x \(\d+ in-between");
         var hz = System.Text.RegularExpressions.Regex.Match(log, @"screen refresh: (\d+) Hz");
-        if (!fg.Success || !hz.Success || fg.Groups[1].Value == "1") return "";
-        var fps = (int)Math.Round(int.Parse(hz.Groups[1].Value, CultureInfo.InvariantCulture) / (double)int.Parse(fg.Groups[1].Value, CultureInfo.InvariantCulture));
-        return $" For the smoothest result, set the game's own FPS limit to {fps}.";
+        if (!fg.Success || !hz.Success || fg.Groups[1].Value == "1") return null;
+        return (int)Math.Round(int.Parse(hz.Groups[1].Value, CultureInfo.InvariantCulture) / (double)int.Parse(fg.Groups[1].Value, CultureInfo.InvariantCulture));
     }
 
     /// <summary>Browsers, the desktop and players: no FPS limit to set.</summary>
