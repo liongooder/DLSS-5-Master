@@ -401,6 +401,7 @@ static void CheckStarved(double captured_fps)
     if (low < 2) return;
     low = 0;
     g.stepped_aside = true;
+    InterlockedExchange(&g_keys, 0);     // an F9 pressed during the slowness would bring it straight back
     Log("stepped aside: the game is using the whole GPU (%.0f real frames a second, %.0f ms of GPU work each); F9 brings DLSS 5 back",
         captured_fps, frame_ms);
 }
