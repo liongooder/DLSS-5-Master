@@ -172,9 +172,14 @@ struct App
     int over_budget_s = 0;
     bool memory_warned = false;
     double game_interval = 0.0;           // smoothed time between the game's frames, in seconds
-    double work_interval = 0.0;           // smoothed time the overlay needs per real frame, waiting for the screen excluded
-    double present_wait = 0.0;            // time this frame spent in Present (waiting for a free screen slot)
-    LARGE_INTEGER frame_start = {};
+    // The overlay's own pace, timed on the GPU (CPU timing hid GPU work inside the waits for the screen, and the
+    // choice flipped between 2x and 3x every second): DLSS + the neural pass per real frame, and each in-between frame.
+    ID3D12QueryHeap *timestamps = nullptr;
+    ID3D12Resource *timestamp_readback = nullptr;
+    double timestamp_hz = 0.0;
+    double base_ms = 0.0, fg_ms = 0.0;    // smoothed
+    UINT timed_generated = 0;             // in-between frames in the frame whose timestamps are pending
+    bool timed_pending = false;
     INT64 last_frame_time = 0;            // the capture's timestamp of the previous frame (100 ns units)
     UINT fg_now = 0;                      // in-between frames used for this frame
 
@@ -204,6 +209,40 @@ static void WaitGpu()
         g.fence->SetEventOnCompletion(v, g.fence_event);
         WaitForSingleObject(g.fence_event, 5000);
     }
+}
+
+// Three GPU timestamps per frame: start, after DLSS + the neural pass, after the in-between frames.
+static void InitTimestamps()
+{
+    D3D12_QUERY_HEAP_DESC qd = { D3D12_QUERY_HEAP_TYPE_TIMESTAMP, 3, 0 };
+    g.dev->CreateQueryHeap(&qd, IID_PPV_ARGS(&g.timestamps));
+    D3D12_HEAP_PROPERTIES hp = {};
+    hp.Type = D3D12_HEAP_TYPE_READBACK;
+    D3D12_RESOURCE_DESC rd = {};
+    rd.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+    rd.Width = 3 * sizeof(UINT64);
+    rd.Height = rd.DepthOrArraySize = rd.MipLevels = 1;
+    rd.SampleDesc.Count = 1;
+    rd.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+    g.dev->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &rd, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&g.timestamp_readback));
+    UINT64 hz = 0;
+    if (SUCCEEDED(g.queue->GetTimestampFrequency(&hz))) g.timestamp_hz = static_cast<double>(hz);
+}
+
+// The previous frame's timings; it has finished when this runs (Frame waits for it first).
+static void ReadTimestamps()
+{
+    if (!g.timed_pending || !g.timestamp_readback || g.timestamp_hz <= 0.0) return;
+    g.timed_pending = false;
+    UINT64 *t = nullptr;
+    const D3D12_RANGE range = { 0, 3 * sizeof(UINT64) };
+    if (FAILED(g.timestamp_readback->Map(0, &range, reinterpret_cast<void **>(&t)))) return;
+    const double base = (t[1] - t[0]) * 1000.0 / g.timestamp_hz;
+    const double fg = g.timed_generated > 0 ? (t[2] - t[1]) * 1000.0 / g.timestamp_hz / g.timed_generated : -1.0;
+    const D3D12_RANGE none = { 0, 0 };
+    g.timestamp_readback->Unmap(0, &none);
+    if (base > 0.0 && base < 250.0) g.base_ms = g.base_ms > 0.0 ? g.base_ms * 0.9 + base * 0.1 : base;
+    if (fg > 0.0 && fg < 100.0) g.fg_ms = g.fg_ms > 0.0 ? g.fg_ms * 0.9 + fg * 0.1 : fg;
 }
 
 // Starts recording a per-frame command list on the next allocator of the ring.
@@ -414,6 +453,7 @@ static bool InitD3D12()
     for (auto &a : g.ring) g.dev->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&a));
     g.dev->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&g.fence));
     g.fence_event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    InitTimestamps();
 
     // Overlay window over the game's client area: no frame, click-through, never activated, no taskbar
     // button. NOREDIRECTIONBITMAP: DirectComposition draws it, which is what lets a layered window show
@@ -981,12 +1021,7 @@ static void PresentTexture(ID3D12Resource *src, D3D12_RESOURCE_STATES state)
     Barrier(bb, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT);
     if (state != D3D12_RESOURCE_STATE_COMMON) Barrier(src, D3D12_RESOURCE_STATE_COPY_SOURCE, state);
     EndList();
-    LARGE_INTEGER a, b, f;
-    QueryPerformanceCounter(&a);
     g.swap->Present(1, 0);
-    QueryPerformanceCounter(&b);
-    QueryPerformanceFrequency(&f);
-    g.present_wait += static_cast<double>(b.QuadPart - a.QuadPart) / f.QuadPart;
 }
 
 // The screen's refresh rate where the game window is.
@@ -1004,21 +1039,29 @@ static double RefreshRate()
 
 // How many in-between frames fit: real frames times (1 + generated) may not exceed the screen's refresh rate,
 // or the queue fills and holds the real frames back. Changes only after holding for about a second.
-// Real frames come at the slower of two rates: the game's, and the overlay's own (its work per frame without the
-// time spent waiting for the screen, so more in-between frames do not look like slower processing).
+// For each multiplier: real frames come at the slower of the game's pace and the overlay's own (GPU cost of DLSS
+// + the neural pass, plus each in-between frame), and the screen shows at most its refresh rate. The multiplier
+// that shows the most frames wins; a bigger one only when it shows clearly more (5 %).
 static void ChooseFrameGeneration()
 {
     if (!g.fg_feature || g.game_interval <= 0.0) { g.fg_now = g.fg_frames; return; }
-    const double interval = std::max(g.game_interval, g.work_interval);
-    const int fit = static_cast<int>(std::floor(g.refresh_hz * interval + 0.25)) - 1;
-    const UINT want = static_cast<UINT>(std::clamp(fit, 0, static_cast<int>(g.fg_frames)));
+    double best_shown = 0.0;
+    UINT want = 0;
+    double interval = g.game_interval;
+    for (UINT n = 0; n <= g.fg_frames; ++n)
+    {
+        const double work_s = (g.base_ms + n * g.fg_ms) / 1000.0;
+        const double real_interval = std::max(g.game_interval, work_s);
+        const double shown = std::min(g.refresh_hz, (n + 1) / real_interval);
+        if (shown > best_shown * 1.05) { best_shown = shown; want = n; interval = real_interval; }
+    }
     static UINT pending = UINT_MAX;
     static int held = 0;
     if (want == g.fg_now) { held = 0; return; }
     if (want != pending) { pending = want; held = 0; }
     if (++held < 30) return;
     Log("frame generation now %ux: the game runs at %.0f fps on a %.0f Hz screen%s%s", want + 1, 1.0 / interval, g.refresh_hz,
-        g.work_interval > g.game_interval ? " (the overlay's own pace)" : "", want < g.fg_frames ? " (more would not fit on the screen)" : "");
+        interval > g.game_interval * 1.01 ? " (the overlay's own pace)" : "", want < g.fg_frames ? " (more would not fit on the screen)" : "");
     g.fg_now = want;
     held = 0;
 }
@@ -1074,18 +1117,7 @@ static bool Frame()
         frame = f;
     }
     if (!frame) return false;
-    {
-        LARGE_INTEGER now, f;
-        QueryPerformanceCounter(&now);
-        QueryPerformanceFrequency(&f);
-        if (g.frame_start.QuadPart != 0)
-        {
-            const double dt = static_cast<double>(now.QuadPart - g.frame_start.QuadPart) / f.QuadPart - g.present_wait;
-            if (dt > 0.0 && dt < 0.25) g.work_interval = g.work_interval > 0.0 ? g.work_interval * 0.9 + dt * 0.1 : dt;
-        }
-        g.frame_start = now;
-        g.present_wait = 0.0;
-    }
+    ReadTimestamps();
     ChooseFrameGeneration();
 
     // The capture is the whole window, frame and title bar included; DLSS and the overlay use only
@@ -1138,6 +1170,7 @@ static bool Frame()
     g.queue->Wait(g.copy_fence, g.copy_value);
 
     BeginList();
+    if (g.timestamps) g.list->EndQuery(g.timestamps, D3D12_QUERY_TYPE_TIMESTAMP, 0);
     const bool reset = g.reset;
     bool shown_dlss = false;
     if (g.dlss_on && g.feature)
@@ -1160,6 +1193,7 @@ static bool Frame()
         g.reset = false;
         shown_dlss = NVSDK_NGX_SUCCEED(r);
     }
+    if (g.timestamps) g.list->EndQuery(g.timestamps, D3D12_QUERY_TYPE_TIMESTAMP, 1);
     // The real frame: DLSS 5's answer, or the captured picture itself.
     ID3D12Resource *real = shown_dlss ? g.output : g.color;
     const D3D12_RESOURCE_STATES real_state = shown_dlss ? D3D12_RESOURCE_STATE_UNORDERED_ACCESS : D3D12_RESOURCE_STATE_COMMON;
@@ -1199,6 +1233,13 @@ static bool Frame()
             generated = i;
         }
         if (shown_dlss) Barrier(real, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, real_state);
+    }
+    if (g.timestamps && g.timestamp_readback)
+    {
+        g.list->EndQuery(g.timestamps, D3D12_QUERY_TYPE_TIMESTAMP, 2);
+        g.list->ResolveQueryData(g.timestamps, D3D12_QUERY_TYPE_TIMESTAMP, 0, 3, g.timestamp_readback, 0);
+        g.timed_pending = true;
+        g.timed_generated = generated;
     }
     EndList();
     g.fg_have_prev = g.fg_feature != nullptr;
@@ -1307,8 +1348,9 @@ int wmain(int argc, wchar_t **argv)
         if (t - t0 >= 5000)
         {
             static UINT64 shown0 = 0;
-            Log("%s, %.0f captured fps, %.0f shown fps, %ux%u", g.dlss_on ? "DLSS 5 on" : "original picture",
-                frames * 1000.0 / (t - t0), (g.presented - shown0) * 1000.0 / (t - t0), g.w, g.h);
+            Log("%s, %.0f captured fps, %.0f shown fps, %ux%u, GPU %.1f ms a frame + %.1f ms per in-between frame",
+                g.dlss_on ? "DLSS 5 on" : "original picture", frames * 1000.0 / (t - t0), (g.presented - shown0) * 1000.0 / (t - t0),
+                g.w, g.h, g.base_ms, g.fg_ms);
             shown0 = g.presented;
             frames = 0;
             t0 = t;
@@ -1326,6 +1368,8 @@ int wmain(int argc, wchar_t **argv)
     for (auto &b : g.back) Release(b);
     for (auto &a : g.ring) Release(a);
     Release(g.adapter);
+    Release(g.timestamps);
+    Release(g.timestamp_readback);
     Release(g.vs_full);
     Release(g.ps_down);
     Release(g.linear_clamp);
