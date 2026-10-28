@@ -172,6 +172,9 @@ struct App
     int over_budget_s = 0;
     bool memory_warned = false;
     double game_interval = 0.0;           // smoothed time between the game's frames, in seconds
+    double work_interval = 0.0;           // smoothed time the overlay needs per real frame, waiting for the screen excluded
+    double present_wait = 0.0;            // time this frame spent in Present (waiting for a free screen slot)
+    LARGE_INTEGER frame_start = {};
     INT64 last_frame_time = 0;            // the capture's timestamp of the previous frame (100 ns units)
     UINT fg_now = 0;                      // in-between frames used for this frame
 
@@ -978,7 +981,12 @@ static void PresentTexture(ID3D12Resource *src, D3D12_RESOURCE_STATES state)
     Barrier(bb, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT);
     if (state != D3D12_RESOURCE_STATE_COMMON) Barrier(src, D3D12_RESOURCE_STATE_COPY_SOURCE, state);
     EndList();
+    LARGE_INTEGER a, b, f;
+    QueryPerformanceCounter(&a);
     g.swap->Present(1, 0);
+    QueryPerformanceCounter(&b);
+    QueryPerformanceFrequency(&f);
+    g.present_wait += static_cast<double>(b.QuadPart - a.QuadPart) / f.QuadPart;
 }
 
 // The screen's refresh rate where the game window is.
@@ -996,18 +1004,21 @@ static double RefreshRate()
 
 // How many in-between frames fit: real frames times (1 + generated) may not exceed the screen's refresh rate,
 // or the queue fills and holds the real frames back. Changes only after holding for about a second.
+// Real frames come at the slower of two rates: the game's, and the overlay's own (its work per frame without the
+// time spent waiting for the screen, so more in-between frames do not look like slower processing).
 static void ChooseFrameGeneration()
 {
     if (!g.fg_feature || g.game_interval <= 0.0) { g.fg_now = g.fg_frames; return; }
-    const int fit = static_cast<int>(std::floor(g.refresh_hz * g.game_interval + 0.25)) - 1;
+    const double interval = std::max(g.game_interval, g.work_interval);
+    const int fit = static_cast<int>(std::floor(g.refresh_hz * interval + 0.25)) - 1;
     const UINT want = static_cast<UINT>(std::clamp(fit, 0, static_cast<int>(g.fg_frames)));
     static UINT pending = UINT_MAX;
     static int held = 0;
     if (want == g.fg_now) { held = 0; return; }
     if (want != pending) { pending = want; held = 0; }
     if (++held < 30) return;
-    Log("frame generation now %ux: the game runs at %.0f fps on a %.0f Hz screen%s", want + 1, 1.0 / g.game_interval, g.refresh_hz,
-        want < g.fg_frames ? " (more would not fit on the screen)" : "");
+    Log("frame generation now %ux: the game runs at %.0f fps on a %.0f Hz screen%s%s", want + 1, 1.0 / interval, g.refresh_hz,
+        g.work_interval > g.game_interval ? " (the overlay's own pace)" : "", want < g.fg_frames ? " (more would not fit on the screen)" : "");
     g.fg_now = want;
     held = 0;
 }
@@ -1063,6 +1074,18 @@ static bool Frame()
         frame = f;
     }
     if (!frame) return false;
+    {
+        LARGE_INTEGER now, f;
+        QueryPerformanceCounter(&now);
+        QueryPerformanceFrequency(&f);
+        if (g.frame_start.QuadPart != 0)
+        {
+            const double dt = static_cast<double>(now.QuadPart - g.frame_start.QuadPart) / f.QuadPart - g.present_wait;
+            if (dt > 0.0 && dt < 0.25) g.work_interval = g.work_interval > 0.0 ? g.work_interval * 0.9 + dt * 0.1 : dt;
+        }
+        g.frame_start = now;
+        g.present_wait = 0.0;
+    }
     ChooseFrameGeneration();
 
     // The capture is the whole window, frame and title bar included; DLSS and the overlay use only
