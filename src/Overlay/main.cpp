@@ -1038,8 +1038,8 @@ static bool BuildFrameResources(UINT w, UINT h)
     ReleaseFrameResources();
     g.w = w;
     g.h = h;
-    g.color = MakeTex(w, h, g.fmt, D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS, D3D12_HEAP_FLAG_SHARED,
-                      D3D12_RESOURCE_STATE_COMMON);
+    // g.color is not made here: D3D11 creates the captured picture and D3D12 opens it below (Share11). Making it here
+    // too left that texture behind on every rebuild, one full picture of graphics memory per window resize.
     g.output = MakeTex(w, h, g.fmt, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_HEAP_FLAG_NONE,
                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     g.depth = MakeTex(w, h, DXGI_FORMAT_R32_FLOAT, D3D12_RESOURCE_FLAG_NONE, D3D12_HEAP_FLAG_NONE,
@@ -1191,8 +1191,20 @@ static void CheckMemory()
     }
 }
 
+// A graphics driver reset (TDR) removes both devices: nothing drawn after it reaches the screen, and the last picture
+// would stay frozen over the window (the GPU timings stop too, so the step-aside guard never sees it). Close instead.
+static bool DeviceLost()
+{
+    const HRESULT r12 = g.dev->GetDeviceRemovedReason();
+    const HRESULT r11 = g.dev11 ? g.dev11->GetDeviceRemovedReason() : S_OK;
+    if (SUCCEEDED(r12) && SUCCEEDED(r11)) return false;
+    Log("error: the graphics driver restarted (0x%08X / 0x%08X), so the overlay closed; start it again", r12, r11);
+    return true;
+}
+
 static bool Frame()
 {
+    if (DeviceLost()) { g.quit = true; return false; }
     // Wait for the previous frame first, then take the newest capture: the picture is as fresh as the GPU allows.
     if (g.frame_done_value && g.fence->GetCompletedValue() < g.frame_done_value)
     {

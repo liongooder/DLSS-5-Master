@@ -180,12 +180,17 @@ public sealed partial class MainWindow
         if (!mine)
         {
             var flag = new HyperlinkButton { Content = "Flag", FontSize = 11, Padding = new Thickness(4, 0, 4, 0), VerticalAlignment = VerticalAlignment.Top };
-            ToolTipService.SetToolTip(flag, "Report this note as spam or abusive. Notes flagged by several players are hidden.");
+            ToolTipService.SetToolTip(flag, "Report this note as spam or abusive (needs a community nickname). Notes flagged by several players are hidden.");
             flag.Click += async (_, _) =>
             {
                 flag.IsEnabled = false;
                 try { await Community.FlagAsync(n.Id); flag.Content = "Flagged"; }
-                catch (Exception ex) { flag.Content = "Failed"; ToolTipService.SetToolTip(flag, ex.Message); }
+                catch (Exception ex)
+                {
+                    // The server's reason, such as "Choose a nickname first.", says more than "Failed" when it is short.
+                    flag.Content = ex.Message.Length <= 40 ? ex.Message : "Failed";
+                    ToolTipService.SetToolTip(flag, ex.Message);
+                }
             };
             Grid.SetColumn(flag, 2);
             grid.Children.Add(flag);

@@ -176,6 +176,30 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Check("restore originals deleted", !Directory.Exists(prefixDir));
     Check("restore logged", logs.Any(l => l.Contains("Restored")) && logs.Any(l => l.Contains("Removed")));
 
+    // a record whose backup folder points outside the backup root: Restore must refuse, and never delete that folder
+    var victim = Path.Combine(Path.GetTempPath(), "dlss5cr-victim-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(victim);
+    File.WriteAllText(Path.Combine(victim, "keep.txt"), "not the game's");
+    foreach (var (label, prefix) in new[] { ("dotdot", @"..\..\" + Path.GetFileName(victim)), ("absolute", victim), ("root itself", ".") })
+    {
+        File.WriteAllText(Path.Combine(Journal.BackupRoot(game), "manifest.json"),
+            System.Text.Json.JsonSerializer.Serialize(new Manifest { BackupPrefix = prefix }));
+        Throws<InstallException>($"restore refuses a backup folder outside the root ({label})", () => Session.Restore(game, logs.Add));
+        Check($"restore left that folder alone ({label})", File.Exists(Path.Combine(victim, "keep.txt")) && Directory.Exists(Journal.BackupRoot(game)));
+    }
+    Directory.Delete(victim, true);
+
+    // the DLL library's folder name comes from the DLL's own version text: it must stay one folder inside the library
+    foreach (var v in new[] { @"..\..\outside", "C:/Windows/System32", "3.7.10.0", ".." })
+    {
+        var folder = Installers.LibraryFolder(v, 64);
+        var lib = Path.Combine(Path.GetTempPath(), "lib");
+        var full = Path.GetFullPath(Path.Combine(lib, "nvngx_dlss.dll", folder, "nvngx_dlss.dll"));
+        Check($"dll library folder stays inside ({v})", full.StartsWith(Path.Combine(lib, "nvngx_dlss.dll") + "\\", StringComparison.OrdinalIgnoreCase)
+            && folder.IndexOfAny(new[] { '\\', '/', ':' }) < 0, folder);
+    }
+    Check("dll library folder keeps a normal version", Installers.LibraryFolder("3.7.10.0", 64) == "3.7.10.0-x64");
+
     // corrupt manifest
     File.WriteAllText(Path.Combine(Journal.BackupRoot(game), "manifest.json"), "{ not json");
     Throws<InstallException>("corrupt manifest", () => Journal.ReadManifest(game));
@@ -408,6 +432,18 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Check("superseded: older and same dropped, newer kept", gone.Count == 2 && gone.Contains("mfgunlock") && gone.Contains("feeder") && !gone.Contains("renodx-dlss"),
           string.Join(",", gone));
     Check("tests use their own data folder", AppPaths.Root == testData);
+
+    // Downloaded app installers: this version's and older ones go, a newer one waiting to be installed stays.
+    var updates = Path.Combine(AppPaths.Root, "app-update");
+    Directory.CreateDirectory(updates);
+    var older = new Version(Updates.CurrentAppVersion.Major, Updates.CurrentAppVersion.Minor, Math.Max(Updates.CurrentAppVersion.Build - 1, 0));
+    var names = new[] { $"DLSS5Master-Setup-{older}.exe", $"DLSS5Master-Setup-{Updates.CurrentAppVersion}.exe", $"DLSS5Master-Setup-{older}.exe.part",
+                        "DLSS5Master-Setup-99.0.0.exe", "DLSS5Master-Setup-notes.txt" };
+    foreach (var n in names) File.WriteAllText(Path.Combine(updates, n), "x");
+    Updates.DropInstalledAppUpdates();
+    var left = Directory.GetFiles(updates).Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    Check("app installers of this version or older are deleted", !left.Contains(names[0]) && !left.Contains(names[1]) && !left.Contains(names[2]), string.Join(",", left));
+    Check("a newer app installer and other files stay", left.Contains("DLSS5Master-Setup-99.0.0.exe") && left.Contains("DLSS5Master-Setup-notes.txt"), string.Join(",", left));
 }
 
 try { Directory.Delete(testData, true); } catch { }

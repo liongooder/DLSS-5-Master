@@ -908,6 +908,13 @@ public static partial class Installers
         return unique.OrderByDescending(c => c, Comparer<(string Path, string Version, string Source)>.Create((a, b) => Scanner.CompareVersions(a.Version, b.Version))).ToList();
     }
 
+    /// <summary>
+    /// The DLL library's folder for one version: "&lt;version&gt;-x&lt;bits&gt;". The version is the DLL's own version text, which
+    /// a DLL can set to anything, so path characters are replaced and it always names one folder inside the library.
+    /// </summary>
+    internal static string LibraryFolder(string version, int bits) =>
+        $"{System.Text.RegularExpressions.Regex.Replace(version, @"[^\w.\-]+", "_")}-x{bits}";
+
     public static string ImportDll(string file)
     {
         var name = Path.GetFileName(file);
@@ -915,7 +922,7 @@ public static partial class Installers
             throw new InstallException($"{name} is not a DLSS, Streamline, FSR or XeSS DLL.");
         var version = Pe.GetFileVersion(file) ?? "unknown";
         var bits = Pe.GetBitness(file);
-        var dest = Path.Combine(AppPaths.DllLibrary, name.ToLowerInvariant(), $"{version}-x{bits}", name);
+        var dest = Path.Combine(AppPaths.DllLibrary, name.ToLowerInvariant(), LibraryFolder(version, bits), name);
         Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
         if (!Path.GetFullPath(file).Equals(Path.GetFullPath(dest), StringComparison.OrdinalIgnoreCase))
         {

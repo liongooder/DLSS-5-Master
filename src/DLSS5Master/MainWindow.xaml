@@ -519,7 +519,7 @@
           <StackPanel Spacing="10">
             <TextBlock Text="COMMUNITY" Style="{StaticResource SectionTitle}" />
             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
-                       Text="Each game panel shows what other players report: works, partly or broken, with the route and graphics card they used. Reading is anonymous. Nothing is sent unless you press Send on your own report: then the game, your rating, route, add-on versions, graphics card model and your note are shared, with a random ID for this install (no account, name or IP is stored)." />
+                       Text="Each game panel shows what other players report: works, partly or broken, with the route and graphics card they used. Reading sends only a random ID for this install, so your own report can be marked, and reads are not stored. Nothing else is sent unless you press Send on your own report: then the game, your rating, route, add-on versions, graphics card model and your note are shared, with a random ID for this install (no account, name or IP is stored)." />
             <CheckBox x:Name="CommunityBox" Content="Show community reports in game panels" Click="CommunityBox_Click" />
             <Expander Header="Moderator" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
               <StackPanel Spacing="8">

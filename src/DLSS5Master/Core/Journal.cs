@@ -105,8 +105,21 @@ public static class Journal
         catch { }
     }
 
-    internal static string OriginalsDir(string gameDir, Manifest m) =>
-        Path.Combine(BackupRoot(gameDir), m.BackupPrefix.Replace('/', '\\'));
+    /// <summary>
+    /// The folder holding this install's original files. Restore deletes it when it is done, so it must be a folder
+    /// inside the backup root: a damaged, hand-edited or planted record naming the root itself, an absolute path or
+    /// "..\" would otherwise turn that delete onto other folders.
+    /// </summary>
+    internal static string OriginalsDir(string gameDir, Manifest m)
+    {
+        var root = BackupRoot(gameDir);
+        string dir;
+        try { dir = Path.GetFullPath(Path.Combine(root, m.BackupPrefix.Replace('/', '\\'))).TrimEnd('\\'); }
+        catch (Exception e) { throw new InstallException($"The install record names an invalid backup folder '{m.BackupPrefix}' ({e.Message})."); }
+        if (!dir.StartsWith(root + "\\", StringComparison.OrdinalIgnoreCase))
+            throw new InstallException($"The install record names a backup folder outside {root} ('{m.BackupPrefix}'). Restore cannot continue automatically; check or remove that record.");
+        return dir;
+    }
 }
 
 /// <summary>

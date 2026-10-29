@@ -82,6 +82,25 @@ public static partial class Updates
         Process.Start(new ProcessStartInfo(file, "/SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS") { UseShellExecute = true });
     }
 
+    [GeneratedRegex(@"^DLSS5Master-Setup-([\d.]+)\.exe(\.part)?$", RegexOptions.IgnoreCase)]
+    private static partial Regex DownloadedSetup();
+
+    /// <summary>
+    /// Deletes downloaded installers for this version or older (about 480 MB each): once that update has run they only
+    /// take space. A newer one that has not been installed yet stays.
+    /// </summary>
+    public static void DropInstalledAppUpdates()
+    {
+        var dir = Path.Combine(AppPaths.Root, "app-update");
+        if (!Directory.Exists(dir)) return;
+        foreach (var f in Directory.EnumerateFiles(dir, "DLSS5Master-Setup-*"))
+        {
+            var m = DownloadedSetup().Match(Path.GetFileName(f));
+            if (m.Success && Version.TryParse(m.Groups[1].Value, out var v) && v <= CurrentAppVersion)
+                try { File.Delete(f); } catch { }   // still running right after the update: it goes at the next start
+        }
+    }
+
     private static string Sha256Of(string file)
     {
         using var fs = File.OpenRead(file);

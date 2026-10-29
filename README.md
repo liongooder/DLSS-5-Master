@@ -57,12 +57,13 @@ DLSS 5 Master checks GitHub for newer RenoDX, MFG unlock, Feeder and OptiScaler 
 
 - **Game library**: finds Steam, Epic, GOG, Ubisoft, Xbox and custom-folder games, with cover art, and detects each game's executable, DirectX/Vulkan version, 32/64-bit, and DLSS / FSR / XeSS / Streamline DLLs.
 - **ReShade + RenoDX routes**: *Native* (RenoDX DLSS5 add-on), *Multipass* (RenoDX DLSS Tool) and *DLSS5 Feeder* (for games without DLSS).
-- **OptiScaler**: the NR 0.8.3 RTX 40 MFG build is included, plus other DLSS-NR builds or your own OptiScaler folder, a choice of proxy DLL name (`dxgi`, `winmm`, `version`, …) and the in-game menu key.
+- **OptiScaler**: OptiScaler NR pre-SR MFG 0.9.80 is included; the NR 0.8.3 RTX 40 MFG build can be picked instead (downloaded when first used). You choose the proxy DLL name (`dxgi`, `winmm`, `version`, …) and the in-game menu key.
 - **MFG unlock**: [MFGAdaUnlock-RenoDx](https://github.com/mavismmg/MFGAdaUnlock-RenoDx) as a tick box on every ReShade route: DLSS multi frame generation (3x/4x) on GeForce RTX 40, or its XeMFG mode (Intel XeSS frame generation, 2x–6x) on RTX 20, 30, 40 and 50.
 - **DLL swapping**: swap any upscaler DLL for another version from your DLL library.
 - **Exact restore**: every file added or replaced is recorded in `_DLSS5Master_Backup` inside the game folder; *Restore originals* puts the game back byte for byte. It can also remove installs made by other DLSS 5 tools.
 - **Community**: every game shows what other players report (works / partly / broken) by route and graphics card. The Community tab has every reported game with filters, a chat, a screenshot gallery (approved before anyone sees it) and a private line to the developer. Pick a nickname; no account needed.
 - **Updates**: the app and its add-ons update themselves from GitHub, checked against GitHub's published SHA-256.
+- **DLSS 5 on any window**: draws DLSS 5 over a browser, a video or any other open window, for browsing and videos; nothing in that program is changed. Optional frame generation (2x, 3x or 4x), Quality / Balanced / Performance, 1 or 2 neural passes, and HDR on an HDR screen. F9 switches it on and off. Games use the routes above.
 
 > **Anti-cheat warning:** injecting DLLs into online games can get your account banned. DLSS 5 Master asks you to confirm this for games that ship anti-cheat.
 
@@ -70,6 +71,7 @@ DLSS 5 Master checks GitHub for newer RenoDX, MFG unlock, Feeder and OptiScaler 
 
 - Windows 10 1809 or newer, x64
 - An NVIDIA RTX graphics card for the DLSS routes (MFG unlock: DLSS mode on RTX 40, XeMFG mode on RTX 20–50)
+- DLSS 5 on any window: an NVIDIA RTX card; its frame generation on RTX 20/30 needs NVIDIA driver R580 or newer
 
 ## Feedback
 
@@ -85,7 +87,7 @@ DLSS 5 Master is free. If it saved you time, you can support its development:
 
 ## Build from source
 
-Prerequisites: [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) and [Inno Setup 6](https://jrsoftware.org/isinfo.php).
+Prerequisites: [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0), [Inno Setup 6](https://jrsoftware.org/isinfo.php) and, for the overlay helper (`src/Overlay`, C++), Visual Studio 2022 Build Tools with the C++ workload. `src/Overlay/build.bat` builds the helper; its `fetch-sdk.ps1` downloads the NVIDIA headers it compiles against (pinned SHA-256), and `build-installer.ps1` runs it for you.
 
 ```powershell
 # app only
@@ -103,17 +105,17 @@ The installer bundles these components, unmodified and checked against the pinne
 
 | Component | Source | Licence |
 |---|---|---|
-| OptiScaler NR pre-SR multipass 0.8.3 (incl. RTX 40 MFG edition) | [wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) | GPL-3.0 |
-| OptiScaler DLSS-NR | [Dagherbou/OptiScaler_DLSSNR](https://github.com/Dagherbou/OptiScaler_DLSSNR) | GPL-3.0 |
-| OptiScaler DLSS-NR pre-SR multipass | [jlrouzies-fr/OptiScaler-DLSSNR-PreSR-Multipass](https://github.com/jlrouzies-fr/OptiScaler-DLSSNR-PreSR-Multipass) | GPL-3.0 |
+| OptiScaler NR pre-SR MFG 0.9.80 (bundled; also contains dlssg_for_sm86, which the overlay uses for frame generation on RTX 20/30) | [ShyVortex/OptiScaler-NR-PreSR-MFG](https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG) (source at tag v0.9.80); [sdli1995/dlssg_for_sm86](https://github.com/sdli1995/dlssg_for_sm86) | GPL-3.0 |
+| OptiScaler NR pre-SR multipass 0.8.3 RTX 40 MFG (downloaded when chosen) | [wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) | GPL-3.0 |
 | DLSS5-Feeder | [jlrouzies-fr/DLSS5-Feeder](https://github.com/jlrouzies-fr/DLSS5-Feeder) | MIT |
 | RenoDX DLSS5 add-on / DLSS Tool | [clshortfuse/renodx](https://github.com/clshortfuse/renodx), builds via [RankFTW/rhi-repo](https://github.com/RankFTW/rhi-repo) | MIT |
 | NVIDIA DLSS / Frame Gen / Ray Reconstruction / neural rendering runtimes, Streamline | NVIDIA | NVIDIA licence (included) |
 | MFGAdaUnlock-RenoDx (multi frame generation, DLSS-G and XeMFG) | [mavismmg/MFGAdaUnlock-RenoDx](https://github.com/mavismmg/MFGAdaUnlock-RenoDx) | MIT |
 | vort_Shaders | [vortigern11/vort_Shaders](https://github.com/vortigern11/vort_Shaders) | MIT |
 | ReShade | [reshade.me](https://reshade.me) | BSD-3-Clause |
+| Overlay helper build inputs: NVIDIA NGX SDK, NVIDIA Optical Flow SDK interface headers | [NVIDIA/DLSS](https://github.com/NVIDIA/DLSS), NVIDIA Optical Flow SDK | NVIDIA RTX SDKs licence; BSD-3-Clause |
 
-The installer includes the Microsoft .NET runtime and Windows App SDK, redistributed under their licences. Game screenshots and cover art belong to their publishers and are shown only to illustrate the app.
+The installer includes the Microsoft .NET runtime, the Windows App SDK and, beside the overlay helper, the Microsoft Visual C++ runtime, redistributed under their licences. Game screenshots and cover art belong to their publishers and are shown only to illustrate the app.
 
 ## Code signing policy and privacy
 

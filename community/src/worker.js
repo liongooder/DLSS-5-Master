@@ -11,7 +11,7 @@
 //   GET  /v1/games                       list: ?route=&result=working|mixed|broken&q=&sort=recent|reports|name&offset=
 //   GET  /v1/games/<key>                 one game: counts, per-route results, notes, your report
 //   POST /v1/reports                     create/replace your report for a game
-//   POST /v1/reports/<id>/flag           3 flags from different installs hide a note
+//   POST /v1/reports/<id>/flag           3 flags from different nicknamed installs hide a note
 //   GET  /v1/private                     your private thread with the developer
 //   POST /v1/private                     { install, text, image? }
 //   GET  /v1/gallery                     approved pictures, newest first (?offset=)
@@ -43,7 +43,10 @@ const IMAGE_MAX = 900 * 1024;
 const FLAGS_TO_HIDE = 3;
 const PAGE = 30;
 // Per hour unless noted.
-const LIMITS = { postPerInstall: 20, postPerIp: 120, readPerIp: 3000, chatPerInstall: 60, uploadsPerInstall: 10, privatePerInstall: 30 };
+const LIMITS = { postPerInstall: 20, postPerIp: 120, readPerIp: 3000, chatPerInstall: 60, uploadsPerInstall: 10, privatePerInstall: 30,
+  // Install IDs cost nothing to make, so these also count per connection (hashed IP): one script cannot stuff a game's
+  // ratings, hide notes with a few throwaway IDs, or fill the picture store.
+  reportsPerIpPerGame: 3, flagsPerIp: 10, imagesPerIp: 20 };
 
 export default {
   async fetch(request, env) {
@@ -90,15 +93,15 @@ async function route(request, env) {
   }
   if (m === 'GET' && (g = path.match(/^\/v1\/games\/([^/]+)$/)))
     return getGame(env, decodeURIComponent(g[1]), await installFromHeader(request, env, true));
-  if (m === 'POST' && path === '/v1/reports') return postReport(env, await readJson(request));
-  if (m === 'POST' && (g = path.match(/^\/v1\/reports\/(\d+)\/flag$/))) return flagReport(env, await readJson(request), Number(g[1]));
+  if (m === 'POST' && path === '/v1/reports') return postReport(env, await readJson(request), ipHash);
+  if (m === 'POST' && (g = path.match(/^\/v1\/reports\/(\d+)\/flag$/))) return flagReport(env, await readJson(request), Number(g[1]), ipHash);
 
   if (m === 'GET' && path === '/v1/private') return getPrivate(env, await installFromHeader(request, env));
-  if (m === 'POST' && path === '/v1/private') return postPrivate(env, await readJson(request, true));
+  if (m === 'POST' && path === '/v1/private') return postPrivate(env, await readJson(request, true), ipHash);
 
   if (m === 'GET' && path === '/v1/gallery') return listGallery(env, q);
   if (m === 'GET' && path === '/v1/gallery/mine') return myGallery(env, await installFromHeader(request, env));
-  if (m === 'POST' && path === '/v1/gallery') return postGallery(env, await readJson(request, true));
+  if (m === 'POST' && path === '/v1/gallery') return postGallery(env, await readJson(request, true), ipHash);
   if (m === 'GET' && (g = path.match(/^\/v1\/images\/(\d+)$/)))
     return getImage(env, Number(g[1]), await installFromHeader(request, env, true));
 
@@ -241,7 +244,7 @@ async function getGame(env, key, install) {
   });
 }
 
-async function postReport(env, body) {
+async function postReport(env, body, ipHash) {
   const install = await hashInstall(body.install, env);
   const key = str(body.key, 1, 70);
   if (!KEY_RE.test(key)) throw new HttpError(400, 'Bad game key');
@@ -259,6 +262,7 @@ async function postReport(env, body) {
   const p = await profile(env, install);
   if (p?.banned) throw new HttpError(403, 'You can no longer post in the community.');
   await limit(env, `post:${install}`, LIMITS.postPerInstall);
+  await limit(env, `report:${ipHash}:${key}`, LIMITS.reportsPerIpPerGame);
   const now = Date.now();
   const before = await env.DB.prepare(`SELECT id, note FROM reports WHERE install = ? AND game_key = ?`).bind(install, key).first();
   await env.DB.prepare(
@@ -274,8 +278,11 @@ async function postReport(env, body) {
   return json({ ok: true });
 }
 
-async function flagReport(env, body, id) {
+async function flagReport(env, body, id, ipHash) {
   const install = await hashInstall(body.install, env);
+  // Three flags hide a note: flaggers need a nickname (not banned), and one connection can only flag so often.
+  await poster(env, install);
+  await limit(env, `flag:${ipHash}`, LIMITS.flagsPerIp);
   const report = await env.DB.prepare(`SELECT install FROM reports WHERE id = ?`).bind(id).first();
   if (!report) throw new HttpError(404, 'Not found');
   if (report.install === install) throw new HttpError(400, 'You cannot flag your own report');
@@ -288,7 +295,8 @@ async function flagReport(env, body, id) {
 // ---------------------------------------------------------------- pictures
 
 /** Decodes a base64 JPEG/PNG from the app and stores it. Returns the image id. */
-async function storeImage(env, install, kind, base64) {
+async function storeImage(env, install, kind, base64, ipHash) {
+  await limit(env, `image:${ipHash}`, LIMITS.imagesPerIp);
   if (typeof base64 !== 'string' || base64.length > Math.ceil(IMAGE_MAX * 4 / 3) + 8) throw new HttpError(413, 'Picture too large');
   let bytes;
   try { bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0)); } catch { throw new HttpError(400, 'Bad picture'); }
@@ -324,14 +332,14 @@ async function getPrivate(env, install) {
   return json(rows.results.reverse().map(r => ({ ...r, from_dev: !!r.from_dev })));
 }
 
-async function postPrivate(env, body) {
+async function postPrivate(env, body, ipHash) {
   const install = await hashInstall(body.install, env);
   const p = await profile(env, install);
   if (p?.banned) throw new HttpError(403, 'You can no longer post in the community.');
   await limit(env, `private:${install}`, LIMITS.privatePerInstall);
   const text = clean(str(body.text ?? '', 0, PRIVATE_MAX * 2), true).slice(0, PRIVATE_MAX);
   if (!text && !body.image) throw new HttpError(400, 'Write something or attach a picture.');
-  const imageId = body.image ? await storeImage(env, install, 'private', body.image) : null;
+  const imageId = body.image ? await storeImage(env, install, 'private', body.image, ipHash) : null;
   await env.DB.prepare(`INSERT INTO private_msgs (install, from_dev, text, image_id, read_by_user, created_at) VALUES (?, 0, ?, ?, 1, ?)`)
     .bind(install, text, imageId, Date.now()).run();
   return json({ ok: true });
@@ -354,13 +362,13 @@ async function myGallery(env, install) {
   return json(rows.results);
 }
 
-async function postGallery(env, body) {
+async function postGallery(env, body, ipHash) {
   const install = await hashInstall(body.install, env);
   await poster(env, install);
   await limit(env, `upload:${install}`, LIMITS.uploadsPerInstall);
   const caption = clean(str(body.caption ?? '', 0, CAPTION_MAX * 2)).slice(0, CAPTION_MAX);
   const game = clean(str(body.game ?? '', 0, 100));
-  const imageId = await storeImage(env, install, 'gallery', body.image);
+  const imageId = await storeImage(env, install, 'gallery', body.image, ipHash);
   await env.DB.prepare(`INSERT INTO gallery (install, image_id, caption, game_name, created_at) VALUES (?, ?, ?, ?, ?)`)
     .bind(install, imageId, caption, game, Date.now()).run();
   return json({ ok: true, status: 'pending' });

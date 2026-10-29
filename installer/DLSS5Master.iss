@@ -70,6 +70,14 @@ Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_8_3-rtx40-mfg.zip"
 ; 0.8.2 bundles OptiScaler NR 0.9.80; remove the 0.9.72 zip it replaces.
 Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_9_72-shyvortex.zip"
 
+[UninstallDelete]
+; The large caches in the app's data folder (about 1.2 GB on a used install): downloaded add-ons and OptiScaler builds,
+; the overlay's working copies and a downloaded app update. Settings, the activity log, the community install ID and
+; artwork stay, so a reinstall keeps them.
+Type: filesandordirs; Name: "{localappdata}\DLSS5Master\components"
+Type: filesandordirs; Name: "{localappdata}\DLSS5Master\overlay"
+Type: filesandordirs; Name: "{localappdata}\DLSS5Master\app-update"
+
 [Icons]
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon

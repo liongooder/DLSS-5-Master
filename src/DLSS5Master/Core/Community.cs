@@ -23,7 +23,8 @@ public sealed record CommunitySummary(string Key, CommunityCounts Counts, List<C
 /// <summary>
 /// Per-game community reports ("works / partly / broken" + an optional short note) shared through the DLSS 5 Master
 /// community server. No accounts: each install has a random ID, which the server stores only as a salted hash.
-/// Reading is anonymous; nothing is sent unless the user presses Send or Flag.
+/// Reading sends only that random ID (so the server can mark the reader's own report; reads are not stored); a report
+/// or a flag is sent only when the user presses Send or Flag.
 /// </summary>
 public static partial class Community
 {

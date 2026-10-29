@@ -165,9 +165,18 @@ public static class Overlay
         { throw new InvalidOperationException("The overlay needs administrator rights because the game has them, and Windows was told no."); }
         if (_process is null) throw new InvalidOperationException("The overlay did not start.");
         Target = target;
-        _process.EnableRaisingEvents = true;
-        _process.Exited += (_, _) => { Target = null; AppPaths.Log("Overlay stopped. " + (LastLogError() ?? "")); Changed?.Invoke(); };
-        AppPaths.Log($"Overlay started on \"{target.Title}\" ({target.Process}){(elevated ? " as administrator" : "")}: style {settings.OverlayStyle}, " +
+        var started = _process;
+        started.EnableRaisingEvents = true;
+        started.Exited += (_, _) =>
+        {
+            // Exited arrives late on a worker thread; by then a newer overlay may already be running.
+            if (ReferenceEquals(_process, started) || _process is null) Target = null;
+            AppPaths.Log("Overlay stopped. " + (LastLogError() ?? ""));
+            Changed?.Invoke();
+        };
+        // The program, not the window title: titles can be private (a browser shows the page's), and this log is the one
+        // people are asked to attach to public issues.
+        AppPaths.Log($"Overlay started on {target.Process}{(elevated ? " as administrator" : "")}: style {settings.OverlayStyle}, " +
                      $"strength {settings.OverlayStrength} %, {settings.OverlayPasses} pass(es), quality {settings.OverlayQuality}, " +
                      $"frame generation {(frameGen == 0 ? "off" : $"{frameGen + 1}x")}.");
         Changed?.Invoke();
