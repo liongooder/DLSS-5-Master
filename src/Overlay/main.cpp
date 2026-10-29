@@ -191,6 +191,10 @@ struct App
 
     std::wstring stop_file;              // DLSS 5 Master creates this file to stop the overlay (works across elevation)
     bool dlss_on = true;
+    // HDR: when the window's screen is in HDR mode, the whole path runs in scRGB (linear FP16, Windows' own HDR
+    // format): capture, DLSS, the neural pass, frame generation and the swapchain. Otherwise 8-bit SDR as before.
+    bool hdr = false;
+    DXGI_FORMAT fmt = DXGI_FORMAT_B8G8R8A8_UNORM;
     bool stepped_aside = false;          // the game left the overlay no GPU time: hidden, the game shows as it is, until F9
     bool motion_on = true;
     bool reset = true;
@@ -461,6 +465,40 @@ static void WriteAddonDefaults()
     set(L"NREnableUpscaling", L"0");   // 1:1 DLAA
 }
 
+// scRGB for an HDR swapchain: linear, Rec.709 primaries, 1.0 = 80 nits; Windows shows it on the HDR screen as is.
+static void SetSwapColorSpace()
+{
+    if (!g.hdr || !g.swap) return;
+    const HRESULT hr = g.swap->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709);
+    if (FAILED(hr)) Log("HDR: the swapchain refused scRGB: 0x%08X", hr);
+}
+
+// Whether the screen showing the target window is in HDR mode (Windows' HDR switch is on for it).
+static bool ScreenIsHdr(IDXGIFactory4 *factory)
+{
+    const HMONITOR mon = MonitorFromWindow(g.target, MONITOR_DEFAULTTONEAREST);
+    IDXGIAdapter1 *adapter = nullptr;
+    bool hdr = false, found = false;
+    for (UINT a = 0; !found && factory->EnumAdapters1(a, &adapter) != DXGI_ERROR_NOT_FOUND; ++a)
+    {
+        IDXGIOutput *out = nullptr;
+        for (UINT o = 0; !found && adapter->EnumOutputs(o, &out) != DXGI_ERROR_NOT_FOUND; ++o)
+        {
+            IDXGIOutput6 *out6 = nullptr;
+            DXGI_OUTPUT_DESC1 d = {};
+            if (SUCCEEDED(out->QueryInterface(IID_PPV_ARGS(&out6))) && SUCCEEDED(out6->GetDesc1(&d)) && d.Monitor == mon)
+            {
+                found = true;
+                hdr = d.ColorSpace == DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
+            }
+            Release(out6);
+            out->Release();
+        }
+        adapter->Release();
+    }
+    return hdr;
+}
+
 static bool InitD3D12()
 {
     WriteAddonDefaults();
@@ -480,6 +518,9 @@ static bool InitD3D12()
     if (FAILED(create_factory(0, IID_PPV_ARGS(&factory)))) { Log("no DXGI factory"); return false; }
     if (FAILED(create_device(nullptr, D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&g.dev)))) { Log("no D3D12 device"); return false; }
     factory->EnumAdapterByLuid(g.dev->GetAdapterLuid(), IID_PPV_ARGS(&g.adapter));
+    g.hdr = ScreenIsHdr(factory);
+    g.fmt = g.hdr ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_B8G8R8A8_UNORM;
+    Log(g.hdr ? "HDR: the screen is in HDR mode, the overlay works in HDR (scRGB)" : "HDR: off (the screen is in SDR mode)");
 
     D3D12_COMMAND_QUEUE_DESC qd = {};
     qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -511,7 +552,7 @@ static bool InitD3D12()
     DXGI_SWAP_CHAIN_DESC1 sd = {};
     sd.Width = std::max<UINT>(tr.right, 64);
     sd.Height = std::max<UINT>(tr.bottom, 64);
-    sd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    sd.Format = g.fmt;
     sd.SampleDesc.Count = 1;
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     sd.BufferCount = 6;
@@ -522,6 +563,7 @@ static bool InitD3D12()
     HRESULT hr = factory->CreateSwapChainForComposition(g.queue, &sd, nullptr, &sc1);
     if (FAILED(hr)) { Log("no swapchain: 0x%08X", hr); return false; }
     sc1->QueryInterface(IID_PPV_ARGS(&g.swap));
+    SetSwapColorSpace();
     factory->Release();
     if (FAILED(hr = DCompositionCreateDevice(nullptr, IID_PPV_ARGS(&g.dcomp))) ||
         FAILED(hr = g.dcomp->CreateTargetForHwnd(g.window, TRUE, &g.dcomp_target)) ||
@@ -533,15 +575,22 @@ static bool InitD3D12()
     sc1->Release();
     for (UINT i = 0; i < 6; ++i) g.swap->GetBuffer(i, IID_PPV_ARGS(&g.back[i]));
 
-    D3D12_FEATURE_DATA_FORMAT_SUPPORT fs = { DXGI_FORMAT_B8G8R8A8_UNORM };
+    D3D12_FEATURE_DATA_FORMAT_SUPPORT fs = { g.fmt };
     g.dev->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT, &fs, sizeof(fs));
     if (!(fs.Support2 & D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE))
-        Log("WARNING: this GPU cannot write B8G8R8A8 from a compute shader; DLSS may refuse the output");
+        Log("WARNING: this GPU cannot write the picture format from a compute shader; DLSS may refuse the output");
     return true;
 }
 
 // ---------------------------------------------------------------------------------------------
 // Windows Graphics Capture on a D3D11 device of the same GPU
+
+// What Windows Graphics Capture hands over: scRGB FP16 on an HDR screen (the window as Windows composes it,
+// highlights included), 8-bit BGRA otherwise.
+static wdx::DirectXPixelFormat CaptureFormat()
+{
+    return g.hdr ? wdx::DirectXPixelFormat::R16G16B16A16Float : wdx::DirectXPixelFormat::B8G8R8A8UIntNormalized;
+}
 
 static bool InitCapture()
 {
@@ -575,7 +624,7 @@ static bool InitCapture()
     if (FAILED(hr)) { Log("this window cannot be captured: 0x%08X", hr); return false; }
 
     const auto size = g.item.Size();
-    g.pool = wgc::Direct3D11CaptureFramePool::CreateFreeThreaded(g.rt_device, wdx::DirectXPixelFormat::B8G8R8A8UIntNormalized, 3, size);
+    g.pool = wgc::Direct3D11CaptureFramePool::CreateFreeThreaded(g.rt_device, CaptureFormat(), 3, size);
     g.session = g.pool.CreateCaptureSession(g.item);
     try { g.session.IsCursorCaptureEnabled(false); } catch (...) {}
     try { g.session.IsBorderRequired(false); } catch (...) {}
@@ -625,12 +674,12 @@ static void BuildFrameGeneration(UINT w, UINT h)
 {
     if (g.fg_frames == 0 || !g.params) return;
     for (UINT i = 0; i < g.fg_frames; ++i)
-        g.interp[i] = MakeTex(w, h, DXGI_FORMAT_B8G8R8A8_UNORM, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_HEAP_FLAG_NONE,
+        g.interp[i] = MakeTex(w, h, g.fmt, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_HEAP_FLAG_NONE,
                               D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     NVSDK_NGX_DLSSG_Create_Params cp = {};
     cp.Width = w;
     cp.Height = h;
-    cp.NativeBackbufferFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
+    cp.NativeBackbufferFormat = g.fmt;
     cp.RenderWidth = w;
     cp.RenderHeight = h;
     g.alloc->Reset();
@@ -695,7 +744,8 @@ void Luma(uint3 id : SV_DispatchThreadID)
     if (any(id.xy >= size)) return;
     uint2 p = id.xy * 2;
     float3 c = (color[p].rgb + color[p + uint2(1, 0)].rgb + color[p + uint2(0, 1)].rgb + color[p + uint2(1, 1)].rgb) * 0.25;
-    luma[id.xy] = dot(c, float3(0.299, 0.587, 0.114));
+    float l = dot(c, float3(0.299, 0.587, 0.114));
+    luma[id.xy] = scale > 0.0 ? l / (1.0 + l) : l;   // scale > 0: HDR (scRGB), squeezed into 0..1
 }
 
 Texture2D<int2> flow : register(t0);
@@ -796,7 +846,7 @@ static bool BuildScaler(UINT cw, UINT ch)
     td.Height = ch;
     td.MipLevels = 1;
     td.ArraySize = 1;
-    td.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    td.Format = g.fmt;
     td.SampleDesc.Count = 1;
     td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
     g.dev11->CreateTexture2D(&td, nullptr, &g.cap11);
@@ -940,7 +990,7 @@ static void Dispatch(ID3D11ComputeShader *cs, ID3D11ShaderResourceView *srv, ID3
 static void RunMotion()
 {
     if (!g.motion_ready) return;
-    Dispatch(g.cs_luma, g.color_srv, g.luma_uav[g.cur], g.w / 2, g.h / 2, 0.0f, 0);
+    Dispatch(g.cs_luma, g.color_srv, g.luma_uav[g.cur], g.w / 2, g.h / 2, g.hdr ? 1.0f : 0.0f, 0);
     bool measured = false;
     if (g.have_prev && g.motion_on)
     {
@@ -988,9 +1038,9 @@ static bool BuildFrameResources(UINT w, UINT h)
     ReleaseFrameResources();
     g.w = w;
     g.h = h;
-    g.color = MakeTex(w, h, DXGI_FORMAT_B8G8R8A8_UNORM, D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS, D3D12_HEAP_FLAG_SHARED,
+    g.color = MakeTex(w, h, g.fmt, D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS, D3D12_HEAP_FLAG_SHARED,
                       D3D12_RESOURCE_STATE_COMMON);
-    g.output = MakeTex(w, h, DXGI_FORMAT_B8G8R8A8_UNORM, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_HEAP_FLAG_NONE,
+    g.output = MakeTex(w, h, g.fmt, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, D3D12_HEAP_FLAG_NONE,
                        D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     g.depth = MakeTex(w, h, DXGI_FORMAT_R32_FLOAT, D3D12_RESOURCE_FLAG_NONE, D3D12_HEAP_FLAG_NONE,
                       D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -999,7 +1049,7 @@ static bool BuildFrameResources(UINT w, UINT h)
     // The captured picture and the motion cross from D3D11 to D3D12 through shared textures and a shared
     // fence. D3D11 creates them: this driver refuses to open D3D12-created textures on D3D11 (E_INVALIDARG).
     const char *step = "share the picture";
-    HRESULT hr = Share11(w, h, DXGI_FORMAT_B8G8R8A8_UNORM, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET, &g.color11, &g.color);
+    HRESULT hr = Share11(w, h, g.fmt, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET, &g.color11, &g.color);
     if (SUCCEEDED(hr)) { step = "share the motion"; hr = Share11(w, h, DXGI_FORMAT_R16G16_FLOAT, D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS, &g.mv11, &g.mv); }
     HANDLE hf = nullptr;
     g.copy_value = 0;
@@ -1021,7 +1071,7 @@ static bool BuildFrameResources(UINT w, UINT h)
     cp.Feature.InTargetHeight = h;
     cp.Feature.InPerfQualityValue = NVSDK_NGX_PerfQuality_Value_DLAA;
     cp.InFeatureCreateFlags = NVSDK_NGX_DLSS_Feature_Flags_MVLowRes | NVSDK_NGX_DLSS_Feature_Flags_AutoExposure |
-                              NVSDK_NGX_DLSS_Feature_Flags_DepthInverted;
+                              NVSDK_NGX_DLSS_Feature_Flags_DepthInverted | (g.hdr ? NVSDK_NGX_DLSS_Feature_Flags_IsHDR : 0);
     g.alloc->Reset();
     g.list->Reset(g.alloc, nullptr);
     NVSDK_NGX_Result r = NGX_D3D12_CREATE_DLSS_EXT(g.list, 1, 1, &g.feature, g.params, &cp);
@@ -1042,7 +1092,8 @@ static void ResizeSwapchain(UINT w, UINT h)
 {
     WaitGpu();
     for (auto &b : g.back) Release(b);
-    g.swap->ResizeBuffers(6, w, h, DXGI_FORMAT_B8G8R8A8_UNORM, 0);
+    g.swap->ResizeBuffers(6, w, h, g.fmt, 0);
+    SetSwapColorSpace();
     for (UINT i = 0; i < 6; ++i) g.swap->GetBuffer(i, IID_PPV_ARGS(&g.back[i]));
 }
 
@@ -1185,7 +1236,7 @@ static bool Frame()
     const UINT h = std::max<UINT>(64, static_cast<UINT>(ch * g.scale + 0.5f) & ~1u);
     if (cw != g.cw || ch != g.ch)
     {
-        g.pool.Recreate(g.rt_device, wdx::DirectXPixelFormat::B8G8R8A8UIntNormalized, 3, size);
+        g.pool.Recreate(g.rt_device, CaptureFormat(), 3, size);
         ResizeSwapchain(w, h);
         if (!BuildFrameResources(w, h)) { Log("could not build DLSS for %ux%u", w, h); return false; }
         g.cw = cw;
@@ -1260,6 +1311,7 @@ static bool Frame()
             NVSDK_NGX_DLSSG_Opt_Eval_Params op = {};
             op.multiFrameCount = g.fg_now;
             op.multiFrameIndex = i;
+            op.colorBuffersHDR = g.hdr;
             // A captured picture has no camera: identity matrices, and the motion is all on screen.
             for (int k = 0; k < 4; ++k)
                 op.cameraViewToClip[k][k] = op.clipToCameraView[k][k] = op.clipToLensClip[k][k] = op.clipToPrevClip[k][k] = op.prevClipToClip[k][k] = 1.0f;
