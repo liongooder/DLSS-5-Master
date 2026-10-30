@@ -684,7 +684,6 @@
                     <ComboBoxItem Content="d3d11.dll (DX11 games that skip dxgi)" Tag="d3d11.dll" />
                   </ComboBox>
                 </StackPanel>
-                <CheckBox x:Name="AddDlssBox" Content="Add nvngx_dlss.dll beside the game if it has none" />
                 <StackPanel>
                   <CheckBox x:Name="MfgBox" Content="MFG unlock — multi frame generation: DLSS 3x/4x on RTX 40, or Intel XeSS 2x–6x on RTX 20–50 (MFGAdaUnlock 1.6.0)" />
                   <TextBlock x:Name="MfgNote" Margin="28,0,0,0" FontSize="12" Foreground="{StaticResource MutedText}" TextWrapping="Wrap" />

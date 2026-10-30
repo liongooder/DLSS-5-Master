@@ -139,7 +139,6 @@ public sealed partial class MainWindow
 
             AntiCheatBox.Visibility = _scan.AntiCheat ? Visibility.Visible : Visibility.Collapsed;
             AntiCheatBox.IsChecked = false;
-            AddDlssBox.IsChecked = false;
             // MFG unlock: keep what is installed; on a fresh game, default on for RTX 40 owners when the game has frame generation.
             MfgBox.IsChecked = manifest is not null
                 ? manifest.MfgUnlock is not null
@@ -455,7 +454,6 @@ public sealed partial class MainWindow
             OptiHook = OptiHookBox.SelectedItem as string ?? "dxgi.dll",
             MenuKey = (MenuKeyBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "0x2D",
             ReShadeProxy = (ProxyBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "dxgi.dll",
-            AddMissingDlss = AddDlssBox.IsChecked == true,
             MfgUnlock = MfgBox.IsEnabled && MfgBox.IsChecked == true,
             AntiCheatAcknowledged = AntiCheatBox.IsChecked == true,
         };

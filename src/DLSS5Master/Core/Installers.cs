@@ -19,7 +19,6 @@ public sealed class InstallRequest
     public string OptiHook { get; init; } = "dxgi.dll";
     public string MenuKey { get; init; } = "0x2D";
     public string ReShadeProxy { get; init; } = "dxgi.dll";
-    public bool AddMissingDlss { get; init; }
     public bool MfgUnlock { get; init; }
     public bool AntiCheatAcknowledged { get; init; }
 }
@@ -434,9 +433,15 @@ public static partial class Installers
             if (job.Runtime.TryGetValue(u.Name, out var src)) PlaceRuntime(job, src, u.Path, bits);
 
         PlaceRuntime(job, job.Runtime[NeuralDll], Path.Combine(job.ExeDir, NeuralDll), bits);
-        if (job.Req.AddMissingDlss && !job.Scan.Upscalers.Any(u => u.Kind == UpscalerKind.DlssSR && u.Bitness == bits))
+        // A game without DLSS of its own gets it beside the game, as the Feeder route always does (it used to be a tick
+        // box; leaving it out only made the route do nothing there).
+        if (!job.Scan.Upscalers.Any(u => u.Kind == UpscalerKind.DlssSR && u.Bitness == bits))
         {
-            if (job.Runtime.TryGetValue(DlssDll, out var dlss)) PlaceRuntime(job, dlss, Path.Combine(job.ExeDir, DlssDll), bits);
+            if (job.Runtime.TryGetValue(DlssDll, out var dlss))
+            {
+                PlaceRuntime(job, dlss, Path.Combine(job.ExeDir, DlssDll), bits);
+                job.Log($"The game has no {DlssDll} of its own, so it was added beside the game.");
+            }
             else job.Log($"The runtime folder has no {DlssDll}; could not add DLSS.");
         }
 
