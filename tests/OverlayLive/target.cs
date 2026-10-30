@@ -29,7 +29,7 @@ class Target : Form
         Screen right = Screen.AllScreens[0];
         foreach (var s in Screen.AllScreens) if (s.Bounds.Right > right.Bounds.Right) right = s;
         Bounds = new Rectangle(right.Bounds.Right - 1, right.Bounds.Top + 100, w, h);
-        Text = "DLSS 5 overlay test window";
+        Text = "DLSS 5 overlay test window\u2122 caf\u00E9";   // a title beyond ASCII (trademark sign, accent), as real ones have
         DoubleBuffered = true;
         var timer = new Timer { Interval = 15 };
         timer.Tick += (s, e) => Tick();

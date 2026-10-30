@@ -23,6 +23,7 @@
 #include <dcomp.h>
 #include <dwmapi.h>
 #include <share.h>
+#include <clocale>
 #include <cstdio>
 #include <cstdint>
 #include <string>
@@ -1446,6 +1447,9 @@ int wmain(int argc, wchar_t **argv)
     // DLLs this process loads come from its own folder and System32 only, never the current folder or PATH: it can run
     // as administrator. (DLSS 5 Master removes any program file from that folder that is not the overlay's own.)
     SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+    // The log is UTF-8: window titles and paths are written as they are ("Bloodborne™" or an accented user name made the
+    // whole line vanish). Numbers keep the C locale's dot.
+    setlocale(LC_CTYPE, ".UTF8");
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     g_log = _wfsopen((ExeDir() + L"dlss5-overlay.log").c_str(), L"w", _SH_DENYNO);   // readable while running
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
