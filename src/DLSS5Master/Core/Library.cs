@@ -262,6 +262,11 @@ public static partial class Library
         foreach (var folder in folders)
         {
             if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder)) continue;
+            if (IsOneGame(folder))
+            {
+                result.Add(new GameEntry { Launcher = "Folder", Name = Path.GetFileName(folder.TrimEnd('\\', '/')), Dir = folder });
+                continue;
+            }
             foreach (var sub in Directory.EnumerateDirectories(folder))
             {
                 var name = Path.GetFileName(sub);
@@ -270,6 +275,28 @@ public static partial class Library
             }
         }
         return result;
+    }
+
+    /// <summary>
+    /// True when a folder added as a folder of games is itself one game: an Unreal Engine game (Engine beside a project
+    /// folder with Binaries), or the game's exe at the top with no other program folders beside it. Read as a folder of
+    /// games, such a folder would list its own insides ("Engine", the project folder) as games.
+    /// </summary>
+    private static bool IsOneGame(string folder)
+    {
+        try
+        {
+            var subs = Directory.EnumerateDirectories(folder).ToList();
+            // An install made while the folder was read as a folder of games stays where it was.
+            if (subs.Any(s => File.Exists(Journal.ManifestPath(s)))) return false;
+            if (subs.Any(s => Path.GetFileName(s).Equals("Engine", StringComparison.OrdinalIgnoreCase))
+                && subs.Any(s => Directory.Exists(Path.Combine(s, "Binaries"))))
+                return true;
+            bool Program(string f) => !Scanner.IsHelperExe(Path.GetFileName(f));
+            return Directory.EnumerateFiles(folder, "*.exe").Any(f => Program(f) && new FileInfo(f).Length >= 1 << 20)
+                   && !subs.Any(s => Directory.EnumerateFiles(s, "*.exe").Any(Program));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
     }
 
     /// <summary>True when an .exe exists in <paramref name="dir"/> or up to <paramref name="levels"/> folders below it.</summary>
@@ -292,12 +319,17 @@ public static partial class Library
         foreach (var exe in exes)
         {
             if (string.IsNullOrWhiteSpace(exe) || !File.Exists(exe)) continue;
-            var full = Path.GetFullPath(exe);
+            var picked = Path.GetFullPath(exe);
+            var full = Scanner.UnrealGameFor(picked) ?? picked;
+            var exeDir = Path.GetDirectoryName(full)!;
+            // An Unreal game's top folder holds its Engine and plugins (with its own DLSS), not just Binaries\Win64;
+            // an install already made beside the exe keeps that folder.
+            var root = File.Exists(Journal.ManifestPath(exeDir)) ? null : Scanner.UnrealRootFor(full);
             result.Add(new GameEntry
             {
                 Launcher = "Manual",
-                Name = Artwork.ExeProductName(full) ?? Path.GetFileNameWithoutExtension(full),
-                Dir = Path.GetDirectoryName(full)!,
+                Name = Artwork.ExeProductName(picked) ?? (root is not null ? Path.GetFileName(root) : Path.GetFileNameWithoutExtension(full)),
+                Dir = root ?? exeDir,
                 Exe = full,
             });
         }

@@ -253,6 +253,57 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Directory.Delete(game, true);
 }
 
+// ====================================================================== Library: games added by hand (Unreal Engine layout)
+{
+    var lib = Path.Combine(Path.GetTempPath(), "dlss5cr-lib-" + Guid.NewGuid().ToString("N"));
+    var root = Path.Combine(lib, "Phantom Test™ café");
+    var launcher = Path.Combine(root, "PhantomTest.exe");
+    var shipping = Path.Combine(root, "PTGame", "Binaries", "Win64", "PTGame-Win64-Shipping.exe");
+    var dlss = Path.Combine(root, "Engine", "Plugins", "Runtime", "Nvidia", "DLSS", "Binaries", "ThirdParty", "Win64", "nvngx_dlss.dll");
+    foreach (var f in new[] { shipping, dlss, Path.Combine(root, "Engine", "Binaries", "Win64", "CrashReportClient.exe") })
+        Directory.CreateDirectory(Path.GetDirectoryName(f)!);
+    File.WriteAllBytes(launcher, RandomNumberGenerator.GetBytes(300_000));
+    File.WriteAllBytes(shipping, RandomNumberGenerator.GetBytes(2_000_000));
+    File.WriteAllBytes(dlss, RandomNumberGenerator.GetBytes(1000));
+    File.WriteAllBytes(Path.Combine(root, "Engine", "Binaries", "Win64", "CrashReportClient.exe"), RandomNumberGenerator.GetBytes(4096));
+
+    Check("unreal launcher stub leads to the shipping exe", Scanner.UnrealGameFor(launcher) == shipping, Scanner.UnrealGameFor(launcher));
+    Check("the shipping exe is not a launcher stub", Scanner.UnrealGameFor(shipping) is null);
+    Check("unreal top folder from the shipping exe", Scanner.UnrealRootFor(shipping) == root, Scanner.UnrealRootFor(shipping));
+    Check("no unreal top folder for a plain exe", Scanner.UnrealRootFor(launcher) is null);
+    Check("a picked launcher stub scans as the shipping exe", Scanner.Scan(root, launcher).Primary?.Path == shipping);
+
+    List<GameEntry> Ours(AppSettings st) => Library.Discover(st).Where(g => g.Dir.StartsWith(lib, StringComparison.OrdinalIgnoreCase)).ToList();
+    string Describe(List<GameEntry> l) => string.Join(" | ", l.Select(g => $"{g.Name} @ {g.Dir} ({g.Exe})"));
+    var byLauncher = Ours(new AppSettings { ManualExes = { launcher } });
+    Check("adding the launcher stub adds the game at its top folder", byLauncher.Count == 1 && byLauncher[0].Dir == root && byLauncher[0].Exe == shipping
+        && byLauncher[0].Name == "Phantom Test™ café", Describe(byLauncher));
+    var byShipping = Ours(new AppSettings { ManualExes = { shipping } });
+    Check("adding the shipping exe adds the game at its top folder", byShipping.Count == 1 && byShipping[0].Dir == root, Describe(byShipping));
+    var ownFolder = Ours(new AppSettings { ExtraFolders = { root } });
+    Check("adding an unreal game's own folder adds that one game", ownFolder.Count == 1 && ownFolder[0].Dir == root, Describe(ownFolder));
+    var folderOfGames = Ours(new AppSettings { ExtraFolders = { lib } });
+    Check("a folder of games still lists each game", folderOfGames.Count == 1 && folderOfGames[0].Dir == root && folderOfGames[0].Name == "Phantom Test™ café", Describe(folderOfGames));
+
+    // A plain game: its exe at the top, data below. Its own folder adds it; beside it, a folder of two games lists both.
+    var plain = Path.Combine(lib, "Plain Game");
+    Directory.CreateDirectory(Path.Combine(plain, "data"));
+    File.WriteAllBytes(Path.Combine(plain, "PlainGame.exe"), RandomNumberGenerator.GetBytes(1_500_000));
+    File.WriteAllBytes(Path.Combine(plain, "unins000.exe"), RandomNumberGenerator.GetBytes(2_000_000));
+    var plainOwn = Ours(new AppSettings { ExtraFolders = { plain } });
+    Check("adding a plain game's own folder adds that one game", plainOwn.Count == 1 && plainOwn[0].Dir == plain, Describe(plainOwn));
+    var both = Ours(new AppSettings { ExtraFolders = { lib } });
+    Check("a folder of two games lists both", both.Count == 2, Describe(both));
+
+    // An install made while the game's folder was read as a folder of games keeps working from where it is.
+    var oldInstall = Path.Combine(root, "PTGame");
+    Directory.CreateDirectory(Path.Combine(oldInstall, Journal.BackupDir));
+    File.WriteAllText(Path.Combine(oldInstall, Journal.BackupDir, "manifest.json"), "{}");
+    var kept = Ours(new AppSettings { ExtraFolders = { root } });
+    Check("an older install below a folder keeps that folder's old reading", kept.Any(g => g.Dir == oldInstall), Describe(kept));
+    Directory.Delete(lib, true);
+}
+
 // ====================================================================== Scanner
 {
     Check("classify sr", Scanner.Classify("NVNGX_DLSS.dll") == UpscalerKind.DlssSR);

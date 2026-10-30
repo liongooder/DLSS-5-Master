@@ -185,8 +185,43 @@ public static partial class Scanner
         "rockstar-games-launcher", "redprelauncher", "playgtav", "dlss5-feed-host", "dgvoodoocpl", "reshade_setup",
     };
 
-    private static bool IsHelperExe(string fileName) =>
+    internal static bool IsHelperExe(string fileName) =>
         IgnoredExePrefixes.Any(p => fileName.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The real game behind Unreal Engine's launcher stub. The small exe beside an Unreal game's Engine folder only starts
+    /// &lt;Project&gt;\Binaries\Win64\&lt;Project&gt;-Win64-Shipping.exe, and ReShade must sit beside that one to load. Null for any other exe.
+    /// </summary>
+    public static string? UnrealGameFor(string exe)
+    {
+        try
+        {
+            var full = System.IO.Path.GetFullPath(exe);
+            var dir = System.IO.Path.GetDirectoryName(full);
+            if (dir is null || !Directory.Exists(System.IO.Path.Combine(dir, "Engine")) || new FileInfo(full).Length >= 8 * OneMb) return null;
+            return Directory.EnumerateDirectories(dir)
+                .Where(d => !System.IO.Path.GetFileName(d).Equals("Engine", StringComparison.OrdinalIgnoreCase))
+                .SelectMany(d => new[] { "Win64", "WinGDK" }.Select(p => System.IO.Path.Combine(d, "Binaries", p)))
+                .Where(Directory.Exists)
+                .SelectMany(b => Directory.EnumerateFiles(b, "*-Shipping.exe"))
+                .OrderByDescending(f => new FileInfo(f).Length)
+                .FirstOrDefault();
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { return null; }
+    }
+
+    /// <summary>The top folder of an Unreal Engine game (the one holding Engine) for an exe in its &lt;Project&gt;\Binaries\Win64 or WinGDK folder; null otherwise.</summary>
+    public static string? UnrealRootFor(string exe)
+    {
+        try
+        {
+            var binaries = System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(exe)) ?? "");
+            if (binaries is null || !System.IO.Path.GetFileName(binaries).Equals("Binaries", StringComparison.OrdinalIgnoreCase)) return null;
+            var root = System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(binaries) ?? "");
+            return root is not null && Directory.Exists(System.IO.Path.Combine(root, "Engine")) ? root : null;
+        }
+        catch (Exception e) when (e is IOException or ArgumentException or NotSupportedException) { return null; }
+    }
 
     public static GameScan Scan(string gameDir, string? preferredExe = null, CancellationToken ct = default)
     {
@@ -242,11 +277,12 @@ public static partial class Scanner
             }
         }
 
-        // The user's choice always counts, even if it lives in a skipped folder or looks like a helper.
+        // The user's choice always counts, even if it lives in a skipped folder or looks like a helper;
+        // Unreal Engine's launcher stub stands for the game it starts.
         string? preferred = null;
         if (!string.IsNullOrWhiteSpace(preferredExe) && File.Exists(preferredExe))
         {
-            preferred = System.IO.Path.GetFullPath(preferredExe);
+            preferred = System.IO.Path.GetFullPath(UnrealGameFor(preferredExe) ?? preferredExe);
             if (!exes.Any(e => e.Equals(preferred, StringComparison.OrdinalIgnoreCase))) exes.Add(preferred);
         }
 

@@ -65,7 +65,7 @@
           <Button Grid.Column="2" ToolTipService.ToolTip="Add a game by its .exe" Click="AddGame_Click">
             <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE710;" FontSize="13" /><TextBlock Text="Add a game" /></StackPanel>
           </Button>
-          <Button Grid.Column="3" ToolTipService.ToolTip="Add a folder where every sub-folder is a game" Click="AddFolder_Click">
+          <Button Grid.Column="3" ToolTipService.ToolTip="Add a game's folder, or a folder of games" Click="AddFolder_Click">
             <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8B7;" FontSize="13" /><TextBlock Text="Add a folder" /></StackPanel>
           </Button>
           <Button Grid.Column="4" Style="{StaticResource AccentButtonStyle}" ToolTipService.ToolTip="Find and scan your games again" Click="Refresh_Click">
@@ -478,7 +478,7 @@
         <Border Style="{StaticResource Card}">
           <StackPanel Spacing="10">
             <TextBlock Text="LIBRARY FOLDERS" Style="{StaticResource SectionTitle}" />
-            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}" Text="Steam, Epic, GOG, Ubisoft and Xbox games are found automatically. Add folders where every sub-folder is a game (repacks, standalone games)." />
+            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}" Text="Steam, Epic, GOG, Ubisoft and Xbox games are found automatically. Add a game's own folder, or a folder whose sub-folders are games (repacks, standalone games)." />
             <ListView x:Name="FolderList" SelectionMode="Single" MaxHeight="200" />
             <StackPanel Orientation="Horizontal" Spacing="8">
               <Button Click="AddFolder_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE710;" FontSize="13" /><TextBlock Text="Add folder…" /></StackPanel></Button>
