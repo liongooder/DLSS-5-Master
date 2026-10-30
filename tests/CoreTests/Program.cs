@@ -300,6 +300,60 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Directory.Delete(game, true);
 }
 
+// ====================================================================== Install: add-ons ReShade loads as soon as it starts (LoadFromDllMain)
+{
+    // Phantom Blade Zero's layout; ReShade could not start the add-ons there until they were loaded early.
+    var game = Path.Combine(Path.GetTempPath(), "dlss5cr-early-" + Guid.NewGuid().ToString("N"));
+    var bin = Path.Combine(game, "platform", "steam");
+    Directory.CreateDirectory(bin);
+    var exe = Path.Combine(bin, "PBZTest.exe");
+    File.WriteAllBytes(exe, RandomNumberGenerator.GetBytes(4096));
+    foreach (var n in new[] { "renodx-dlss5.addon64", "renodx-mfgunlock.addon64", "ShaderToggler.addon64" })
+        File.WriteAllBytes(Path.Combine(bin, n), RandomNumberGenerator.GetBytes(512));
+    var logs = new List<string>();
+    Session.Begin(game, exe, "native", "dxgi", 64, logs.Add).Save();
+    Manifest Record() => Journal.ReadManifest(game)!;
+
+    // The lines ReShade 6.8 wrote there, once per graphics device the game created.
+    var reshadeLog = Path.Combine(bin, "ReShade.log");
+    File.WriteAllText(reshadeLog, string.Join("\r\n",
+        $"09:34:24:610 [29068] | INFO  | Loading add-on from '{bin}\\renodx-dlss5.addon64' ...",
+        $"09:34:24:673 [29068] | ERROR | Failed to load add-on from '{bin}\\renodx-dlss5.addon64' with error code 1114!",
+        $"09:34:24:673 [29068] | ERROR | Failed to load add-on from '{bin}\\renodx-mfgunlock.addon64' with error code 1114!",
+        $"09:34:27:169 [29068] | ERROR | Failed to load add-on from '{bin}\\renodx-dlss5.addon64' with error code 1114!",
+        $"09:34:27:170 [29068] | ERROR | Failed to load add-on from '{bin}\\ShaderToggler.addon64' with error code 1114!",
+        $"09:34:27:171 [29068] | ERROR | Failed to load add-on from '{bin}\\renodx-dlss.addon64' with error code 126!"));
+    var failing = Installers.AddonsToLoadEarly(game, Record());
+    Check("error 1114 in ReShade.log names the DLSS 5 add-ons to load early",
+        failing.SequenceEqual(new[] { "renodx-dlss5.addon64", "renodx-mfgunlock.addon64" }), string.Join(", ", failing));
+    File.SetLastWriteTimeUtc(reshadeLog, DateTime.UtcNow.AddDays(-1));
+    Check("a ReShade.log from before the install counts for nothing", Installers.AddonsToLoadEarly(game, Record()).Count == 0);
+    File.SetLastWriteTimeUtc(reshadeLog, DateTime.UtcNow.AddMinutes(1));
+    using (new FileStream(reshadeLog, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+        Check("ReShade.log is read while ReShade holds it open", Installers.AddonsToLoadEarly(game, Record()).Count == 2);
+
+    // The player's own ReShade.ini, naming an add-on that is gone and an entry that is not a file.
+    var ini = Path.Combine(bin, "ReShade.ini");
+    var original = "[GENERAL]\r\nPresetPath=.\\ReShadePreset.ini\r\n\r\n[ADDON]\r\nLoadFromDllMain=old-gone.addon64,1\r\n";
+    File.WriteAllText(ini, original);
+    Installers.LoadAddonsEarly(game, logs.Add);
+    var line = Ini.Get(Ini.ReadText(ini), "ADDON", "LoadFromDllMain");
+    Check("load early lists the folder's DLSS 5 add-ons and drops the gone one", line == "1,renodx-dlss5.addon64,renodx-mfgunlock.addon64", line);
+    Check("the rest of ReShade.ini stays", Ini.Get(Ini.ReadText(ini), "GENERAL", "PresetPath") == @".\ReShadePreset.ini");
+    Check("nothing is offered once they load early", Installers.AddonsToLoadEarly(game, Record()).Count == 0);
+    Check("loading early twice changes nothing", !Installers.UpdateEarlyAddons(new Session(game, Record(), logs.Add), bin, loadEarly: true));
+    File.Delete(Path.Combine(bin, "renodx-mfgunlock.addon64"));
+    var later = new Session(game, Record(), logs.Add);
+    Check("a setup takes an add-on that is gone off the line", Installers.UpdateEarlyAddons(later, bin, loadEarly: false)
+        && Ini.Get(Ini.ReadText(ini), "ADDON", "LoadFromDllMain") == "1,renodx-dlss5.addon64");
+    later.Save();
+    Check("restore puts the player's ReShade.ini back", Session.Restore(game, logs.Add) && File.ReadAllText(ini) == original);
+    Check("with no ReShade.ini and nothing to load early, none is written",
+        !Installers.UpdateEarlyAddons(Session.Begin(game, exe, "native", "dxgi", 64, logs.Add), Path.Combine(game, "platform"), loadEarly: false)
+        && !File.Exists(Path.Combine(game, "platform", "ReShade.ini")));
+    Directory.Delete(game, true);
+}
+
 // ====================================================================== Library: games added by hand (Unreal Engine layouts)
 {
     var lib = Path.Combine(Path.GetTempPath(), "dlss5cr-lib-" + Guid.NewGuid().ToString("N"));

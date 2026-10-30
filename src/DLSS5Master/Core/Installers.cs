@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace DLSS5Master.Core;
 
@@ -20,6 +21,8 @@ public sealed class InstallRequest
     public string MenuKey { get; init; } = "0x2D";
     public string ReShadeProxy { get; init; } = "dxgi.dll";
     public bool MfgUnlock { get; init; }
+    /// <summary>Have ReShade load the DLSS 5 add-ons as soon as it starts (ReShade.ini [ADDON] LoadFromDllMain).</summary>
+    public bool LoadAddonsEarly { get; init; }
     public bool AntiCheatAcknowledged { get; init; }
 }
 
@@ -287,6 +290,8 @@ public static partial class Installers
                 case Route.OptiScaler: RunOptiScaler(job); break;
             }
             if (wantMfg) RunMfg(job);
+            // Last, with every add-on in place: ReShade must not be told to load early an add-on that is gone.
+            if (req.Route != Route.OptiScaler) UpdateEarlyAddons(session, exeDir, req.LoadAddonsEarly);
             session.Save();
         });
         session.Log($"Done: {RouteLabel(RouteKey(req.Route))} installed. Restore originals undoes every change.");
@@ -397,6 +402,108 @@ public static partial class Installers
             s.Log($"Set aside {name}: ReShade loads every add-on in this folder, so it would run alongside this install. Restore originals puts it back.");
         }
         return setAside;
+    }
+
+    // ------------------------------------------------------------------ add-ons that ReShade loads as soon as it starts
+
+    // ReShade.log: "Failed to load add-on from '<path>' with error code <n>!"
+    [GeneratedRegex(@"Failed to load add-on from '([^']+)' with error code (\d+)")]
+    private static partial Regex FailedAddonLine();
+
+    private static bool IsDlssAddon(string name) =>
+        DlssAddonPatterns.Any(p => System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(p, name, ignoreCase: true));
+
+    private static bool IsAddonFile(string name) =>
+        name.EndsWith(".addon", StringComparison.OrdinalIgnoreCase) || name.EndsWith(".addon64", StringComparison.OrdinalIgnoreCase)
+        || name.EndsWith(".addon32", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>What ReShade.ini's [ADDON] LoadFromDllMain names: the add-ons ReShade loads as soon as it starts.</summary>
+    internal static List<string> EarlyAddons(string dir) =>
+        SplitList(Ini.Get(Ini.ReadText(Path.Combine(dir, "ReShade.ini")), "ADDON", "LoadFromDllMain"));
+
+    /// <summary>
+    /// The DLSS 5 add-ons that ReShade could not start in the game's last run after <paramref name="since"/>: ReShade.log
+    /// shows them failing "with error code 1114", their own start-up giving up. In Phantom Blade Zero they could not find
+    /// ReShade when it loaded them at the game's first graphics device; loaded as soon as ReShade starts, they could.
+    /// </summary>
+    internal static List<string> AddonsFailingToStart(string dir, DateTime since)
+    {
+        var failing = new List<string>();
+        var log = Path.Combine(dir, "ReShade.log");
+        try
+        {
+            if (!File.Exists(log) || File.GetLastWriteTimeUtc(log) < (since.Kind == DateTimeKind.Local ? since.ToUniversalTime() : since))
+                return failing;
+            // ReShade keeps its log open while the game runs.
+            using var reader = new StreamReader(new FileStream(log, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete));
+            for (string? line; (line = reader.ReadLine()) is not null;)
+            {
+                var m = FailedAddonLine().Match(line);
+                if (!m.Success || m.Groups[2].Value != "1114") continue;
+                var name = Path.GetFileName(m.Groups[1].Value);
+                if (IsDlssAddon(name) && !failing.Contains(name, StringComparer.OrdinalIgnoreCase)) failing.Add(name);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        return failing;
+    }
+
+    /// <summary>
+    /// For a game set up with a ReShade route: the DLSS 5 add-ons ReShade could not start since the install (see
+    /// <see cref="AddonsFailingToStart"/>) that ReShade.ini does not load early yet.
+    /// </summary>
+    public static List<string> AddonsToLoadEarly(string gameDir, Manifest? manifest)
+    {
+        if (manifest is null || manifest.Route is not ("native" or "multipass" or "feeder") || string.IsNullOrEmpty(manifest.Exe)) return new();
+        string? dir;
+        try { dir = Path.GetDirectoryName(Journal.SafePath(Path.GetFullPath(gameDir).TrimEnd('\\', '/'), manifest.Exe)); }
+        catch (InstallException) { return new(); }
+        if (dir is null) return new();
+        var early = EarlyAddons(dir);
+        return AddonsFailingToStart(dir, manifest.Date).Where(a => !early.Contains(a, StringComparer.OrdinalIgnoreCase)).ToList();
+    }
+
+    /// <summary>
+    /// Keeps the [ADDON] LoadFromDllMain line of ReShade.ini in <paramref name="dir"/> in step with the add-ons there: names
+    /// of add-on files that are gone come off it (ReShade reports "errors loading some add-ons" for each), and with
+    /// <paramref name="loadEarly"/> the DLSS 5 add-ons in the folder go on it. Other entries stay. True when ReShade.ini changed.
+    /// </summary>
+    internal static bool UpdateEarlyAddons(Session s, string dir, bool loadEarly)
+    {
+        var iniPath = Path.Combine(dir, "ReShade.ini");
+        var text = Ini.ReadText(iniPath);
+        var listed = SplitList(Ini.Get(text, "ADDON", "LoadFromDllMain"));
+        var gone = listed.Where(n => IsAddonFile(n) && !File.Exists(Path.Combine(dir, n))).ToList();
+        var kept = listed.Where(n => !gone.Contains(n, StringComparer.OrdinalIgnoreCase)).ToList();
+        var added = new List<string>();
+        if (loadEarly && Directory.Exists(dir))
+            foreach (var name in DlssAddonPatterns.SelectMany(p => Directory.EnumerateFiles(dir, p)).Select(Path.GetFileName).OfType<string>()
+                         .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase))
+                if (!kept.Contains(name, StringComparer.OrdinalIgnoreCase)) { kept.Add(name); added.Add(name); }
+        if (gone.Count == 0 && added.Count == 0) return false;
+        s.WriteTracked(iniPath, Ini.Set(text, "ADDON", "LoadFromDllMain", string.Join(",", kept)));
+        if (gone.Count > 0)
+            s.Log($"Took {string.Join(", ", gone)} off the LoadFromDllMain line in {s.Rel(iniPath)}: not in this folder, so ReShade would report errors loading add-ons.");
+        if (added.Count > 0)
+            s.Log($"{s.Rel(iniPath)} now has ReShade load {string.Join(" and ", added)} as soon as it starts (LoadFromDllMain).");
+        return true;
+    }
+
+    /// <summary>
+    /// "Load add-ons early" for a game already set up: its ReShade.ini loads the DLSS 5 add-ons as soon as ReShade starts.
+    /// Recorded like every other change, so Restore originals undoes it.
+    /// </summary>
+    public static void LoadAddonsEarly(string gameDir, Action<string> log)
+    {
+        var manifest = Journal.ReadManifest(gameDir) ?? throw new InstallException("Set up DLSS 5 in this game first.");
+        if (string.IsNullOrEmpty(manifest.Exe)) throw new InstallException("The install record names no game executable.");
+        var s = new Session(gameDir, manifest, log);
+        var exe = Journal.SafePath(s.GameDir, manifest.Exe);
+        // ReShade saves ReShade.ini while the game runs, which would undo the change.
+        AssertGameClosed(exe);
+        if (!UpdateEarlyAddons(s, Path.GetDirectoryName(exe)!, loadEarly: true))
+            s.Log("ReShade.ini already loads the DLSS 5 add-ons as soon as ReShade starts.");
+        s.Save();
     }
 
     private static void FixOldCompiler(Job job)

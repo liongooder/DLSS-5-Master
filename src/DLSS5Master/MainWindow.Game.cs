@@ -23,6 +23,9 @@ public sealed partial class MainWindow
 
     private Button? _removeOtherButton;
     private Button? _removeReShadeButton;
+    private Button? _loadEarlyButton;
+    /// <summary>The installed add-ons ReShade could not start in the game's last run (error 1114), not yet loaded early.</summary>
+    private List<string> _addonsToLoadEarly = new();
 
     /// <summary>Fills the OptiScaler build list (updated builds first) and labels the MFG option with the version in use.</summary>
     private void RefreshOptiBuildList()
@@ -42,6 +45,8 @@ public sealed partial class MainWindow
         _removeOtherButton.Click += RemoveOther_Click;
         _removeReShadeButton = new Button { Content = "Remove ReShade" };
         _removeReShadeButton.Click += RemoveUnrecordedReShade_Click;
+        _loadEarlyButton = new Button { Content = "Load add-ons early" };
+        _loadEarlyButton.Click += LoadEarly_Click;
         RefreshOptiBuildList();
         foreach (var h in Installers.OptiHookNames) OptiHookBox.Items.Add(h);
         foreach (var (name, code) in Installers.MenuKeys) MenuKeyBox.Items.Add(new ComboBoxItem { Content = name, Tag = code });
@@ -89,7 +94,11 @@ public sealed partial class MainWindow
         var preferred = _settings.Overrides.GetValueOrDefault(game.Entry.Dir)?.Exe ?? game.Entry.Exe;
         try
         {
-            _scan = await Task.Run(() => Scanner.Scan(game.Entry.Dir, preferred));
+            (_scan, _addonsToLoadEarly) = await Task.Run(() =>
+            {
+                var scan = Scanner.Scan(game.Entry.Dir, preferred);
+                return (scan, Installers.AddonsToLoadEarly(scan.Dir, scan.Manifest));
+            });
             game.SetScan(_scan);
             Populate();
             _ = LoadCommunityAsync();
@@ -143,6 +152,7 @@ public sealed partial class MainWindow
                 ? manifest.MfgUnlock is not null
                 : Gpu.HasRtx40 && Installers.MfgUnavailable(SelectedApi, SelectedExe?.Bitness ?? 0, _scan.HasFrameGen) is null;
             ProxyBox.SelectedIndex = manifest?.ReShadeHook?.Equals("d3d11.dll", StringComparison.OrdinalIgnoreCase) == true ? 1 : 0;
+            EarlyAddonsBox.IsChecked = ov?.LoadAddonsEarly == true;
         }
         finally { _populating = false; }
         RefreshRoutes(selectFromManifest: true);
@@ -228,6 +238,11 @@ public sealed partial class MainWindow
                 warning = "DLSS-NR OptiScaler builds need a game that ships its own DLSS. Pick the custom (official) build, or a ReShade route.";
             if (warning is null && chosen?.Route == Route.Feeder)
                 warning = Installers.FeederStandsAside(SelectedApi, _scan.HasNativeDlss);
+            // ReShade could not start this install's add-ons in the last run (Phantom Blade Zero): offer to load them early.
+            bool loadEarly = warning is null && _addonsToLoadEarly.Count > 0;
+            if (loadEarly)
+                warning = $"ReShade could not start {string.Join(" and ", _addonsToLoadEarly)} in this game (error 1114 in ReShade.log). " +
+                          "Having ReShade load them as soon as it starts fixes this in some games.";
             bool otherApp = _scan.OtherAppBackup || _scan.OtherAppRecord;
             if (otherApp)
                 warning = "Another app has an install in this game. Remove it before installing with DLSS 5 Master.";
@@ -241,7 +256,9 @@ public sealed partial class MainWindow
                 warning = "The renderer could not be detected. Choose the Rendering API by hand.";
             RouteWarning.Message = warning ?? "";
             RouteWarning.IsOpen = warning is not null;
-            RouteWarning.ActionButton = otherApp ? _removeOtherButton : unrecorded && warning is not null && warning.StartsWith("ReShade ") ? _removeReShadeButton : null;
+            RouteWarning.ActionButton = otherApp ? _removeOtherButton
+                : unrecorded && warning is not null && warning.StartsWith("ReShade ") ? _removeReShadeButton
+                : loadEarly ? _loadEarlyButton : null;
             InstallButton.IsEnabled = !_busy && SelectedExe is not null && (opti ? chosen?.Unavailable is null : RouteBox.SelectedItem is not null);
             InstallButton.Content = _scan.Manifest is null ? "Set up DLSS 5" : "Reinstall";
             RenderRouteCards(routes, opti, bits);
@@ -453,6 +470,7 @@ public sealed partial class MainWindow
             MenuKey = (MenuKeyBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "0x2D",
             ReShadeProxy = (ProxyBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "dxgi.dll",
             MfgUnlock = MfgBox.IsEnabled && MfgBox.IsChecked == true,
+            LoadAddonsEarly = EarlyAddonsBox.IsChecked == true,
             AntiCheatAcknowledged = AntiCheatBox.IsChecked == true,
         };
         if (opti) { _settings.OptiScalerMenuKey = req.MenuKey; _settings.Save(); }
@@ -476,6 +494,34 @@ public sealed partial class MainWindow
         {
             SetBusy(false);
         }
+        var log = LogBox.Text;
+        await RescanAsync();
+        LogBox.Text = log;
+    }
+
+    private void EarlyAddonsBox_Click(object sender, RoutedEventArgs e)
+    {
+        if (_scan is null) return;
+        _settings.OverrideFor(_scan.Dir).LoadAddonsEarly = EarlyAddonsBox.IsChecked == true ? true : null;
+        _settings.Save();
+    }
+
+    private async void LoadEarly_Click(object sender, RoutedEventArgs e)
+    {
+        if (_scan is null || _busy) return;
+        var dir = _scan.Dir;
+        LogBox.Text = "";
+        SetBusy(true, "Changing ReShade.ini…");
+        try
+        {
+            await Task.Run(() => Installers.LoadAddonsEarly(dir, Log));
+            // Later setups of this game do the same.
+            _settings.OverrideFor(dir).LoadAddonsEarly = true;
+            _settings.Save();
+            Log("Start the game again. Restore originals undoes this.");
+        }
+        catch (Exception ex) { Log("✖ " + ex.Message); }
+        finally { SetBusy(false); }
         var log = LogBox.Text;
         await RescanAsync();
         LogBox.Text = log;

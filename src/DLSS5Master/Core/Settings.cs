@@ -30,6 +30,8 @@ public sealed class GameOverride
     public string? Api { get; set; }
     /// <summary>Artwork the user picked for this game (an image file), or null for automatic artwork.</summary>
     public string? Poster { get; set; }
+    /// <summary>Setups of this game have ReShade load the add-ons as soon as it starts (ReShade.ini LoadFromDllMain).</summary>
+    public bool? LoadAddonsEarly { get; set; }
 }
 
 public sealed class AppSettings
