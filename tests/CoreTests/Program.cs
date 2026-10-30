@@ -522,6 +522,10 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Check("overlay fullscreen: was, kept after switching away", Overlay.ExclusiveFullscreen() == Overlay.FullscreenState.Was);
     File.WriteAllText(Overlay.LogFile, drawn + on + off + drawn);
     Check("overlay fullscreen: drawn again clears it", Overlay.ExclusiveFullscreen() == Overlay.FullscreenState.None);
+    // Alone in the Dark, 30 Oct: in and out of exclusive fullscreen, readings without frames in between.
+    const string empty = "09:38:14.951  DLSS 5 on, 0 captured fps, 1 shown fps, 2572x1446, GPU 3.3 ms a frame + 0.5 ms per in-between frame\n";
+    File.WriteAllText(Overlay.LogFile, on + off + on + off + empty + on + off);
+    Check("overlay fullscreen: readings without frames do not clear it", Overlay.ExclusiveFullscreen() == Overlay.FullscreenState.Was);
 }
 
 try { Directory.Delete(testData, true); } catch { }

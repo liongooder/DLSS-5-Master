@@ -386,7 +386,11 @@ public static class Overlay
             var off = log.LastIndexOf("exclusive fullscreen ended", StringComparison.Ordinal);
             if (on < 0) return FullscreenState.None;
             if (off < on) return FullscreenState.Now;
-            return log.LastIndexOf(" captured fps", StringComparison.Ordinal) > off ? FullscreenState.None : FullscreenState.Was;
+            // Drawn again: a 5-second reading after it ended with frames in it (a game moving in and out of exclusive
+            // fullscreen leaves readings of 0 captured frames).
+            var drawn = System.Text.RegularExpressions.Regex.Matches(log, @"(\d+) captured fps")
+                .Any(m => m.Index > off && int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) > 0);
+            return drawn ? FullscreenState.None : FullscreenState.Was;
         }
         catch { return FullscreenState.None; }
     }
