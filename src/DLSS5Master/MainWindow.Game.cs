@@ -24,8 +24,11 @@ public sealed partial class MainWindow
     private Button? _removeOtherButton;
     private Button? _removeReShadeButton;
     private Button? _loadEarlyButton;
+    private Button? _rescanLibraryButton;
     /// <summary>The installed add-ons ReShade could not start in the game's last run (error 1114), not yet loaded early.</summary>
     private List<string> _addonsToLoadEarly = new();
+    /// <summary>The open game's folder no longer exists: it was moved (Steam's Move install folder) or uninstalled.</summary>
+    private bool _folderGone;
 
     /// <summary>Fills the OptiScaler build list (updated builds first) and labels the MFG option with the version in use.</summary>
     private void RefreshOptiBuildList()
@@ -47,6 +50,8 @@ public sealed partial class MainWindow
         _removeReShadeButton.Click += RemoveUnrecordedReShade_Click;
         _loadEarlyButton = new Button { Content = "Load add-ons early" };
         _loadEarlyButton.Click += LoadEarly_Click;
+        _rescanLibraryButton = new Button { Content = "Rescan library" };
+        _rescanLibraryButton.Click += RescanLibrary_Click;
         RefreshOptiBuildList();
         foreach (var h in Installers.OptiHookNames) OptiHookBox.Items.Add(h);
         foreach (var (name, code) in Installers.MenuKeys) MenuKeyBox.Items.Add(new ComboBoxItem { Content = name, Tag = code });
@@ -94,10 +99,10 @@ public sealed partial class MainWindow
         var preferred = _settings.Overrides.GetValueOrDefault(game.Entry.Dir)?.Exe ?? game.Entry.Exe;
         try
         {
-            (_scan, _addonsToLoadEarly) = await Task.Run(() =>
+            (_scan, _addonsToLoadEarly, _folderGone) = await Task.Run(() =>
             {
                 var scan = Scanner.Scan(game.Entry.Dir, preferred);
-                return (scan, Installers.AddonsToLoadEarly(scan.Dir, scan.Manifest));
+                return (scan, Installers.AddonsToLoadEarly(scan.Dir, scan.Manifest), !Directory.Exists(game.Entry.Dir));
             });
             game.SetScan(_scan);
             Populate();
@@ -233,7 +238,12 @@ public sealed partial class MainWindow
             // Description + warnings for the current choice.
             var chosen = opti ? routes.First(r => r.Route == Route.OptiScaler) : routes.FirstOrDefault(r => (RouteBox.SelectedItem as ComboBoxItem)?.Tag is Route rt && r.Route == rt);
             RouteDescription.Text = chosen?.Description ?? "";
-            string? warning = chosen?.Unavailable ?? (RouteBox.SelectedItem is null && !opti ? "No ReShade route fits this game's renderer." : null);
+            // The library was read before the game moved (Steam's Move install folder) or was uninstalled: nothing else here
+            // means anything until the library is read again.
+            string? warning = _folderGone && _game is not null
+                ? $"This game's folder is gone: {_game.Entry.Dir}. It was moved or uninstalled. Rescan the library to find it in its new place" +
+                  (_game.Entry.Launcher == "Manual" ? "; a game you added by hand needs adding again with + Add a game." : ".")
+                : chosen?.Unavailable ?? (RouteBox.SelectedItem is null && !opti ? "No ReShade route fits this game's renderer." : null);
             if (warning is null && opti && (OptiBuildBox.SelectedItem as ComboBoxItem)?.Tag is OptiBuild { NeuralRendering: true } && !_scan.HasNativeDlss)
                 warning = "DLSS-NR OptiScaler builds need a game that ships its own DLSS. Pick the custom (official) build, or a ReShade route.";
             if (warning is null && chosen?.Route == Route.Feeder)
@@ -256,7 +266,8 @@ public sealed partial class MainWindow
                 warning = "The renderer could not be detected. Choose the Rendering API by hand.";
             RouteWarning.Message = warning ?? "";
             RouteWarning.IsOpen = warning is not null;
-            RouteWarning.ActionButton = otherApp ? _removeOtherButton
+            RouteWarning.ActionButton = _folderGone ? _rescanLibraryButton
+                : otherApp ? _removeOtherButton
                 : unrecorded && warning is not null && warning.StartsWith("ReShade ") ? _removeReShadeButton
                 : loadEarly ? _loadEarlyButton : null;
             InstallButton.IsEnabled = !_busy && SelectedExe is not null && (opti ? chosen?.Unavailable is null : RouteBox.SelectedItem is not null);
@@ -497,6 +508,18 @@ public sealed partial class MainWindow
         var log = LogBox.Text;
         await RescanAsync();
         LogBox.Text = log;
+    }
+
+    /// <summary>Reads the library again and opens the same game where it is now (a moved Steam game keeps its app ID).</summary>
+    private async void RescanLibrary_Click(object sender, RoutedEventArgs e)
+    {
+        if (_game is null || _busy) return;
+        var gone = _game.Entry;
+        ClosePanel();
+        await LoadLibraryAsync();
+        var found = _all.FirstOrDefault(i => i.Entry.Launcher == gone.Launcher && Directory.Exists(i.Entry.Dir)
+            && (gone.Id is not null ? i.Entry.Id == gone.Id : i.Entry.Name.Equals(gone.Name, StringComparison.OrdinalIgnoreCase)));
+        if (found is not null) await OpenGameAsync(found);
     }
 
     private void EarlyAddonsBox_Click(object sender, RoutedEventArgs e)
