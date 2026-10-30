@@ -227,6 +227,8 @@ public sealed partial class MainWindow
             string? warning = chosen?.Unavailable ?? (RouteBox.SelectedItem is null && !opti ? "No ReShade route fits this game's renderer." : null);
             if (warning is null && opti && (OptiBuildBox.SelectedItem as ComboBoxItem)?.Tag is OptiBuild { NeuralRendering: true } && !_scan.HasNativeDlss)
                 warning = "DLSS-NR OptiScaler builds need a game that ships its own DLSS. Pick the custom (official) build, or a ReShade route.";
+            if (warning is null && chosen?.Route == Route.Feeder)
+                warning = Installers.FeederStandsAside(SelectedApi, _scan.HasNativeDlss);
             bool otherApp = _scan.OtherAppBackup || _scan.OtherAppRecord;
             if (otherApp)
                 warning = "Another app has an install in this game. Remove it before installing with DLSS 5 Master.";

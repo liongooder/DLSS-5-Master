@@ -441,6 +441,10 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Check("mfg 32", Installers.MfgUnavailable(RenderApi.DX12, 32, true) is not null);
     Check("mfg vulkan", Installers.MfgUnavailable(RenderApi.Vulkan, 64, true) is not null);
     Check("mfg no fg", Installers.MfgUnavailable(RenderApi.DX12, 64, false)?.Contains("nvngx_dlssg.dll") == true);
+    // Like a Dragon: Ishin! on DirectX 12: the Feeder saw the game's own DLSS loaded and switched itself off.
+    Check("feeder note on DirectX 12 with the game's own DLSS", Installers.FeederStandsAside(RenderApi.DX12, true)?.Contains("Use Native") == true);
+    Check("no feeder note on DirectX 11 or without DLSS", Installers.FeederStandsAside(RenderApi.DX11, true) is null && Installers.FeederStandsAside(RenderApi.DX12, false) is null);
+    Check("the feeder stays selectable there", Installers.RoutesFor(RenderApi.DX12, 64, true).Single(o => o.Route == Route.Feeder).Unavailable is null);
 
     Check("routelabel", Installers.RouteLabel("native") == "ReShade · Native DLSS-NR"
         && Installers.RouteLabel("multipass") == "ReShade · RenoDX DLSS Tool (multipass)"

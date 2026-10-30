@@ -90,6 +90,15 @@ public static partial class Installers
         return null;
     }
 
+    /// <summary>
+    /// Why the Feeder would do nothing in this game, or null. On DirectX 12 it runs DLSS on the game's own device, so it
+    /// switches itself off when the game loads DLSS of its own (Like a Dragon: Ishin!); on DirectX 11 it brings its own device.
+    /// </summary>
+    public static string? FeederStandsAside(RenderApi api, bool hasNativeDlss) =>
+        api == RenderApi.DX12 && hasNativeDlss
+            ? "The Feeder stands aside in DirectX 12 games that have DLSS of their own: it switches itself off. Use Native, or set Rendering API to DirectX 11 if the game can run on it."
+            : null;
+
     public static List<RouteOption> RoutesFor(RenderApi api, int bitness, bool hasNativeDlss, bool hasFrameGen = false)
     {
         bool x64 = bitness == 64;
