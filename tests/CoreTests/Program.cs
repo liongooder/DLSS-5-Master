@@ -253,6 +253,38 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Directory.Delete(game, true);
 }
 
+// ====================================================================== Install: DLSS 5 add-ons that other installs left behind
+{
+    var game = Path.Combine(Path.GetTempPath(), "dlss5cr-addons-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(game);
+    var exe = Path.Combine(game, "Game.exe");
+    File.WriteAllBytes(exe, RandomNumberGenerator.GetBytes(4096));
+    // Left by another tool (as in House Party: an older MFG unlock), next to unrelated add-ons the player put there.
+    var others = new[] { "renodx-mfgunlock.addon64", "renodx-dlss.addon64", "dlss5-feed-helper.addon64", "dlss5-feed.addon32" };
+    var unrelated = new[] { "renodx-houseparty.addon64", "ShaderToggler.addon64" };
+    foreach (var n in others.Concat(unrelated).Append("renodx-dlss5.addon64"))
+        File.WriteAllBytes(Path.Combine(game, n), RandomNumberGenerator.GetBytes(512));
+    var before = Directory.EnumerateFiles(game).ToDictionary(f => new FileInfo(f).Name, Components.Sha256, StringComparer.OrdinalIgnoreCase);
+
+    var logs = new List<string>();
+    var s = Session.Begin(game, exe, "native", "dxgi", 64, logs.Add);
+    var setAside = Installers.SetAsideOtherAddons(s, game, "renodx-dlss5.addon64", null);
+    s.Save();
+    Check("DLSS 5 add-ons from other installs are set aside", setAside.Count == others.Length && others.All(n => !File.Exists(Path.Combine(game, n))),
+        string.Join(", ", setAside));
+    Check("the add-on this install uses and unrelated add-ons stay",
+        File.Exists(Path.Combine(game, "renodx-dlss5.addon64")) && unrelated.All(n => File.Exists(Path.Combine(game, n))));
+    Check("each one set aside is logged", logs.Count(l => l.StartsWith("Set aside ")) == others.Length);
+    var bin = Path.Combine(game, "bin");
+    Directory.CreateDirectory(bin);
+    File.WriteAllBytes(Path.Combine(bin, "renodx-mfgunlock.addon64"), RandomNumberGenerator.GetBytes(512));
+    Check("the MFG unlock stays when this install adds it", Installers.SetAsideOtherAddons(s, bin, "renodx-dlss5.addon64", "renodx-mfgunlock.addon64").Count == 0
+        && File.Exists(Path.Combine(bin, "renodx-mfgunlock.addon64")));
+    Check("restore puts the set-aside add-ons back byte for byte", Session.Restore(game, logs.Add)
+        && before.All(kv => File.Exists(Path.Combine(game, kv.Key)) && Components.Sha256(Path.Combine(game, kv.Key)) == kv.Value));
+    Directory.Delete(game, true);
+}
+
 // ====================================================================== Library: games added by hand (Unreal Engine layouts)
 {
     var lib = Path.Combine(Path.GetTempPath(), "dlss5cr-lib-" + Guid.NewGuid().ToString("N"));

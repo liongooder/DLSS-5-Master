@@ -365,15 +365,30 @@ public static partial class Installers
     }
 
     /// <summary>Only one RenoDX neural consumer may be loaded at a time.</summary>
-    private static void OneConsumer(Job job, string dir, string keep)
+    /// <summary>
+    /// The DLSS 5 add-ons, this app's and other DLSS 5 tools'. ReShade loads every add-on in its folder, so one that another
+    /// install left behind (an older MFG unlock, a second neural add-on, a Feeder) would run alongside this one.
+    /// </summary>
+    private static readonly string[] DlssAddonPatterns = { "renodx-dlss*.addon64", "renodx-mfgunlock.addon*", "dlss5-feed*.addon*" };
+
+    /// <summary>
+    /// Sets aside the DLSS 5 add-ons in <paramref name="dir"/> other than <paramref name="keep"/>: each goes into this
+    /// install's backup, so Restore originals puts it back. Other add-ons (a game's own RenoDX HDR mod, say) stay.
+    /// </summary>
+    internal static List<string> SetAsideOtherAddons(Session s, string dir, params string?[] keep)
     {
-        if (!Directory.Exists(dir)) return;
-        foreach (var f in Directory.EnumerateFiles(dir, "renodx-dlss*.addon64").ToList())
+        var setAside = new List<string>();
+        if (!Directory.Exists(dir)) return setAside;
+        var kept = keep.OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var f in DlssAddonPatterns.SelectMany(p => Directory.EnumerateFiles(dir, p)).Distinct(StringComparer.OrdinalIgnoreCase).ToList())
         {
-            if (Path.GetFileName(f).Equals(keep, StringComparison.OrdinalIgnoreCase)) continue;
-            job.S.DeleteTracked(f, "addon");
-            job.Log($"Removed {Path.GetFileName(f)}: only one RenoDX neural add-on can be active.");
+            var name = Path.GetFileName(f);
+            if (kept.Contains(name)) continue;
+            s.DeleteTracked(f, "addon");
+            setAside.Add(name);
+            s.Log($"Set aside {name}: ReShade loads every add-on in this folder, so it would run alongside this install. Restore originals puts it back.");
         }
+        return setAside;
     }
 
     private static void FixOldCompiler(Job job)
@@ -468,7 +483,7 @@ public static partial class Installers
 
         var addonName = multipassMode ? MultipassAddon : ConsumerAddon;
         var addonSrc = multipassMode ? job.Multipass! : job.Consumer!;
-        OneConsumer(job, job.ExeDir, addonName);
+        SetAsideOtherAddons(job.S, job.ExeDir, addonName, job.MfgFile is null ? null : Components.MfgAddon);
         job.S.CopyTracked(addonSrc, Path.Combine(job.ExeDir, addonName), "addon");
         job.Log($"Added {addonName}.");
 
@@ -551,7 +566,8 @@ public static partial class Installers
 
         // The neural consumer runs in a 64-bit process: the game itself, or the helper for 32-bit games.
         var hostDir = x64 ? job.ExeDir : Path.Combine(job.ExeDir, "host64");
-        OneConsumer(job, hostDir, ConsumerAddon);
+        SetAsideOtherAddons(job.S, job.ExeDir, feedName, x64 ? ConsumerAddon : null, job.MfgFile is null ? null : Components.MfgAddon);
+        if (!x64) SetAsideOtherAddons(job.S, hostDir, ConsumerAddon);
         job.S.CopyTracked(job.Consumer!, Path.Combine(hostDir, ConsumerAddon), "addon");
         PlaceRuntime(job, job.Runtime[NeuralDll], Path.Combine(hostDir, NeuralDll), 64);
         PlaceRuntime(job, job.Runtime[DlssDll], Path.Combine(hostDir, DlssDll), 64);
