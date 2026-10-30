@@ -373,7 +373,6 @@ public static partial class Installers
         job.Log($"Re-enabled {stem} in {job.S.Rel(ini)}.");
     }
 
-    /// <summary>Only one RenoDX neural consumer may be loaded at a time.</summary>
     /// <summary>
     /// The DLSS 5 add-ons, this app's and other DLSS 5 tools'. ReShade loads every add-on in its folder, so one that another
     /// install left behind (an older MFG unlock, a second neural add-on, a Feeder) would run alongside this one.

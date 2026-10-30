@@ -250,6 +250,21 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     File.WriteAllText(Path.Combine(bin, "dlss5-feed.log"), "a later run");
     Check("runtime sweep needs the record's date", Journal.RuntimeLeftovers(game, new Manifest { Exe = @"bin\Game.exe" }).Count == 0
         && Journal.RuntimeLeftovers(game, new Manifest { Exe = @"bin\Game.exe", Date = DateTime.UtcNow.AddMinutes(-1) }).Count == 1);
+
+    // A host64 planted as a junction out of the game folder: the sweep must not reach through it (audit 0.9.5, DEF-017).
+    var outside = Path.Combine(Path.GetTempPath(), "dlss5cr-outside-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(outside);
+    var outsideLog = Path.Combine(outside, "dlss5-feed-host.log");
+    File.WriteAllText(outsideLog, "not the game's");
+    var link = Path.Combine(bin, "host64");
+    using (var mk = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{link}\" \"{outside}\"")
+               { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true }))
+        mk!.WaitForExit();
+    var swept = Journal.RuntimeLeftovers(game, new Manifest { Exe = @"bin\Game.exe", Date = DateTime.UtcNow.AddMinutes(-1) });
+    Check("runtime sweep never reaches through a junction out of the game", Directory.Exists(link)
+        && !swept.Any(f => f.StartsWith(link, StringComparison.OrdinalIgnoreCase)) && File.Exists(outsideLog), string.Join(", ", swept));
+    Directory.Delete(link);
+    Directory.Delete(outside, true);
     Directory.Delete(game, true);
 }
 

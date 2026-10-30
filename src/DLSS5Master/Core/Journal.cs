@@ -126,6 +126,8 @@ public static class Journal
             if (!Directory.Exists(dir)) continue;
             try
             {
+                // A junction or link (a planted host64, say) leads out of the game folder, and Restore never deletes outside it.
+                if ((File.GetAttributes(dir) & FileAttributes.ReparsePoint) != 0) continue;
                 foreach (var pattern in RuntimeFiles)
                     foreach (var f in Directory.EnumerateFiles(dir, pattern))
                         if (File.GetCreationTimeUtc(f) >= since && !recorded.Contains(Path.GetRelativePath(root, f))
