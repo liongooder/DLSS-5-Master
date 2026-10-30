@@ -282,6 +282,14 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Check("routes opengl none", r.All(o => o.Unavailable is not null));
 
     Check("recommend native", Installers.RecommendedRoute(RenderApi.DX12, 64, true) == Route.Native);
+    // Native on DirectX 11 games with their own DLSS; never on a game without it (it would only wait for DLSS calls).
+    r = Installers.RoutesFor(RenderApi.DX11, 64, true);
+    Check("native: DirectX 11 with the game's own DLSS", r[0].Unavailable is null && r[0].Description.Contains("DirectX 11"));
+    Check("recommend native on DirectX 11", Installers.RecommendedRoute(RenderApi.DX11, 64, true) == Route.Native);
+    Check("native: not without the game's own DLSS", Installers.RoutesFor(RenderApi.DX12, 64, false)[0].Unavailable?.Contains("Feeder") == true &&
+          Installers.RoutesFor(RenderApi.DX11, 64, false)[0].Unavailable?.Contains("Feeder") == true);
+    Check("native: still not on DirectX 9 or 32-bit", Installers.RoutesFor(RenderApi.DX9, 64, true)[0].Unavailable is not null &&
+          Installers.RoutesFor(RenderApi.DX11, 32, true)[0].Unavailable is not null);
     Check("recommend feeder", Installers.RecommendedRoute(RenderApi.DX12, 64, false) == Route.Feeder);
     Check("recommend first avail", Installers.RecommendedRoute(RenderApi.Vulkan, 64, false) == Route.OptiScaler);
     Check("recommend fallback", Installers.RecommendedRoute(RenderApi.OpenGL, 64, false) == Route.Native);

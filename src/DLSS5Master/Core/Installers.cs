@@ -95,7 +95,12 @@ public static partial class Installers
         bool x64 = bitness == 64;
         const string need64 = "Needs a 64-bit game.";
 
-        string? native = !x64 ? need64 : api != RenderApi.DX12 ? "Needs a DirectX 12 game." : null;
+        // Native works through the game's own DLSS calls (DirectX 11 runs as well as 12: Alone in the Dark, 99.9 % of frames).
+        // A game without DLSS never calls it, so Native would sit idle there (Shadow of Mordor: 0 calls in 95,000 frames).
+        string? native = !x64 ? need64
+            : api is not (RenderApi.DX11 or RenderApi.DX12) ? "Needs a DirectX 11 or 12 game."
+            : !hasNativeDlss ? "Works through the game's own DLSS, and this game has none: use the Feeder."
+            : null;
 
         string? multipass = !x64 ? need64
             : api is RenderApi.DX9 or RenderApi.DX11 or RenderApi.DX12 ? null
@@ -122,7 +127,7 @@ public static partial class Installers
         return new List<RouteOption>
         {
             new(Route.Native, "Native DLSS-NR (RenoDX DLSS5)",
-                "ReShade plus the RenoDX DLSS5 add-on and NVIDIA's neural runtime. The best fit for DirectX 12 games that already use DLSS.", native),
+                "ReShade plus the RenoDX DLSS5 add-on and NVIDIA's neural runtime, working through the game's own DLSS with its real depth and motion. The best fit for DirectX 11 and 12 games that use DLSS.", native),
             new(Route.Multipass, "RenoDX DLSS Tool (multipass)", multipassText, multipass),
             new(Route.Feeder, "DLSS5 Feeder",
                 "For games without DLSS: shaders compute motion vectors and feed them through ReShade to the neural pass.", feeder),

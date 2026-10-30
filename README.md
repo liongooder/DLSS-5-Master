@@ -56,7 +56,7 @@ DLSS 5 Master checks GitHub for newer RenoDX, MFG unlock, Feeder and OptiScaler 
 ## Features
 
 - **Game library**: finds Steam, Epic, GOG, Ubisoft, Xbox and custom-folder games, with cover art, and detects each game's executable, DirectX/Vulkan version, 32/64-bit, and DLSS / FSR / XeSS / Streamline DLLs.
-- **ReShade + RenoDX routes**: *Native* (RenoDX DLSS5 add-on), *Multipass* (RenoDX DLSS Tool) and *DLSS5 Feeder* (for games without DLSS).
+- **ReShade + RenoDX routes**: *Native* (RenoDX DLSS5 add-on, through the game's own DLSS, DirectX 11 or 12), *Multipass* (RenoDX DLSS Tool) and *DLSS5 Feeder* (for games without DLSS).
 - **OptiScaler**: OptiScaler NR pre-SR MFG 0.9.80 is included; the NR 0.8.3 RTX 40 MFG build can be picked instead (downloaded when first used). You choose the proxy DLL name (`dxgi`, `winmm`, `version`, …) and the in-game menu key.
 - **MFG unlock**: [MFGAdaUnlock-RenoDx](https://github.com/mavismmg/MFGAdaUnlock-RenoDx) as a tick box on every ReShade route: DLSS multi frame generation (3x/4x) on GeForce RTX 40, or its XeMFG mode (Intel XeSS frame generation, 2x–6x) on RTX 20, 30, 40 and 50.
 - **DLL swapping**: swap any upscaler DLL for another version from your DLL library.
