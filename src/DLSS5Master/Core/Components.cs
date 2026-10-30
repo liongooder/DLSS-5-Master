@@ -19,9 +19,9 @@ public sealed class Components
 
     public static readonly OptiBuild[] OptiBuilds =
     {
-        new("0.9.80-shyvortex", "OptiScaler NR 0.9.80 (recommended)",
-            "https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/releases/download/v0.9.80/OptiScaler-NR-v0.9.80.zip",
-            "44a2d76fcd5c3c92e66983785c50b0b9cf6e1cbe4b9cd7a54d937e8e62107fb9", null, null, false, true, WholeBackend: true),
+        new("0.9.81-shyvortex", "OptiScaler NR 0.9.81 (recommended)",
+            "https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/releases/download/v0.9.81/OptiScaler-NR-v0.9.81.zip",
+            "106fd70cc99768e4a5551b754cc4fd72840c87048d3034964752095e0b40bc25", null, null, false, true, WholeBackend: true),
         new("0.8.3-rtx40-mfg", "OptiScaler NR 0.8.3 · RTX 40 MFG (older)",
             "https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/releases/download/v0.8.3/OptiScaler-NR-v0.8.3-rtx40-mfg.zip",
             "aac7ea64d80604a5b79f686043ba28fbefefaf98818e861a377b78122cb24448", null, null, false, true),
@@ -36,9 +36,9 @@ public sealed class Components
     };
 
     public const string MfgAddon = "renodx-mfgunlock.addon64";
-    public const string MfgVersion = "1.6.0";
-    public const string MfgUrl = "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/1.6.0/renodx-mfgunlock.addon64";
-    public const string MfgSha256 = "8f91b3f0a1b5752956111ba31b1d097ff2c5a1e0442ea991e27e6729c6c7f0e5";
+    public const string MfgVersion = "1.7.0";
+    public const string MfgUrl = "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/1.7.0/renodx-mfgunlock.addon64";
+    public const string MfgSha256 = "3406f0af8a7b68bbb0a7a8ccedb61c4f46ddc513cf4ae31bffdaa1f7630ba9cb";
 
     public static readonly string[] OptiLibraries =
     {

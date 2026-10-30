@@ -69,11 +69,11 @@ public static partial class Updates
         new("renodx-dlss", "RenoDX DLSS Tool (multipass)", "RankFTW/rhi-repo", "renodx-dlss-SF-", @"^renodx-dlss_SF_.*\.zip$",
             UpdateKind.ZipFile, "renodx-dlss.addon64", "SF 26.1016.1304", new DateTime(2026, 10, 26, 13, 18, 41, DateTimeKind.Utc)),
         new("mfgunlock", "MFG unlock (MFGAdaUnlock)", "mavismmg/MFGAdaUnlock-RenoDx", null, @"^renodx-mfgunlock\.addon64$",
-            UpdateKind.File, null, "1.6.0", new DateTime(2026, 10, 27, 11, 49, 37, DateTimeKind.Utc)),
+            UpdateKind.File, null, "1.7.0", new DateTime(2026, 10, 29, 23, 30, 31, DateTimeKind.Utc)),
         new("feeder", "DLSS5 Feeder", "jlrouzies-fr/DLSS5-Feeder", null, @"^DLSS5-Feeder-.*\.zip$",
             UpdateKind.Feeder, null, "1.19.0", new DateTime(2026, 10, 11, 5, 56, 10, DateTimeKind.Utc)),
         new("optiscaler-nr", "OptiScaler NR (pre-SR multipass)", "ShyVortex/OptiScaler-NR-PreSR-MFG", null, @"^OptiScaler-NR-v[\d.]+(-rtx40-mfg)?\.zip$",
-            UpdateKind.OptiScaler, null, "0.9.80", new DateTime(2026, 10, 27, 23, 27, 33, DateTimeKind.Utc)),
+            UpdateKind.OptiScaler, null, "0.9.81", new DateTime(2026, 10, 30, 11, 4, 29, DateTimeKind.Utc)),
     };
 
     // Downloads (add-on files, the app installer in pieces): long timeout, but no reuse of dead connections.

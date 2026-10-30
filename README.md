@@ -57,7 +57,7 @@ DLSS 5 Master checks GitHub for newer RenoDX, MFG unlock, Feeder and OptiScaler 
 
 - **Game library**: finds Steam, Epic, GOG, Ubisoft, Xbox and custom-folder games, with cover art, and detects each game's executable, DirectX/Vulkan version, 32/64-bit, and DLSS / FSR / XeSS / Streamline DLLs.
 - **ReShade + RenoDX routes**: *Native* (RenoDX DLSS5 add-on, through the game's own DLSS, DirectX 11 or 12), *Multipass* (RenoDX DLSS Tool) and *DLSS5 Feeder* (for games without DLSS).
-- **OptiScaler**: OptiScaler NR pre-SR MFG 0.9.80 is included; the NR 0.8.3 RTX 40 MFG build can be picked instead (downloaded when first used). You choose the proxy DLL name (`dxgi`, `winmm`, `version`, …) and the in-game menu key.
+- **OptiScaler**: OptiScaler NR pre-SR MFG 0.9.81 is included; the NR 0.8.3 RTX 40 MFG build can be picked instead (downloaded when first used). You choose the proxy DLL name (`dxgi`, `winmm`, `version`, …) and the in-game menu key.
 - **MFG unlock**: [MFGAdaUnlock-RenoDx](https://github.com/mavismmg/MFGAdaUnlock-RenoDx) as a tick box on every ReShade route: DLSS multi frame generation (3x/4x) on GeForce RTX 40, or its XeMFG mode (Intel XeSS frame generation, 2x–6x) on RTX 20, 30, 40 and 50.
 - **DLL swapping**: swap any upscaler DLL for another version from your DLL library.
 - **Exact restore**: every file added or replaced is recorded in `_DLSS5Master_Backup` inside the game folder; *Restore originals* puts the game back byte for byte, and also removes the logs and crash dumps the add-ons wrote while the game ran. It can also remove installs made by other DLSS 5 tools.
@@ -105,7 +105,7 @@ The installer bundles these components, unmodified and checked against the pinne
 
 | Component | Source | Licence |
 |---|---|---|
-| OptiScaler NR pre-SR MFG 0.9.80 (bundled; also contains dlssg_for_sm86, which the overlay uses for frame generation on RTX 20/30) | [ShyVortex/OptiScaler-NR-PreSR-MFG](https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG) (source at tag v0.9.80); [sdli1995/dlssg_for_sm86](https://github.com/sdli1995/dlssg_for_sm86) | GPL-3.0 |
+| OptiScaler NR pre-SR MFG 0.9.81 (bundled; also contains dlssg_for_sm86, which the overlay uses for frame generation on RTX 20/30) | [ShyVortex/OptiScaler-NR-PreSR-MFG](https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG) (source at tag v0.9.81); [sdli1995/dlssg_for_sm86](https://github.com/sdli1995/dlssg_for_sm86) | GPL-3.0 |
 | OptiScaler NR pre-SR multipass 0.8.3 RTX 40 MFG (downloaded when chosen) | [wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) | GPL-3.0 |
 | DLSS5-Feeder | [jlrouzies-fr/DLSS5-Feeder](https://github.com/jlrouzies-fr/DLSS5-Feeder) | MIT |
 | RenoDX DLSS5 add-on / DLSS Tool | [clshortfuse/renodx](https://github.com/clshortfuse/renodx), builds via [RankFTW/rhi-repo](https://github.com/RankFTW/rhi-repo) | MIT |

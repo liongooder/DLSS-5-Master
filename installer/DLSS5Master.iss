@@ -69,6 +69,8 @@ Type: files; Name: "{app}\payload\optiscaler\OptiScaler-NR-v0.8.3-rtx40-mfg.zip"
 Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_8_3-rtx40-mfg.zip"
 ; 0.8.2 bundles OptiScaler NR 0.9.80; remove the 0.9.72 zip it replaces.
 Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_9_72-shyvortex.zip"
+; 0.9.4 bundles OptiScaler NR 0.9.81; remove the 0.9.80 zip it replaces.
+Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_9_80-shyvortex.zip"
 
 [UninstallDelete]
 ; The large caches in the app's data folder (about 1.2 GB on a used install): downloaded add-ons and OptiScaler builds,

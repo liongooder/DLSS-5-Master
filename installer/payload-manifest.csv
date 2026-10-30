@@ -48,4 +48,4 @@ feeder\reshade-shaders\Shaders\Includes\vort_TAA.fxh,feeder\reshade-shaders\Shad
 feeder\reshade-shaders\Shaders\Includes\vort_Tonemap.fxh,feeder\reshade-shaders\Shaders\Includes\vort_Tonemap.fxh,9413eef6190303e920356310bc3aa2a270c052a1bcfde44f024f0a8986095f30
 feeder\reshade-shaders\Textures\vort_BlueNoise.png,feeder\reshade-shaders\Textures\vort_BlueNoise.png,050d26db9283fbaece3b6883e300d22403631d83a12a5f2f79dc8b789b860305
 feeder\reshade-shaders\Textures\vort_MLUT.png,feeder\reshade-shaders\Textures\vort_MLUT.png,acb25ed926e7e847aeb0ef521745287d4ddda3c7f22e472ee42d61bb3064bbd7
-optiscaler\OptiScaler-0_9_80-shyvortex.zip,https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/releases/download/v0.9.80/OptiScaler-NR-v0.9.80.zip,44a2d76fcd5c3c92e66983785c50b0b9cf6e1cbe4b9cd7a54d937e8e62107fb9
+optiscaler\OptiScaler-0_9_81-shyvortex.zip,https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/releases/download/v0.9.81/OptiScaler-NR-v0.9.81.zip,106fd70cc99768e4a5551b754cc4fd72840c87048d3034964752095e0b40bc25
