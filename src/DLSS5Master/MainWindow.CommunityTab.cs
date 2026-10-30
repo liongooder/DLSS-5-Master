@@ -8,7 +8,6 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Shapes;
 using DLSS5Master.Core;
 using DLSS5Master.Views;
-using Windows.Storage.Pickers;
 
 namespace DLSS5Master;
 
@@ -684,10 +683,7 @@ public sealed partial class MainWindow
 
     private async Task<byte[]?> PickPictureAsync()
     {
-        var picker = new FileOpenPicker();
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, Hwnd);
-        foreach (var t in new[] { ".jpg", ".jpeg", ".png", ".bmp" }) picker.FileTypeFilter.Add(t);
-        var file = await picker.PickSingleFileAsync();
+        var file = await PickFileAsync(".jpg", ".jpeg", ".png", ".bmp");
         return file is null ? null : await ImageShrink.ToJpegAsync(file);
     }
 

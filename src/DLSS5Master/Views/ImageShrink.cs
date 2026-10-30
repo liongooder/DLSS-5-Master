@@ -9,8 +9,9 @@ public static class ImageShrink
 {
     public const int MaxBytes = 880 * 1024;
 
-    public static async Task<byte[]> ToJpegAsync(StorageFile file)
+    public static async Task<byte[]> ToJpegAsync(string path)
     {
+        var file = await StorageFile.GetFileFromPathAsync(path);
         using var input = await file.OpenReadAsync();
         var decoder = await BitmapDecoder.CreateAsync(input);
         uint w = decoder.OrientedPixelWidth, h = decoder.OrientedPixelHeight;

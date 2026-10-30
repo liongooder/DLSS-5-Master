@@ -6,7 +6,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
 using DLSS5Master.Core;
 using DLSS5Master.Views;
-using Windows.Storage.Pickers;
+using Microsoft.Windows.Storage.Pickers;
 
 namespace DLSS5Master;
 
@@ -249,15 +249,12 @@ public sealed partial class MainWindow : Window
     private async void ChangeArtwork_Click(object sender, RoutedEventArgs e)
     {
         if (ItemOf(sender) is not { } item) return;
-        var picker = new FileOpenPicker();
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, Hwnd);
-        foreach (var ext in new[] { ".jpg", ".jpeg", ".png", ".webp", ".bmp" }) picker.FileTypeFilter.Add(ext);
-        var file = await picker.PickSingleFileAsync();
+        var file = await PickFileAsync(".jpg", ".jpeg", ".png", ".webp", ".bmp");
         if (file is null) return;
         // Keep a private copy so the artwork survives the original file being moved or deleted.
         Directory.CreateDirectory(Artwork.CacheDir);
-        var copy = Path.Combine(Artwork.CacheDir, "custom-" + Guid.NewGuid().ToString("N")[..12] + Path.GetExtension(file.Path));
-        File.Copy(file.Path, copy, true);
+        var copy = Path.Combine(Artwork.CacheDir, "custom-" + Guid.NewGuid().ToString("N")[..12] + Path.GetExtension(file));
+        File.Copy(file, copy, true);
         _settings.OverrideFor(item.Entry.Dir).Poster = copy;
         _settings.Save();
         item.Poster = await LoadImageAsync(copy, 380);
@@ -313,12 +310,9 @@ public sealed partial class MainWindow : Window
 
     private async void AddGame_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FileOpenPicker();
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, Hwnd);
-        picker.FileTypeFilter.Add(".exe");
-        var file = await picker.PickSingleFileAsync();
+        var file = await PickFileAsync(".exe");
         if (file is null) return;
-        if (!_settings.ManualExes.Contains(file.Path, StringComparer.OrdinalIgnoreCase)) _settings.ManualExes.Add(file.Path);
+        if (!_settings.ManualExes.Contains(file, StringComparer.OrdinalIgnoreCase)) _settings.ManualExes.Add(file);
         _settings.Save();
         await LoadLibraryAsync();
     }
@@ -374,13 +368,23 @@ public sealed partial class MainWindow : Window
         DllLibraryStatus.Text = $"{libCount} DLL build(s) in {AppPaths.DllLibrary}";
     }
 
-    private async Task<string?> PickFolderAsync()
+    // The Windows App SDK pickers. Windows.Storage.Pickers fail with E_FAIL when the app runs as administrator, which is how
+    // an in-app update of an all-users install used to restart it: Add game, Add a folder and Change exe then did nothing.
+    private async Task<string?> PickFileAsync(params string[] types)
     {
-        var picker = new FolderPicker();
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, Hwnd);
-        picker.FileTypeFilter.Add("*");
-        return (await picker.PickSingleFolderAsync())?.Path;
+        var picker = new FileOpenPicker(AppWindow.Id);
+        foreach (var t in types) picker.FileTypeFilter.Add(t);
+        return (await picker.PickSingleFileAsync())?.Path;
     }
+
+    private async Task<List<string>> PickFilesAsync(params string[] types)
+    {
+        var picker = new FileOpenPicker(AppWindow.Id);
+        foreach (var t in types) picker.FileTypeFilter.Add(t);
+        return (await picker.PickMultipleFilesAsync())?.Select(f => f.Path).ToList() ?? new();
+    }
+
+    private async Task<string?> PickFolderAsync() => (await new FolderPicker(AppWindow.Id).PickSingleFolderAsync())?.Path;
 
     private async void PickRuntime_Click(object sender, RoutedEventArgs e)
     {
@@ -395,17 +399,14 @@ public sealed partial class MainWindow : Window
 
     private async void PickReShade_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FileOpenPicker();
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, Hwnd);
-        picker.FileTypeFilter.Add(".exe");
-        var file = await picker.PickSingleFileAsync();
+        var file = await PickFileAsync(".exe");
         if (file is null) return;
-        if (Components.ExtractFromReShadeSetup(file.Path, "ReShade64.dll") is null)
+        if (Components.ExtractFromReShadeSetup(file, "ReShade64.dll") is null)
         {
             ReShadeStatus.Text = "That file is not a ReShade setup with embedded DLLs.";
             return;
         }
-        _settings.ReShadeSource = file.Path;
+        _settings.ReShadeSource = file;
         _settings.Save();
         _ = RefreshSettingsPage();
     }
@@ -440,14 +441,11 @@ public sealed partial class MainWindow : Window
 
     private async void ImportDlls_Click(object sender, RoutedEventArgs e)
     {
-        var picker = new FileOpenPicker();
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, Hwnd);
-        picker.FileTypeFilter.Add(".dll");
-        var files = await picker.PickMultipleFilesAsync();
+        var files = await PickFilesAsync(".dll");
         var errors = new List<string>();
         foreach (var f in files)
         {
-            try { Installers.ImportDll(f.Path); }
+            try { Installers.ImportDll(f); }
             catch (Exception ex) { errors.Add(ex.Message); }
         }
         _ = RefreshSettingsPage();

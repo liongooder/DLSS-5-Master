@@ -7,7 +7,6 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using DLSS5Master.Core;
 using DLSS5Master.Views;
-using Windows.Storage.Pickers;
 
 namespace DLSS5Master;
 
@@ -384,18 +383,15 @@ public sealed partial class MainWindow
     private async void ChangeExe_Click(object sender, RoutedEventArgs e)
     {
         if (_game is null) return;
-        var picker = new FileOpenPicker();
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, Hwnd);
-        picker.FileTypeFilter.Add(".exe");
-        var file = await picker.PickSingleFileAsync();
+        var file = await PickFileAsync(".exe");
         if (file is null) return;
         var root = Path.GetFullPath(_game.Entry.Dir).TrimEnd('\\') + "\\";
-        if (!file.Path.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+        if (!file.StartsWith(root, StringComparison.OrdinalIgnoreCase))
         {
             Log($"Pick an .exe inside {_game.Entry.Dir}. For a game elsewhere, add it with + on the library.");
             return;
         }
-        _settings.OverrideFor(_game.Entry.Dir).Exe = file.Path;
+        _settings.OverrideFor(_game.Entry.Dir).Exe = file;
         _settings.Save();
         await RescanAsync();
     }
@@ -603,13 +599,10 @@ public sealed partial class MainWindow
 
     private async Task SwapFromFileAsync(UpscalerFile file)
     {
-        var picker = new FileOpenPicker();
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, Hwnd);
-        picker.FileTypeFilter.Add(".dll");
-        var picked = await picker.PickSingleFileAsync();
+        var picked = await PickFileAsync(".dll");
         if (picked is null) return;
         string source;
-        try { source = Installers.ImportDll(picked.Path); }
+        try { source = Installers.ImportDll(picked); }
         catch (Exception ex) { Log("✖ " + ex.Message); return; }
         await SwapAsync(file, source);
     }

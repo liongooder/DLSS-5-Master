@@ -86,8 +86,9 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent
-; In-app updates run this installer with /SILENT: start the new version again afterwards.
-Filename: "{app}\{#AppExe}"; Flags: nowait; Check: WizardSilent
+; In-app updates run this installer with /SILENT: start the new version again afterwards, without the administrator
+; rights an all-users install runs with (an app started as administrator cannot open Windows' file pickers).
+Filename: "{app}\{#AppExe}"; Flags: nowait runasoriginaluser; Check: WizardSilent
 
 [Code]
 // Setup runs from a .tmp file, which Windows' taskbar shows with a blank program icon. Giving the wizard window

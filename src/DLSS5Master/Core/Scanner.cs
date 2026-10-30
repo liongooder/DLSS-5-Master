@@ -168,9 +168,12 @@ public static partial class Scanner
         "Localization", "Localisation", "Paks", ".egstore", "CrashReportClient", ".git",
     };
 
+    // Any folder named like a backup (another tool's "codex-dlss-manager-backup-20261030", say) holds copies, not the game's
+    // own files: updating the DLLs in it would overwrite the originals that tool puts back.
     private static bool SkipDir(string name) =>
         SkipDirs.Contains(name) || name.Contains("redist", StringComparison.OrdinalIgnoreCase)
-        || name.StartsWith("DirectX", StringComparison.OrdinalIgnoreCase) || name.Contains("shadercache", StringComparison.OrdinalIgnoreCase);
+        || name.StartsWith("DirectX", StringComparison.OrdinalIgnoreCase) || name.Contains("shadercache", StringComparison.OrdinalIgnoreCase)
+        || name.Contains("backup", StringComparison.OrdinalIgnoreCase);
 
     // Helper programs that are never the game itself (prefix match on the file name).
     private static readonly string[] IgnoredExePrefixes =

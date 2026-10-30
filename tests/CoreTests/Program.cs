@@ -330,6 +330,14 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Directory.Delete(Path.Combine(lib, "n1"), true);
     Check("a picked launcher stub scans as the shipping exe", Scanner.Scan(root, launcher).Primary?.Path == shipping);
     Check("phantom blade zero's own DLSS is found from its top folder", Scanner.Scan(pbz, pbzExe).HasNativeDlss);
+    // Another tool's backup beside the game holds copies, not the game's files: setup must not update the DLLs in it.
+    var otherBackup = Path.Combine(pbz, "platform", "steam", "codex-dlss-manager-backup-20261030");
+    Make(Path.Combine(otherBackup, "nvngx_dlss.dll"), 1000);
+    Make(Path.Combine(otherBackup, "nvngx_dlssnr.dll"), 1000);
+    var pbzScan = Scanner.Scan(pbz, pbzExe);
+    Check("another tool's backup folder is not scanned for DLSS", pbzScan.Upscalers.Count == 1 && pbzScan.Upscalers[0].Path == EngineDlss(pbz),
+        string.Join("; ", pbzScan.Upscalers.Select(u => u.Rel)));
+    Directory.Delete(otherBackup, true);
 
     List<GameEntry> Ours(AppSettings st) => Library.Discover(st).Where(g => g.Dir.StartsWith(lib, StringComparison.OrdinalIgnoreCase)).ToList();
     string Describe(List<GameEntry> l) => string.Join(" | ", l.Select(g => $"{g.Name} @ {g.Dir} ({g.Exe})"));
