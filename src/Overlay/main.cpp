@@ -154,6 +154,7 @@ struct App
     wgc::GraphicsCaptureItem item{ nullptr };
     wgc::Direct3D11CaptureFramePool pool{ nullptr };
     wgc::GraphicsCaptureSession session{ nullptr };
+    UINT pool_w = 0, pool_h = 0;          // the capture buffers' size: it only grows (see Frame)
 
     // NGX
     NVSDK_NGX_Parameter *params = nullptr;
@@ -651,6 +652,8 @@ static bool InitCapture()
 
     const auto size = g.item.Size();
     g.pool = wgc::Direct3D11CaptureFramePool::CreateFreeThreaded(g.rt_device, CaptureFormat(), 3, size);
+    g.pool_w = static_cast<UINT>(size.Width);
+    g.pool_h = static_cast<UINT>(size.Height);
     g.session = g.pool.CreateCaptureSession(g.item);
     try { g.session.IsCursorCaptureEnabled(false); } catch (...) {}
     try { g.session.IsBorderRequired(false); } catch (...) {}
@@ -674,6 +677,8 @@ static bool InitNgx()
     if (NVSDK_NGX_FAILED(r)) return false;
     r = NVSDK_NGX_D3D12_GetCapabilityParameters(&g.params);
     if (NVSDK_NGX_FAILED(r)) { Log("NGX capabilities: 0x%08X", r); return false; }
+    // A released feature's memory is freed, not kept: every window resize builds new features.
+    NVSDK_NGX_Parameter_SetUI(g.params, NVSDK_NGX_Parameter_FreeMemOnReleaseFeature, 1);
     int dlss = 0;
     g.params->Get(NVSDK_NGX_Parameter_SuperSampling_Available, &dlss);
     Log("DLSS available: %s", dlss ? "yes" : "no");
@@ -1292,7 +1297,21 @@ static bool Frame()
     const UINT h = std::max<UINT>(64, static_cast<UINT>(ch * g.scale + 0.5f) & ~1u);
     if (cw != g.cw || ch != g.ch)
     {
-        g.pool.Recreate(g.rt_device, CaptureFormat(), 3, size);
+        // Windows' capture leaves one picture of graphics memory behind every time its buffers are made again for another
+        // size (measured: 7 MB per resize of a 1280x720 HDR window, also with a new pool and session). Larger buffers
+        // hold a smaller window just as well, so they are made again only when the window outgrows them, and then at
+        // once for the whole screen: shrinking and growing back cost nothing.
+        if (static_cast<UINT>(size.Width) > g.pool_w || static_cast<UINT>(size.Height) > g.pool_h)
+        {
+            MONITORINFO mi = { sizeof(mi) };
+            GetMonitorInfoW(MonitorFromWindow(g.target, MONITOR_DEFAULTTONEAREST), &mi);
+            g.pool_w = std::max<UINT>(size.Width, mi.rcMonitor.right - mi.rcMonitor.left);
+            g.pool_h = std::max<UINT>(size.Height, mi.rcMonitor.bottom - mi.rcMonitor.top);
+            frame.Close();   // it belongs to the old buffers; the next frame comes from the new ones
+            frame = nullptr;
+            g.pool.Recreate(g.rt_device, CaptureFormat(), 3, { static_cast<int32_t>(g.pool_w), static_cast<int32_t>(g.pool_h) });
+            Log("capture buffers made for %ux%u", g.pool_w, g.pool_h);
+        }
         ResizeSwapchain(w, h);
         if (!BuildFrameResources(w, h)) { Log("could not build DLSS for %ux%u", w, h); return false; }
         g.cw = cw;
@@ -1302,6 +1321,7 @@ static bool Frame()
         if (w != cw) Log("processing at %ux%u, %.0f %% of the %ux%u window", w, h, g.scale * 100.0f, cw, ch);
         g.refresh_hz = RefreshRate();
         Log("screen refresh: %.0f Hz", g.refresh_hz);
+        if (!frame) return false;   // closed with the old buffers
     }
     if (!g.color11 || !g.copy_fence11) return false;   // this size failed to build; wait for another
 

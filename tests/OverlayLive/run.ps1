@@ -2,12 +2,13 @@
 # screen, so Windows keeps drawing it), and records the helper's dedicated graphics memory once a second. Nothing takes
 # the focus and nothing shows but that pixel column. Needs an NVIDIA RTX card, DLSS 5 Master's overlay set up once
 # (its files in %LOCALAPPDATA%\DLSS5Master\overlay) and the test build of the helper: src\Overlay\build.bat tests
-#   -Resizes  window size changes, every 500 ms from 14 s (each rebuilds DLSS for the new size)
+#   -Resizes  window size changes, every 500 ms from 14 s (each rebuilds DLSS for the new size): smaller and back
+#   -Grow     the size changes make the window larger than at the start instead
 #   -Extra    more helper arguments, e.g. "--fg 1" or "--test-remove-device 10"
 #   -StopAt   seconds after the start to ask the helper to stop (0: it ends by itself)
 #   -Repeat   run that many sessions and count the ones the helper survived
 param([string]$Helper = (Join-Path $PSScriptRoot '..\..\src\Overlay\build-tests\dlss5-overlay.exe'),
-      [int]$Resizes = 30, [string]$Extra = '', [int]$StopAt = 36, [int]$Life = 60, [int]$Repeat = 1)
+      [int]$Resizes = 30, [switch]$Grow, [string]$Extra = '', [int]$StopAt = 36, [int]$Life = 60, [int]$Repeat = 1)
 
 $ErrorActionPreference = 'Stop'
 $work = Join-Path $env:TEMP 'dlss5-overlay-live'
@@ -16,8 +17,9 @@ New-Item -ItemType Directory -Force $work | Out-Null
 
 # The test window, built once with the .NET Framework compiler every Windows has.
 $target = Join-Path $work 'target.exe'
-if (-not (Test-Path $target)) {
-    & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe "/out:$target" /r:System.Windows.Forms.dll /r:System.Drawing.dll (Join-Path $PSScriptRoot 'target.cs')
+$source = Join-Path $PSScriptRoot 'target.cs'
+if (-not (Test-Path $target) -or (Get-Item $source).LastWriteTimeUtc -gt (Get-Item $target).LastWriteTimeUtc) {
+    & "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:winexe "/out:$target" /r:System.Windows.Forms.dll /r:System.Drawing.dll $source
     if ($LASTEXITCODE -ne 0) { throw 'target.cs did not build' }
 }
 # The overlay's folder as the app prepares it: the helper, its runtime, ReShade, the add-on, the NVIDIA runtimes.
@@ -33,7 +35,7 @@ $survived = 0
 for ($r = 1; $r -le $Repeat; $r++) {
     foreach ($f in 'dlss5-overlay.log', 'ReShade.log', 'stop', 'hwnd.txt', 'RenoDX-DLSS5-crash.log') { Remove-Item (Join-Path $work $f) -ErrorAction SilentlyContinue }
     $hwndFile = Join-Path $work 'hwnd.txt'
-    $window = Start-Process $target -ArgumentList "`"$hwndFile`" 1280 720 14 $Resizes 500 $Life" -PassThru
+    $window = Start-Process $target -ArgumentList "`"$hwndFile`" 1280 720 14 $Resizes 500 $Life$(if ($Grow) { ' grow' })" -PassThru
     for ($i = 0; $i -lt 50 -and -not (Test-Path $hwndFile); $i++) { Start-Sleep -Milliseconds 100 }
     $stop = Join-Path $work 'stop'
     $p = Start-Process (Join-Path $work 'dlss5-overlay.exe') -ArgumentList "--hwnd $((Get-Content $hwndFile).Trim()) --stop-file `"$stop`" --scale 1 --test-any-focus $Extra" -WorkingDirectory $work -PassThru

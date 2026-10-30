@@ -1,7 +1,7 @@
 // Test window for the overlay helper's automated checks (run.ps1): animated content, never activated, no taskbar button,
 // placed beyond the right edge of the rightmost screen with one pixel column left on it (a window wholly off screen is not
 // redrawn, so it would send the capture one frame only).
-// Usage: target.exe <hwnd-file> <width> <height> <resize-after-s> <resizes> <interval-ms> <life-s>
+// Usage: target.exe <hwnd-file> <width> <height> <resize-after-s> <resizes> <interval-ms> <life-s> [grow]
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -14,6 +14,7 @@ class Target : Form
     [DllImport("user32.dll")] static extern bool SetProcessDpiAwarenessContext(IntPtr value);
 
     readonly int w, h, resizeAfterMs, resizes, intervalMs, lifeMs;
+    public static int Sign = 1;   // -1: the resizes make the window larger than at the start ("grow")
     readonly DateTime start = DateTime.UtcNow;
     int done;
     DateTime nextResize;
@@ -46,7 +47,7 @@ class Target : Form
             done++;
             nextResize = DateTime.UtcNow.AddMilliseconds(intervalMs);
             var shrink = done % 2 == 1 ? 16 * ((done + 1) / 2 % 8 + 1) : 0;
-            Size = new Size(w - shrink, h - shrink);
+            Size = new Size(w - Sign * shrink, h - Sign * shrink);
         }
         Invalidate();
     }
@@ -73,6 +74,7 @@ class Target : Form
     static void Main(string[] a)
     {
         SetProcessDpiAwarenessContext(new IntPtr(-4));   // per-monitor v2: sizes are real pixels
+        if (a.Length > 7 && a[7] == "grow") Sign = -1;
         var form = new Target(int.Parse(a[1]), int.Parse(a[2]), int.Parse(a[3]), int.Parse(a[4]), int.Parse(a[5]), int.Parse(a[6]));
         form.HandleCreated += (s, e) => File.WriteAllText(a[0], form.Handle.ToInt64().ToString());
         Application.Run(form);
