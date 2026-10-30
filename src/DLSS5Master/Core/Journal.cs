@@ -94,6 +94,49 @@ public static class Journal
         catch { return false; }
     }
 
+    /// <summary>
+    /// Files the bundled add-ons write beside the game while it runs: logs, crash dumps, and the RenoDX add-on's copy of
+    /// ReShade.ini when it moves the settings to a newer layout. No install step writes them, so the record never lists
+    /// them; Restore removes the ones that came into being after the install began.
+    /// </summary>
+    internal static readonly string[] RuntimeFiles =
+    {
+        "ReShade.ini.v*-backup", "RenoDX-DLSS5-crash.log", "RenoDX-DLSS5-crash-*.dmp", "RenoDX-DLSS5-edittrace.csv",
+        "dlss5-feed.log", "dlss5-feed-crash.dmp", "dlss5-feed-ngx-probe.tmp", "dlss5-feed-host.log", "dlss5-feed-host-crash.dmp",
+        "MFGAdaUnlock.ini", "MFGAdaUnlock.profiles.json", "MFGAdaUnlock-XeMFG.log", "MFGAdaUnlock-XeMFG-compatibility.json",
+    };
+
+    /// <summary>
+    /// The <see cref="RuntimeFiles"/> beside the game's exe and in the Feeder's host64 folder that were created after the
+    /// install began and are not in its record. A file of the same name that was there before keeps its older creation
+    /// time (the add-ons rewrite their files in place), so it stays.
+    /// </summary>
+    internal static List<string> RuntimeLeftovers(string gameDir, Manifest m)
+    {
+        var found = new List<string>();
+        if (m.Date == default) return found; // a damaged record: no way to tell ours from what was there
+        var since = m.Date.Kind == DateTimeKind.Local ? m.Date.ToUniversalTime() : m.Date;
+        var root = Path.GetFullPath(gameDir).TrimEnd('\\', '/');
+        string exeDir;
+        try { exeDir = string.IsNullOrEmpty(m.Exe) ? root : Path.GetDirectoryName(SafePath(root, m.Exe)) ?? root; }
+        catch (InstallException) { exeDir = root; }
+        var recorded = m.Added.Concat(m.Replaced.Select(r => r.Rel)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var dir in new[] { exeDir, Path.Combine(exeDir, "host64") })
+        {
+            if (!Directory.Exists(dir)) continue;
+            try
+            {
+                foreach (var pattern in RuntimeFiles)
+                    foreach (var f in Directory.EnumerateFiles(dir, pattern))
+                        if (File.GetCreationTimeUtc(f) >= since && !recorded.Contains(Path.GetRelativePath(root, f))
+                            && !found.Contains(f, StringComparer.OrdinalIgnoreCase))
+                            found.Add(f);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
+        return found;
+    }
+
     internal static void ClearReadOnly(string file)
     {
         try
@@ -295,6 +338,7 @@ public sealed class Session
         }
         var added = manifest.Added.Select(a => (rel: a, full: Journal.SafePath(s.GameDir, a))).ToList();
         var dirs = manifest.AddedDirs.Select(d => (rel: d, full: Journal.SafePath(s.GameDir, d))).ToList();
+        var leftovers = Journal.RuntimeLeftovers(s.GameDir, manifest);
 
         foreach (var (backup, target, rel) in plan)
         {
@@ -309,6 +353,18 @@ public sealed class Session
             Journal.ClearReadOnly(full);
             File.Delete(full);
             s.Log($"Removed {rel}");
+        }
+        // Before the folders, so a host64 that only held the helper's log can go too.
+        foreach (var full in leftovers)
+        {
+            var rel = Path.GetRelativePath(s.GameDir, full);
+            try
+            {
+                Journal.ClearReadOnly(full);
+                File.Delete(full);
+                s.Log($"Removed {rel} (written by an add-on while the game ran)");
+            }
+            catch (Exception e) { s.Log($"Could not remove {rel}: {e.Message}"); }
         }
         foreach (var (rel, full) in dirs.OrderByDescending(d => d.full.Count(c => c == '\\')))
         {

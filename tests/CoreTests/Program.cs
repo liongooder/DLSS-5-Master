@@ -209,6 +209,50 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Directory.Delete(src, true);
 }
 
+// ====================================================================== Restore: what the add-ons write while the game runs
+{
+    var game = Path.Combine(Path.GetTempPath(), "dlss5cr-runtime-" + Guid.NewGuid().ToString("N"));
+    var bin = Path.Combine(game, "bin");
+    Directory.CreateDirectory(bin);
+    var exe = Path.Combine(bin, "Game.exe");
+    File.WriteAllBytes(exe, RandomNumberGenerator.GetBytes(4096));
+    // There before the install: the crash log of a RenoDX set up by hand earlier.
+    var earlier = Path.Combine(bin, "RenoDX-DLSS5-crash.log");
+    File.WriteAllText(earlier, "from before");
+    File.SetCreationTimeUtc(earlier, DateTime.UtcNow.AddHours(-1));
+
+    var logs = new List<string>();
+    var s = Session.Begin(game, exe, "feeder", "dxgi", 32, logs.Add);
+    s.WriteTracked(Path.Combine(bin, "ReShade.ini"), "[ADDON]\r\nAddonPath=.\\\r\n");
+    s.WriteTracked(Path.Combine(bin, "host64", "ReShade.ini"), "[ADDON]\r\nAddonPath=.\\\r\n");
+    s.Save();
+
+    // The game runs later (past the file system's clock tick): the add-ons write their files, the player keeps a screenshot.
+    Thread.Sleep(50);
+    var written = new[] { "dlss5-feed.log", "dlss5-feed-crash.dmp", "ReShade.ini.v10-backup", "RenoDX-DLSS5-crash-4242-1.dmp",
+        "MFGAdaUnlock.ini", @"host64\dlss5-feed-host.log", @"host64\dlss5-feed-host-crash.dmp" };
+    foreach (var w in written) File.WriteAllText(Path.Combine(bin, w), "written while the game ran");
+    File.WriteAllText(earlier, "rewritten by this run");
+    Directory.CreateDirectory(Path.Combine(bin, "DLSS5 Screenshots"));
+    File.WriteAllText(Path.Combine(bin, "DLSS5 Screenshots", "shot.png"), "the player's");
+    File.WriteAllText(Path.Combine(bin, "save.dat"), "the game's");
+    Check("runtime leftovers found", Journal.RuntimeLeftovers(game, s.Manifest).Count == written.Length,
+        string.Join(", ", Journal.RuntimeLeftovers(game, s.Manifest).Select(f => Path.GetRelativePath(bin, f))));
+
+    Check("restore after a run", Session.Restore(game, logs.Add));
+    Check("restore removes what the add-ons wrote while the game ran", written.All(w => !File.Exists(Path.Combine(bin, w))),
+        string.Join(", ", written.Where(w => File.Exists(Path.Combine(bin, w)))));
+    Check("restore removes the host64 folder those files kept", !Directory.Exists(Path.Combine(bin, "host64")));
+    Check("restore keeps a same-named file from before the install", File.Exists(earlier));
+    Check("restore keeps the player's and the game's own files",
+        File.Exists(Path.Combine(bin, "DLSS5 Screenshots", "shot.png")) && File.Exists(Path.Combine(bin, "save.dat")) && File.Exists(exe));
+    Check("restore logs the runtime removals", logs.Count(l => l.Contains("written by an add-on while the game ran")) == written.Length);
+    File.WriteAllText(Path.Combine(bin, "dlss5-feed.log"), "a later run");
+    Check("runtime sweep needs the record's date", Journal.RuntimeLeftovers(game, new Manifest { Exe = @"bin\Game.exe" }).Count == 0
+        && Journal.RuntimeLeftovers(game, new Manifest { Exe = @"bin\Game.exe", Date = DateTime.UtcNow.AddMinutes(-1) }).Count == 1);
+    Directory.Delete(game, true);
+}
+
 // ====================================================================== Scanner
 {
     Check("classify sr", Scanner.Classify("NVNGX_DLSS.dll") == UpscalerKind.DlssSR);
