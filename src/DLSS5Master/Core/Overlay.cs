@@ -371,18 +371,24 @@ public static class Overlay
         Release(Interlocked.Exchange(ref _held, null));
     }
 
-    /// <summary>True while the helper reports that the window holds the screen in exclusive fullscreen, which hides every
-    /// overlay; the helper waits meanwhile, without using the graphics card.</summary>
-    public static bool ExclusiveFullscreen()
+    public enum FullscreenState { None, Now, Was }
+
+    /// <summary>Whether the helper reports that the window holds the screen in exclusive fullscreen, which hides every overlay
+    /// (the helper waits meanwhile, without using the graphics card): Now; or did while in front and has not been drawn since,
+    /// Was. Switching away to read the bar takes a game out of exclusive fullscreen, so Was keeps the news there.</summary>
+    public static FullscreenState ExclusiveFullscreen()
     {
         try
         {
             using var fs = new FileStream(LogFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             var log = new StreamReader(fs).ReadToEnd();
             var on = log.LastIndexOf("exclusive fullscreen: ", StringComparison.Ordinal);
-            return on >= 0 && log.LastIndexOf("exclusive fullscreen ended", StringComparison.Ordinal) < on;
+            var off = log.LastIndexOf("exclusive fullscreen ended", StringComparison.Ordinal);
+            if (on < 0) return FullscreenState.None;
+            if (off < on) return FullscreenState.Now;
+            return log.LastIndexOf(" captured fps", StringComparison.Ordinal) > off ? FullscreenState.None : FullscreenState.Was;
         }
-        catch { return false; }
+        catch { return FullscreenState.None; }
     }
 
     /// <summary>What the running helper says about frame generation, when it could not give what was asked for.</summary>

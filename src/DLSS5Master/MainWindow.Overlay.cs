@@ -89,12 +89,16 @@ public sealed partial class MainWindow
         OverlayBar.IsOpen = target is not null || stopped is not null;
         if (stopped is not null) OverlayBar.Message = stopped;
         if (target is not null)
-            OverlayBar.Message = Overlay.ExclusiveFullscreen()
-                ? $"“{target.Title}” is in exclusive fullscreen, which hides every overlay, so DLSS 5 waits without using the graphics card. " +
-                  "Switch it to borderless or windowed in its own settings."
-                : $"Running on “{target.Title}”. F9 switches DLSS 5 on and off while that window is in front." +
-                  (Overlay.FrameGenNotice() is { } notice ? " " + notice : "") +
-                  " Not showing? Exclusive fullscreen hides every overlay: use windowed or borderless.";
+            OverlayBar.Message = Overlay.ExclusiveFullscreen() switch
+            {
+                Overlay.FullscreenState.Now => $"“{target.Title}” is in exclusive fullscreen, which hides every overlay, so DLSS 5 waits without " +
+                                               "using the graphics card. Switch it to borderless or windowed in its own settings.",
+                Overlay.FullscreenState.Was => $"“{target.Title}” goes into exclusive fullscreen when it is in front, which hides every overlay " +
+                                               "(DLSS 5 then waits without using the graphics card). Switch it to borderless or windowed in its own settings.",
+                _ => $"Running on “{target.Title}”. F9 switches DLSS 5 on and off while that window is in front." +
+                     (Overlay.FrameGenNotice() is { } notice ? " " + notice : "") +
+                     " Not showing? Exclusive fullscreen hides every overlay: use windowed or borderless.",
+            };
     }
 
     private async Task StartOverlayAsync(OverlayWindow window)

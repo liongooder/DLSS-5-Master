@@ -508,6 +508,20 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Check("overlay ini: neural pass settings", Ini.Get(ini, "RenoDX.DLSS5", "NRStyle") == "1" && Ini.Get(ini, "RenoDX.DLSS5", "NRIntensity") == "0.8" &&
           Ini.Get(ini, "RenoDX.DLSS5", "NRPasses") == "2" && Ini.Get(ini, "RenoDX.DLSS5", "EnableHooks") == "2");
     Directory.Delete(tmp, true);
+
+    // Exclusive fullscreen in the helper's log: now, earlier (until the window is drawn again), or not at all.
+    Directory.CreateDirectory(Overlay.Folder);
+    const string drawn = "10:00:05.000  DLSS 5 on, 60 captured fps, 60 shown fps, 1280x720, GPU 4.0 ms a frame\n";
+    const string on = "10:00:06.000  exclusive fullscreen: the window holds the screen for itself, which hides every overlay\n";
+    const string off = "10:00:09.000  exclusive fullscreen ended: drawing again\n";
+    File.WriteAllText(Overlay.LogFile, drawn);
+    Check("overlay fullscreen: none", Overlay.ExclusiveFullscreen() == Overlay.FullscreenState.None);
+    File.WriteAllText(Overlay.LogFile, drawn + on);
+    Check("overlay fullscreen: now", Overlay.ExclusiveFullscreen() == Overlay.FullscreenState.Now);
+    File.WriteAllText(Overlay.LogFile, drawn + on + off);
+    Check("overlay fullscreen: was, kept after switching away", Overlay.ExclusiveFullscreen() == Overlay.FullscreenState.Was);
+    File.WriteAllText(Overlay.LogFile, drawn + on + off + drawn);
+    Check("overlay fullscreen: drawn again clears it", Overlay.ExclusiveFullscreen() == Overlay.FullscreenState.None);
 }
 
 try { Directory.Delete(testData, true); } catch { }
