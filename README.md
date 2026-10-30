@@ -63,7 +63,7 @@ DLSS 5 Master checks GitHub for newer RenoDX, MFG unlock, Feeder and OptiScaler 
 - **Exact restore**: every file added or replaced is recorded in `_DLSS5Master_Backup` inside the game folder; *Restore originals* puts the game back byte for byte. It can also remove installs made by other DLSS 5 tools.
 - **Community**: every game shows what other players report (works / partly / broken) by route and graphics card. The Community tab has every reported game with filters, a chat, a screenshot gallery (approved before anyone sees it) and a private line to the developer. Pick a nickname; no account needed.
 - **Updates**: the app and its add-ons update themselves from GitHub, checked against GitHub's published SHA-256.
-- **DLSS 5 on any window**: draws DLSS 5 over a browser, a video or any other open window, for browsing and videos; nothing in that program is changed. Optional frame generation (2x, 3x or 4x), Quality / Balanced / Performance, 1 or 2 neural passes, and HDR on an HDR screen. F9 switches it on and off. Games use the routes above.
+- **DLSS 5 on any window**: draws DLSS 5 over a browser, a video or any other open window, for browsing and videos; nothing in that program is changed. Optional frame generation (2x, 3x or 4x), Quality / Balanced / Performance, 1 or 2 neural passes, and HDR on an HDR screen. F9 switches it on and off. A window in exclusive fullscreen hides every overlay: the overlay then waits without using the graphics card and says so. Games use the routes above.
 
 > **Anti-cheat warning:** injecting DLLs into online games can get your account banned. DLSS 5 Master asks you to confirm this for games that ship anti-cheat.
 

@@ -10,10 +10,13 @@
 // load ReShade before d3d12.dll, let the add-on arm its hooks, then create a DLAA feature.
 //
 // F9 switches between DLSS 5 and the original picture, Ctrl+F9 quits. --no-motion (by hand) turns motion off.
+// Built with OVERLAY_TESTS defined (DLSS 5 Master's automated checks only), it also takes --test-any-focus (draw while the
+// window is not in front, so a check can use a window placed off screen) and --test-remove-device <seconds>.
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <shellapi.h>
 #include <d3d11_4.h>
 #include <d3d12.h>
 #include <dxgi1_6.h>
@@ -196,6 +199,11 @@ struct App
     bool hdr = false;
     DXGI_FORMAT fmt = DXGI_FORMAT_B8G8R8A8_UNORM;
     bool stepped_aside = false;          // the game left the overlay no GPU time: hidden, the game shows as it is, until F9
+    bool exclusive = false;              // the window holds the screen in exclusive fullscreen: nothing drawn can show
+#ifdef OVERLAY_TESTS
+    bool test_any_focus = false;
+    double test_remove_device_s = 0.0;
+#endif
     bool motion_on = true;
     bool reset = true;
     bool quit = false;
@@ -410,6 +418,20 @@ static void CheckStarved(double captured_fps)
         captured_fps, frame_ms);
 }
 
+// Exclusive fullscreen (a game or a video player that takes the screen for itself) hides every overlay: nothing drawn
+// reaches the screen, and the GPU time would only slow the window down. Windows says when a program holds the screen
+// that way; while the window does, the overlay waits.
+static void CheckExclusiveFullscreen()
+{
+    QUERY_USER_NOTIFICATION_STATE state = QUNS_ACCEPTS_NOTIFICATIONS;
+    const bool now = SUCCEEDED(SHQueryUserNotificationState(&state)) && state == QUNS_RUNNING_D3D_FULL_SCREEN &&
+                     GetForegroundWindow() == g.target;
+    if (now == g.exclusive) return;
+    g.exclusive = now;
+    Log(now ? "exclusive fullscreen: the window holds the screen for itself, which hides every overlay; waiting until it is borderless or windowed"
+            : "exclusive fullscreen ended: drawing again");
+}
+
 // Whether the game's window is in front of the overlay in Windows' stacking order.
 static bool GameAboveOverlay()
 {
@@ -423,7 +445,11 @@ static bool GameAboveOverlay()
 static bool TrackTarget()
 {
     const HWND fg = GetForegroundWindow();
-    const bool show = !g.stepped_aside && !IsIconic(g.target) && IsWindowVisible(g.target) && (fg == g.target || fg == g.window);
+    bool front = fg == g.target || fg == g.window;
+#ifdef OVERLAY_TESTS
+    front = front || g.test_any_focus;
+#endif
+    const bool show = !g.stepped_aside && !g.exclusive && !IsIconic(g.target) && IsWindowVisible(g.target) && front;
     if (!show)
     {
         if (IsWindowVisible(g.window)) ShowWindow(g.window, SW_HIDE);
@@ -695,8 +721,21 @@ static void BuildFrameGeneration(UINT w, UINT h)
     g.fg_now = g.fg_frames;
 }
 
+// Each evaluate leaves its textures in the shared NGX parameter block. They are cleared before those textures are released:
+// the DLSS 5 add-on reads the block when the next feature is created, and a freed texture there crashed it at a window's
+// first resize (3 of 20 test sessions).
+static void ForgetFrameTextures()
+{
+    if (!g.params) return;
+    for (const char *name : { NVSDK_NGX_Parameter_Color, NVSDK_NGX_Parameter_Output, NVSDK_NGX_Parameter_Depth, NVSDK_NGX_Parameter_MotionVectors,
+                              NVSDK_NGX_DLSSG_Parameter_Backbuffer, NVSDK_NGX_DLSSG_Parameter_MVecs, NVSDK_NGX_DLSSG_Parameter_Depth,
+                              NVSDK_NGX_DLSSG_Parameter_OutputInterpolated })
+        NVSDK_NGX_Parameter_SetD3d12Resource(g.params, name, nullptr);
+}
+
 static void ReleaseFrameGeneration()
 {
+    ForgetFrameTextures();
     if (g.fg_feature) { NVSDK_NGX_D3D12_ReleaseFeature(g.fg_feature); g.fg_feature = nullptr; }
     for (auto &t : g.interp) Release(t);
     g.fg_have_prev = false;
@@ -1017,6 +1056,7 @@ static void RunMotion()
 static void ReleaseFrameResources()
 {
     WaitGpu();
+    ForgetFrameTextures();
     if (g.feature) { NVSDK_NGX_D3D12_ReleaseFeature(g.feature); g.feature = nullptr; }
     ReleaseFrameGeneration();
     ReleaseMotion();
@@ -1072,6 +1112,10 @@ static bool BuildFrameResources(UINT w, UINT h)
     cp.Feature.InPerfQualityValue = NVSDK_NGX_PerfQuality_Value_DLAA;
     cp.InFeatureCreateFlags = NVSDK_NGX_DLSS_Feature_Flags_MVLowRes | NVSDK_NGX_DLSS_Feature_Flags_AutoExposure |
                               NVSDK_NGX_DLSS_Feature_Flags_DepthInverted | (g.hdr ? NVSDK_NGX_DLSS_Feature_Flags_IsHDR : 0);
+    // The previous size's evaluate left its render size in the block too: the new size, so the add-on reads a picture
+    // that matches the feature.
+    NVSDK_NGX_Parameter_SetUI(g.params, NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width, w);
+    NVSDK_NGX_Parameter_SetUI(g.params, NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, h);
     g.alloc->Reset();
     g.list->Reset(g.alloc, nullptr);
     NVSDK_NGX_Result r = NGX_D3D12_CREATE_DLSS_EXT(g.list, 1, 1, &g.feature, g.params, &cp);
@@ -1379,6 +1423,9 @@ static BOOL CALLBACK FindByTitle(HWND w, LPARAM lp)
 
 int wmain(int argc, wchar_t **argv)
 {
+    // DLLs this process loads come from its own folder and System32 only, never the current folder or PATH: it can run
+    // as administrator. (DLSS 5 Master removes any program file from that folder that is not the overlay's own.)
+    SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     g_log = _wfsopen((ExeDir() + L"dlss5-overlay.log").c_str(), L"w", _SH_DENYNO);   // readable while running
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
@@ -1394,6 +1441,10 @@ int wmain(int argc, wchar_t **argv)
         else if (a == L"--fg" && i + 1 < argc) g.fg_frames = std::min(3u, static_cast<UINT>(_wtoi(argv[++i])));
         else if (a == L"--scale" && i + 1 < argc) g.scale = std::clamp(static_cast<float>(_wtof(argv[++i])), 0.4f, 1.0f);
         else if (a == L"--stop-file" && i + 1 < argc) g.stop_file = argv[++i];
+#ifdef OVERLAY_TESTS
+        else if (a == L"--test-any-focus") g.test_any_focus = true;
+        else if (a == L"--test-remove-device" && i + 1 < argc) g.test_remove_device_s = _wtof(argv[++i]);
+#endif
         else title_part = a;
     }
     if (!g.target && !title_part.empty())
@@ -1451,7 +1502,19 @@ int wmain(int argc, wchar_t **argv)
             next_stop_check = GetTickCount64() + 250;
             if (GetFileAttributesW(g.stop_file.c_str()) != INVALID_FILE_ATTRIBUTES) { DeleteFileW(g.stop_file.c_str()); Log("stopped by DLSS 5 Master"); break; }
         }
+        static ULONGLONG next_fullscreen_check = 0;
+        if (GetTickCount64() >= next_fullscreen_check) { next_fullscreen_check = GetTickCount64() + 1000; CheckExclusiveFullscreen(); }
         if (!TrackTarget()) { g.reset = true; window_paused = true; Sleep(16); continue; }   // the game is not in front: nothing to draw
+#ifdef OVERLAY_TESTS
+        static const ULONGLONG test_start = GetTickCount64();
+        if (g.test_remove_device_s > 0.0 && static_cast<double>(GetTickCount64() - test_start) >= g.test_remove_device_s * 1000.0)
+        {
+            g.test_remove_device_s = 0.0;
+            ID3D12Device5 *dev5 = nullptr;
+            if (SUCCEEDED(g.dev->QueryInterface(IID_PPV_ARGS(&dev5)))) { Log("test: removing the D3D12 device"); dev5->RemoveDevice(); dev5->Release(); }
+            else Log("test: this device cannot be removed on purpose");
+        }
+#endif
         static ULONGLONG next_memory_check = 0;
         if (GetTickCount64() >= next_memory_check) { next_memory_check = GetTickCount64() + 1000; CheckMemory(); }
         if (!Frame()) { Sleep(1); continue; }

@@ -446,6 +446,70 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Check("a newer app installer and other files stay", left.Contains("DLSS5Master-Setup-99.0.0.exe") && left.Contains("DLSS5Master-Setup-notes.txt"), string.Join(",", left));
 }
 
+// ---------------------------------------------------------------- overlay folder: strays, held files, ReShade.ini
+{
+    var tmp = Path.Combine(Path.GetTempPath(), "d5m-overlay-" + Guid.NewGuid().ToString("N")[..8]);
+    var folder = Path.Combine(tmp, "overlay");
+    var outside = Path.Combine(tmp, "elsewhere");
+    Directory.CreateDirectory(Path.Combine(folder, "sub"));
+    Directory.CreateDirectory(outside);
+    string In(string rel) => Path.Combine(folder, rel);
+    var own = new[] { "dlss5-overlay.exe", "dxgi.dll", "renodx-dlss5.addon64", @"sub\own.dll" };
+    var strays = new[] { "d3d11.dll", "other.addon64", "loader.asi", "tool.exe", @"sub\planted.dll" };
+    var data = new[] { "ReShade.ini", "dlss5-overlay.log", @"sub\notes.txt" };
+    foreach (var f in own.Concat(strays).Concat(data)) File.WriteAllText(In(f), f);
+    File.WriteAllText(Path.Combine(outside, "outside.dll"), "x");
+    // A link inside the folder to a folder elsewhere (a junction needs no administrator rights).
+    using (var mk = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{In("link")}\" \"{outside}\"")
+               { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true }))
+        mk!.WaitForExit();
+    var removed = Overlay.RemoveStrays(folder, own.Select(In));
+    Check("overlay strays: other program files removed", strays.All(s => !File.Exists(In(s))) && removed.Count == strays.Length + 1, string.Join(",", removed));
+    Check("overlay strays: own files and data stay", own.Concat(data).All(f => File.Exists(In(f))));
+    Check("overlay strays: link removed, what it points to kept", !Directory.Exists(In("link")) && File.Exists(Path.Combine(outside, "outside.dll")));
+    File.WriteAllText(In("locked.dll"), "x");
+    using (new FileStream(In("locked.dll"), FileMode.Open, FileAccess.Read, FileShare.Read))
+        Throws<InvalidOperationException>("overlay strays: one that cannot be removed stops the start", () => Overlay.RemoveStrays(folder, own.Select(In)));
+    File.Delete(In("locked.dll"));
+
+    // Held files: nothing can change, replace or delete them; checked against the source when asked to.
+    var src = Path.Combine(tmp, "src");
+    Directory.CreateDirectory(src);
+    File.WriteAllText(Path.Combine(src, "a.dll"), "alpha");
+    File.WriteAllText(Path.Combine(src, "b.dll"), "bravo");
+    File.WriteAllText(Path.Combine(src, "c.ini"), "charlie");
+    File.WriteAllText(In("a.dll"), "alpha");
+    File.WriteAllText(In("b.dll"), "bravX");   // swapped
+    File.WriteAllText(In("c.ini"), "charliX");
+    OverlayFile From(string name, bool hold = true) => new(In(name), () => File.OpenRead(Path.Combine(src, name)), hold);
+    var held = Overlay.HoldFiles(new[] { From("a.dll"), From("b.dll") }, verify: false);
+    bool Blocked(Action a) { try { a(); return false; } catch (IOException) { return true; } }
+    Check("overlay held: cannot be written", Blocked(() => File.WriteAllText(In("a.dll"), "evil")));
+    Check("overlay held: cannot be deleted or replaced", Blocked(() => File.Delete(In("a.dll"))) && Blocked(() => File.Move(In("a.dll"), In("moved.dll"))));
+    Check("overlay held: still readable", File.ReadAllText(In("a.dll")) == "alpha");
+    Check("overlay held, not checked: content as found", File.ReadAllText(In("b.dll")) == "bravX");
+    foreach (var h in held) h.Dispose();
+    Check("overlay released: writable again", !Blocked(() => File.WriteAllText(In("a.dll"), "alpha")));
+    held = Overlay.HoldFiles(new[] { From("a.dll"), From("b.dll"), From("c.ini", hold: false) }, verify: true);
+    Check("overlay checked: a swapped file is copied again", File.ReadAllText(In("b.dll")) == "bravo" && File.ReadAllText(In("a.dll")) == "alpha");
+    Check("overlay checked: settings file copied again but not held", File.ReadAllText(In("c.ini")) == "charlie" && held.Count == 2 &&
+          !Blocked(() => File.WriteAllText(In("c.ini"), "charlie")));
+    Check("overlay checked: held afterwards", Blocked(() => File.WriteAllText(In("b.dll"), "evil")));
+    foreach (var h in held) h.Dispose();
+    File.Delete(Path.Combine(src, "b.dll"));
+    Throws<FileNotFoundException>("overlay checked: a missing source stops the start", () => Overlay.HoldFiles(new[] { From("a.dll"), From("b.dll") }, verify: true));
+    Check("overlay checked: nothing stays held after a failure", !Blocked(() => File.WriteAllText(In("a.dll"), "alpha")));
+
+    // ReShade.ini: add-ons from the overlay folder only, no program after a screenshot, the neural pass settings.
+    var planted = "[ADDON]\nAddonPath=C:\\Elsewhere\n\n[SCREENSHOT]\nPostSaveCommand=C:\\Elsewhere\\run.exe\n";
+    var ini = Overlay.SettingsText(planted, new AppSettings { OverlayStyle = 1, OverlayStrength = 80, OverlayPasses = 2 }, folder);
+    Check("overlay ini: add-ons from its folder only", Ini.Get(ini, "ADDON", "AddonPath") == folder, Show(ini));
+    Check("overlay ini: no program after a screenshot", Ini.Get(ini, "SCREENSHOT", "PostSaveCommand") == "", Show(ini));
+    Check("overlay ini: neural pass settings", Ini.Get(ini, "RenoDX.DLSS5", "NRStyle") == "1" && Ini.Get(ini, "RenoDX.DLSS5", "NRIntensity") == "0.8" &&
+          Ini.Get(ini, "RenoDX.DLSS5", "NRPasses") == "2" && Ini.Get(ini, "RenoDX.DLSS5", "EnableHooks") == "2");
+    Directory.Delete(tmp, true);
+}
+
 try { Directory.Delete(testData, true); } catch { }
 Console.WriteLine($"{passed} passed, {failed} failed");
 return failed == 0 ? 0 : 1;

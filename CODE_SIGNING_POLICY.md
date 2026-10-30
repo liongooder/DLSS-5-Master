@@ -7,6 +7,7 @@ Free code signing provided by [SignPath.io](https://about.signpath.io/), certifi
 Only binaries built by this repository's GitHub Actions workflow ([.github/workflows/build.yml](.github/workflows/build.yml)) from the public source code in this repository are signed:
 
 - `DLSS5Master.exe` and `DLSS5Master.dll`
+- `dlss5-overlay.exe`, the overlay helper (it is started as administrator when the window's program runs that way, so Windows' prompt should name the publisher)
 - the installer `DLSS5Master-Setup-<version>.exe`
 
 Third-party files are never signed with this project's certificate. That includes the Microsoft .NET / Windows App SDK runtime files in the installer, and every component the app downloads or copies into games: ReShade, RenoDX, the bundled MFGAdaUnlock add-on, OptiScaler, DLSS5-Feeder and NVIDIA runtimes.

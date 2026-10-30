@@ -1,13 +1,19 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO.Compression;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace DLSS5Master.Core;
 
 /// <summary>A window the overlay can be started on.</summary>
 public sealed record OverlayWindow(nint Handle, string Title, string Process, string? ExePath);
+
+/// <summary>A file in the overlay folder and where its content comes from (a file the app has, or the bundled OptiScaler
+/// package). Hold: kept open, unchangeable, while the helper runs (settings files the helper's parts write to are not).</summary>
+public sealed record OverlayFile(string Dest, Func<Stream> OpenSource, bool Hold = true);
 
 /// <summary>
 /// DLSS 5 on any window, with no game file changed: dlss5-overlay.exe captures the window, runs DLSS with the
@@ -17,6 +23,9 @@ public sealed record OverlayWindow(nint Handle, string Title, string Process, st
 /// into that folder's ReShade.ini, which the add-on reads when it starts. A game that runs as administrator
 /// needs an overlay that does too (Windows hides its keyboard from normal programs), so the overlay is then
 /// started elevated and stopped through a file both can see.
+/// That folder is the user's own, and Windows loads a program's DLLs from the program's folder first: before every start any
+/// other program file is removed from it, and the files the helper loads are held unchanged while it runs (checked against
+/// where they came from first, when it runs as administrator).
 /// </summary>
 public static class Overlay
 {
@@ -25,11 +34,19 @@ public static class Overlay
     public static string LogFile => Path.Combine(Folder, "dlss5-overlay.log");
     private static string HelperDir => Path.Combine(AppContext.BaseDirectory, "overlay");
     private static readonly string[] HelperFiles = { "dlss5-overlay.exe", "msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll" };
+    /// <summary>File types that hold program code.</summary>
+    private static readonly HashSet<string> CodeExtensions = new(StringComparer.OrdinalIgnoreCase) { ".dll", ".exe", ".addon", ".addon32", ".addon64", ".asi" };
 
     private static Process? _process;
+    private static Process? _stopping;        // the helper StopAsync was asked to stop: its end is no surprise
+    private static List<FileStream>? _held;   // the running helper's files (HoldFiles)
 
     /// <summary>The window the running overlay draws over, or null when none runs.</summary>
     public static OverlayWindow? Target { get; private set; }
+
+    /// <summary>Why the last overlay stopped by itself (a graphics driver reset, a crash), until the next start or until the
+    /// user has read it; null when it was stopped normally.</summary>
+    public static string? StoppedWith { get; set; }
 
     public static bool Running { get { try { return _process is { HasExited: false }; } catch { return false; } } }
 
@@ -38,8 +55,9 @@ public static class Overlay
 
     public static bool HelperInstalled => File.Exists(Path.Combine(HelperDir, "dlss5-overlay.exe"));
 
-    /// <summary>Copies what the overlay needs into its folder; only files that changed are copied again.</summary>
-    public static async Task PrepareAsync(Components components, int frameGen, IProgress<string>? p, CancellationToken ct)
+    /// <summary>Copies what the overlay needs into its folder (only files that changed are copied again) and removes every
+    /// other program file from it. Returns the files the helper loads, with where each comes from.</summary>
+    public static async Task<List<OverlayFile>> PrepareAsync(Components components, int frameGen, IProgress<string>? p, CancellationToken ct)
     {
         if (!HelperInstalled) throw new InvalidOperationException("The overlay helper is missing from the install folder. Reinstall DLSS 5 Master.");
         var runtime = components.RuntimeFiles();
@@ -65,6 +83,7 @@ public static class Overlay
         if (frameGen >= 2 && !sm86) copies.Add((await components.MfgUnlockAsync(p, ct), Components.MfgAddon));
         else { try { File.Delete(mfg); } catch { } }
         Directory.CreateDirectory(Folder);
+        var files = new List<OverlayFile>();
         await Task.Run(() =>
         {
             foreach (var (from, to) in copies)
@@ -72,16 +91,106 @@ public static class Overlay
                 ct.ThrowIfCancellationRequested();
                 if (!File.Exists(from)) continue;   // a runtime DLL the helper's own folder does not ship (vcruntime140_1 on older toolsets)
                 var dest = Path.Combine(Folder, to);
+                files.Add(new OverlayFile(dest, () => File.OpenRead(from)));
                 var src = new FileInfo(from);
                 var dst = new FileInfo(dest);
                 if (dst.Exists && dst.Length == src.Length && dst.LastWriteTimeUtc == src.LastWriteTimeUtc) continue;
                 p?.Report($"Preparing the overlay: {to}");
                 File.Copy(from, dest, true);
             }
+            if (sm86) files.AddRange(Sm86Files());
+            var removed = RemoveStrays(Folder, files.Select(f => f.Dest));
+            if (removed.Count > 0) AppPaths.Log("Overlay: removed program files that are not its own from its folder: " + string.Join(", ", removed));
         }, ct);
+        return files;
+    }
+
+    /// <summary>
+    /// Deletes every program file in the overlay folder that is not one of the overlay's own, and any link in it to a folder
+    /// elsewhere. The helper loads DLLs from its own folder first, so a file slipped in there would run inside the overlay,
+    /// as administrator when the window's program runs that way. Returns what was removed.
+    /// </summary>
+    internal static List<string> RemoveStrays(string folder, IEnumerable<string> own)
+    {
+        var keep = new HashSet<string>(own.Select(Path.GetFullPath), StringComparer.OrdinalIgnoreCase);
+        var removed = new List<string>();
+        void Walk(string dir)
+        {
+            foreach (var f in Directory.GetFiles(dir))
+            {
+                if (!CodeExtensions.Contains(Path.GetExtension(f)) || keep.Contains(Path.GetFullPath(f))) continue;
+                Remove(f, () => File.Delete(f));   // a link is deleted, never what it points to
+            }
+            foreach (var d in Directory.GetDirectories(dir))
+            {
+                if ((File.GetAttributes(d) & FileAttributes.ReparsePoint) == 0) Walk(d);
+                else Remove(d, () => Directory.Delete(d));   // the link only
+            }
+        }
+        void Remove(string path, Action delete)
+        {
+            var name = Path.GetRelativePath(folder, path);
+            // Better no overlay than one that would load it.
+            try { delete(); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            { throw new InvalidOperationException($"The overlay's folder holds a program file that is not its own and could not be removed: {name}. Delete it, then start the overlay again. ({e.Message})"); }
+            removed.Add(name);
+        }
+        if (Directory.Exists(folder)) Walk(folder);
+        return removed;
+    }
+
+    /// <summary>
+    /// Opens every file the helper loads so that nothing can change, replace or delete it until the helper stops. With verify
+    /// (a helper that runs as administrator) each file is also checked, while held, against where it came from, and copied
+    /// again when it differs: the folder is the user's own, so anything running as the user could otherwise swap a file in
+    /// for Windows' administrator prompt to start.
+    /// </summary>
+    internal static List<FileStream> HoldFiles(IEnumerable<OverlayFile> files, bool verify)
+    {
+        static FileStream Open(string path) => new(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        static bool Same(FileStream held, byte[] want) { held.Position = 0; return SHA256.HashData(held).AsSpan().SequenceEqual(want); }
+        var held = new List<FileStream>();
+        try
+        {
+            foreach (var f in files)
+            {
+                held.Add(Open(f.Dest));
+                if (verify)
+                {
+                    byte[] want;
+                    using (var s = f.OpenSource()) want = SHA256.HashData(s);
+                    if (!Same(held[^1], want))
+                    {
+                        held[^1].Dispose();
+                        held.RemoveAt(held.Count - 1);
+                        using (var s = f.OpenSource())
+                        using (var o = new FileStream(f.Dest, FileMode.Create, FileAccess.Write, FileShare.None)) s.CopyTo(o);
+                        held.Add(Open(f.Dest));
+                        if (!Same(held[^1], want))
+                            throw new InvalidOperationException($"{Path.GetFileName(f.Dest)} in the overlay's folder changed while it was being checked. Start the overlay again.");
+                    }
+                }
+                if (!f.Hold) { held[^1].Dispose(); held.RemoveAt(held.Count - 1); }
+            }
+            return held;
+        }
+        catch
+        {
+            Release(held);
+            throw;
+        }
+    }
+
+    private static void Release(List<FileStream>? held)
+    {
+        if (held is null) return;
+        lock (held) foreach (var h in held) h.Dispose();
     }
 
     private const string Sm86Prefix = "OptiScaler/dlssg_sm86/";
+
+    private static string Sm86Zip => Path.Combine(Components.BundledPayload, "optiscaler", Components.BundledOptiZipName(Components.OptiBuilds[0]));
 
     /// <summary>
     /// dlssg_for_sm86 (sdli1995) enables DLSS Frame Generation on RTX 20 / 30. The OptiScaler package bundled with
@@ -90,30 +199,59 @@ public static class Overlay
     /// </summary>
     private static void ExtractSm86(CancellationToken ct)
     {
-        var zip = Path.Combine(Components.BundledPayload, "optiscaler", Components.BundledOptiZipName(Components.OptiBuilds[0]));
+        var zip = Sm86Zip;
         if (!File.Exists(zip)) throw new InvalidOperationException("Frame generation on this graphics card needs the bundled OptiScaler package, which is missing. Reinstall DLSS 5 Master.");
         var marker = Path.Combine(Folder, "dlssg_sm86", "unpacked-from.txt");
         var stamp = $"{Path.GetFileName(zip)} {new FileInfo(zip).Length}";
         if (File.Exists(marker) && File.ReadAllText(marker) == stamp) return;
         RemoveSm86();
-        using var archive = System.IO.Compression.ZipFile.OpenRead(zip);
-        foreach (var entry in archive.Entries)
+        using var archive = ZipFile.OpenRead(zip);
+        foreach (var (entry, dest) in Sm86Entries(archive))
         {
             ct.ThrowIfCancellationRequested();
+            Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+            entry.ExtractToFile(dest, true);
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(marker)!);
+        File.WriteAllText(marker, stamp);
+        AppPaths.Log("Overlay: unpacked dlssg_for_sm86 (DLSS Frame Generation on RTX 20 / 30) from " + Path.GetFileName(zip));
+    }
+
+    /// <summary>The package's dlssg_for_sm86 files and where each goes: the DLL, its ini and its folder; the notices go into the
+    /// folder with it. Docs and readmes stay out.</summary>
+    private static IEnumerable<(ZipArchiveEntry Entry, string Dest)> Sm86Entries(ZipArchive archive)
+    {
+        foreach (var entry in archive.Entries)
+        {
             if (!entry.FullName.StartsWith(Sm86Prefix, StringComparison.OrdinalIgnoreCase) || entry.Name.Length == 0) continue;
             var rel = entry.FullName[Sm86Prefix.Length..].Replace('/', '\\');
-            // The DLL, its ini and its folder; the notices go into the folder with it. Docs and readmes stay out.
             if (rel.Equals("THIRD_PARTY_NOTICES.txt", StringComparison.OrdinalIgnoreCase)) rel = @"dlssg_sm86\THIRD_PARTY_NOTICES.txt";
             else if (!rel.Equals("dlssg_sm86.dll", StringComparison.OrdinalIgnoreCase) && !rel.Equals("dlssg_sm86.ini", StringComparison.OrdinalIgnoreCase) &&
                      !rel.StartsWith(@"dlssg_sm86\", StringComparison.OrdinalIgnoreCase)) continue;
             var dest = Path.GetFullPath(Path.Combine(Folder, rel));
             if (!dest.StartsWith(Folder + "\\", StringComparison.OrdinalIgnoreCase)) continue;   // never outside the folder
-            Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-            System.IO.Compression.ZipFileExtensions.ExtractToFile(entry, dest, true);
+            yield return (entry, dest);
         }
-        Directory.CreateDirectory(Path.GetDirectoryName(marker)!);
-        File.WriteAllText(marker, stamp);
-        AppPaths.Log("Overlay: unpacked dlssg_for_sm86 (DLSS Frame Generation on RTX 20 / 30) from " + Path.GetFileName(zip));
+    }
+
+    /// <summary>The unpacked dlssg_for_sm86 files, each read again from the package when it is checked. Only its program files
+    /// are held while the helper runs; it may write to the rest (its ini names a log folder).</summary>
+    private static List<OverlayFile> Sm86Files()
+    {
+        var zip = Sm86Zip;
+        using var archive = ZipFile.OpenRead(zip);
+        return Sm86Entries(archive).Select(e =>
+        {
+            var name = e.Entry.FullName;
+            return new OverlayFile(e.Dest, () =>
+            {
+                using var a = ZipFile.OpenRead(zip);
+                var copy = new MemoryStream();
+                using (var s = a.GetEntry(name)!.Open()) s.CopyTo(copy);
+                copy.Position = 0;
+                return copy;
+            }, CodeExtensions.Contains(Path.GetExtension(e.Dest)));
+        }).ToList();
     }
 
     private static void RemoveSm86()
@@ -127,7 +265,15 @@ public static class Overlay
     private static void WriteSettings(AppSettings s)
     {
         var ini = Path.Combine(Folder, "ReShade.ini");
-        var text = File.Exists(ini) ? Ini.ReadText(ini) : "";
+        File.WriteAllText(ini, SettingsText(File.Exists(ini) ? Ini.ReadText(ini) : "", s, Folder));
+    }
+
+    /// <summary>The overlay's ReShade.ini with these settings in it. ReShade also loads add-ons from the overlay's folder only
+    /// (an add-on path elsewhere would bring in code that nothing checked) and runs no program after a screenshot.</summary>
+    internal static string SettingsText(string text, AppSettings s, string folder)
+    {
+        text = Ini.Set(text, "ADDON", "AddonPath", folder);
+        text = Ini.Set(text, "SCREENSHOT", "PostSaveCommand", "");
         void Set(string key, string value) => text = Ini.Set(text, "RenoDX.DLSS5", key, value);
         Set("EnableHooks", "2");        // NGX only: the helper calls NGX itself, no Streamline
         Set("NeuralUplift", "1");
@@ -138,7 +284,7 @@ public static class Overlay
         // The add-on's own resolution scale saved next to nothing (14.3 ms at 50 % against 12.5 ms at 100 % in
         // Bloodborne); Quality now sets the helper's processing size instead (--scale), so this stays at 100 %.
         Set("NRResolutionScale", "1");
-        File.WriteAllText(ini, text);
+        return text;
     }
 
     /// <summary>Starts the overlay on a window (stopping one that runs). Asks Windows for administrator
@@ -146,14 +292,17 @@ public static class Overlay
     public static async Task StartAsync(Components components, AppSettings settings, OverlayWindow target, IProgress<string>? p, CancellationToken ct)
     {
         await StopAsync();
+        StoppedWith = null;
         if (!IsWindow(target.Handle)) throw new InvalidOperationException("That window is not open any more.");
         var frameGen = Math.Clamp(settings.OverlayFrameGen, 0, 3);
-        await PrepareAsync(components, frameGen, p, ct);
+        var files = await PrepareAsync(components, frameGen, p, ct);
         WriteSettings(settings);
         try { File.Delete(StopFile); } catch { }
         try { File.Delete(LogFile); } catch { }
 
         var elevated = !IsElevatedSelf() && IsElevated(target.Handle);
+        if (elevated) p?.Report("Checking the overlay's files…");
+        var held = await Task.Run(() => HoldFiles(files, verify: elevated), ct);   // until this helper stops
         // Quality: everything runs on the window's picture at 100 / 67 / 50 % of its size, stretched back over it.
         var scale = Math.Clamp(settings.OverlayQuality, 0, 2) switch { 1 => "0.67", 2 => "0.5", _ => "1" };
         var args = $"--hwnd {(ulong)target.Handle} --stop-file \"{StopFile}\" --scale {scale}" + (frameGen > 0 ? $" --fg {frameGen}" : "");
@@ -162,16 +311,31 @@ public static class Overlay
         p?.Report(elevated ? "Starting the overlay as administrator (the game runs that way)…" : "Starting the overlay…");
         try { _process = Process.Start(psi); }
         catch (Win32Exception e) when (e.NativeErrorCode == 1223)
-        { throw new InvalidOperationException("The overlay needs administrator rights because the game has them, and Windows was told no."); }
-        if (_process is null) throw new InvalidOperationException("The overlay did not start.");
+        {
+            Release(held);
+            throw new InvalidOperationException("The overlay needs administrator rights because the game has them, and Windows was told no.");
+        }
+        catch { Release(held); throw; }
+        if (_process is null) { Release(held); throw new InvalidOperationException("The overlay did not start."); }
+        _held = held;
         Target = target;
         var started = _process;
         started.EnableRaisingEvents = true;
         started.Exited += (_, _) =>
         {
             // Exited arrives late on a worker thread; by then a newer overlay may already be running.
-            if (ReferenceEquals(_process, started) || _process is null) Target = null;
-            AppPaths.Log("Overlay stopped. " + (LastLogError() ?? ""));
+            var current = ReferenceEquals(_process, started);
+            if (current || _process is null) Target = null;
+            Release(held);   // this run's files
+            var why = LastLogError();
+            int code = 0;
+            try { code = started.ExitCode; } catch { }
+            // The helper ends with 0 when it is stopped and with 2-4 after an "error:" line; anything else is a crash.
+            if (why is null && code is not (0 or 2 or 3 or 4))
+                why = $"The overlay stopped unexpectedly (code 0x{code:X8}). Start it again; if it keeps happening, report it with " +
+                      "dlss5-overlay.log, ReShade.log and RenoDX-DLSS5-crash.log from the overlay folder.";
+            if (current && !ReferenceEquals(_stopping, started)) StoppedWith = why;   // not when asked to stop
+            AppPaths.Log("Overlay stopped. " + (why ?? ""));
             Changed?.Invoke();
         };
         // The program, not the window title: titles can be private (a browser shows the page's), and this log is the one
@@ -183,7 +347,13 @@ public static class Overlay
 
         // A window that cannot be captured ends the helper within a few seconds; say why here.
         for (int i = 0; i < 40 && Running; i++) await Task.Delay(100, ct);
-        if (!Running) throw new InvalidOperationException(LastLogError() ?? "The overlay stopped right after starting.");
+        if (!Running)
+        {
+            // Told through this exception (the app shows it in a dialog), so not again in the bar.
+            _stopping = started;
+            StoppedWith = null;
+            throw new InvalidOperationException(LastLogError() ?? "The overlay stopped right after starting.");
+        }
     }
 
     /// <summary>Asks the overlay to stop (through the stop file, which works whatever its rights) and waits for it.</summary>
@@ -191,12 +361,28 @@ public static class Overlay
     {
         // Also one this session did not start (the app was closed and opened again while it ran).
         static bool AnyRunning() { try { return Running || Process.GetProcessesByName("dlss5-overlay").Length > 0; } catch { return Running; } }
-        if (!AnyRunning()) { _process = null; Target = null; return; }
+        _stopping = _process;
+        if (!AnyRunning()) { _process = null; Target = null; Release(Interlocked.Exchange(ref _held, null)); return; }
         try { Directory.CreateDirectory(Folder); File.WriteAllText(StopFile, ""); } catch { }
         for (int i = 0; i < 40 && AnyRunning(); i++) await Task.Delay(100);
         if (Running) { try { _process!.Kill(); } catch { } }
         _process = null;
         Target = null;
+        Release(Interlocked.Exchange(ref _held, null));
+    }
+
+    /// <summary>True while the helper reports that the window holds the screen in exclusive fullscreen, which hides every
+    /// overlay; the helper waits meanwhile, without using the graphics card.</summary>
+    public static bool ExclusiveFullscreen()
+    {
+        try
+        {
+            using var fs = new FileStream(LogFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var log = new StreamReader(fs).ReadToEnd();
+            var on = log.LastIndexOf("exclusive fullscreen: ", StringComparison.Ordinal);
+            return on >= 0 && log.LastIndexOf("exclusive fullscreen ended", StringComparison.Ordinal) < on;
+        }
+        catch { return false; }
     }
 
     /// <summary>What the running helper says about frame generation, when it could not give what was asked for.</summary>

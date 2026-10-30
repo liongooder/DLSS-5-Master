@@ -13,6 +13,7 @@ public sealed partial class MainWindow
     private void InitOverlay()
     {
         Overlay.Changed += () => DispatcherQueue.TryEnqueue(RefreshOverlayUi);
+        OverlayBar.Closed += (_, _) => Overlay.StoppedWith = null;   // read: the bar stays shut
         // While it runs, the overlay adapts frame generation to the game; keep the bar's note current.
         var timer = DispatcherQueue.CreateTimer();
         timer.Interval = TimeSpan.FromSeconds(5);
@@ -79,11 +80,21 @@ public sealed partial class MainWindow
     private void RefreshOverlayUi()
     {
         var target = Overlay.Running ? Overlay.Target : null;
-        OverlayBar.IsOpen = target is not null;
+        // An overlay that stopped by itself says why, until the bar is closed.
+        var stopped = target is null && !_overlayBusy ? Overlay.StoppedWith : null;
+        OverlayBar.Title = stopped is null ? "DLSS 5 overlay" : "DLSS 5 overlay stopped";
+        OverlayBar.Severity = stopped is null ? InfoBarSeverity.Success : InfoBarSeverity.Warning;
+        OverlayBar.IsClosable = stopped is not null;
+        if (OverlayBar.ActionButton is { } stop) stop.Visibility = stopped is null ? Visibility.Visible : Visibility.Collapsed;
+        OverlayBar.IsOpen = target is not null || stopped is not null;
+        if (stopped is not null) OverlayBar.Message = stopped;
         if (target is not null)
-            OverlayBar.Message = $"Running on “{target.Title}”. F9 switches DLSS 5 on and off while that window is in front." +
-                                 (Overlay.FrameGenNotice() is { } notice ? " " + notice : "") +
-                                 " Not showing? Exclusive fullscreen hides every overlay: use windowed or borderless.";
+            OverlayBar.Message = Overlay.ExclusiveFullscreen()
+                ? $"“{target.Title}” is in exclusive fullscreen, which hides every overlay, so DLSS 5 waits without using the graphics card. " +
+                  "Switch it to borderless or windowed in its own settings."
+                : $"Running on “{target.Title}”. F9 switches DLSS 5 on and off while that window is in front." +
+                  (Overlay.FrameGenNotice() is { } notice ? " " + notice : "") +
+                  " Not showing? Exclusive fullscreen hides every overlay: use windowed or borderless.";
     }
 
     private async Task StartOverlayAsync(OverlayWindow window)
