@@ -253,25 +253,36 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Directory.Delete(game, true);
 }
 
-// ====================================================================== Library: games added by hand (Unreal Engine layout)
+// ====================================================================== Library: games added by hand (Unreal Engine layouts)
 {
     var lib = Path.Combine(Path.GetTempPath(), "dlss5cr-lib-" + Guid.NewGuid().ToString("N"));
+    void Make(string path, int bytes) { Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllBytes(path, RandomNumberGenerator.GetBytes(bytes)); }
+    string EngineDlss(string game) => Path.Combine(game, "Engine", "Plugins", "Runtime", "Nvidia", "DLSS", "Binaries", "ThirdParty", "Win64", "nvngx_dlss.dll");
+
+    // The usual layout: a launcher stub on top, the game in <Project>\Binaries\Win64.
     var root = Path.Combine(lib, "Phantom Test™ café");
     var launcher = Path.Combine(root, "PhantomTest.exe");
     var shipping = Path.Combine(root, "PTGame", "Binaries", "Win64", "PTGame-Win64-Shipping.exe");
-    var dlss = Path.Combine(root, "Engine", "Plugins", "Runtime", "Nvidia", "DLSS", "Binaries", "ThirdParty", "Win64", "nvngx_dlss.dll");
-    foreach (var f in new[] { shipping, dlss, Path.Combine(root, "Engine", "Binaries", "Win64", "CrashReportClient.exe") })
-        Directory.CreateDirectory(Path.GetDirectoryName(f)!);
-    File.WriteAllBytes(launcher, RandomNumberGenerator.GetBytes(300_000));
-    File.WriteAllBytes(shipping, RandomNumberGenerator.GetBytes(2_000_000));
-    File.WriteAllBytes(dlss, RandomNumberGenerator.GetBytes(1000));
-    File.WriteAllBytes(Path.Combine(root, "Engine", "Binaries", "Win64", "CrashReportClient.exe"), RandomNumberGenerator.GetBytes(4096));
+    Make(launcher, 300_000);
+    Make(shipping, 2_000_000);
+    Make(EngineDlss(root), 1000);
+    Make(Path.Combine(root, "Engine", "Binaries", "Win64", "CrashReportClient.exe"), 4096);
+    // Phantom Blade Zero's layout: the game in PBZ\platform\steam, its DLSS under PBZ\Engine\Plugins.
+    var pbz = Path.Combine(lib, "PBZ");
+    var pbzExe = Path.Combine(pbz, "platform", "steam", "PBZ.exe");
+    Make(pbzExe, 2_000_000);
+    Make(EngineDlss(pbz), 1000);
 
     Check("unreal launcher stub leads to the shipping exe", Scanner.UnrealGameFor(launcher) == shipping, Scanner.UnrealGameFor(launcher));
-    Check("the shipping exe is not a launcher stub", Scanner.UnrealGameFor(shipping) is null);
-    Check("unreal top folder from the shipping exe", Scanner.UnrealRootFor(shipping) == root, Scanner.UnrealRootFor(shipping));
-    Check("no unreal top folder for a plain exe", Scanner.UnrealRootFor(launcher) is null);
+    Check("a game exe is not a launcher stub", Scanner.UnrealGameFor(shipping) is null && Scanner.UnrealGameFor(pbzExe) is null);
+    Check("unreal top folder from Binaries\\Win64", Scanner.UnrealRootFor(shipping) == root, Scanner.UnrealRootFor(shipping));
+    Check("unreal top folder from platform\\steam", Scanner.UnrealRootFor(pbzExe) == pbz, Scanner.UnrealRootFor(pbzExe));
+    var far = Path.Combine(lib, "n1", "n2", "n3", "Plain2", "p.exe");
+    Make(far, 10);
+    Check("no unreal top folder without an Engine folder near the exe", Scanner.UnrealRootFor(far) is null, Scanner.UnrealRootFor(far));
+    Directory.Delete(Path.Combine(lib, "n1"), true);
     Check("a picked launcher stub scans as the shipping exe", Scanner.Scan(root, launcher).Primary?.Path == shipping);
+    Check("phantom blade zero's own DLSS is found from its top folder", Scanner.Scan(pbz, pbzExe).HasNativeDlss);
 
     List<GameEntry> Ours(AppSettings st) => Library.Discover(st).Where(g => g.Dir.StartsWith(lib, StringComparison.OrdinalIgnoreCase)).ToList();
     string Describe(List<GameEntry> l) => string.Join(" | ", l.Select(g => $"{g.Name} @ {g.Dir} ({g.Exe})"));
@@ -280,20 +291,25 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
         && byLauncher[0].Name == "Phantom Test™ café", Describe(byLauncher));
     var byShipping = Ours(new AppSettings { ManualExes = { shipping } });
     Check("adding the shipping exe adds the game at its top folder", byShipping.Count == 1 && byShipping[0].Dir == root, Describe(byShipping));
+    var byPbz = Ours(new AppSettings { ManualExes = { pbzExe } });
+    Check("adding phantom blade zero's exe adds the game at its top folder", byPbz.Count == 1 && byPbz[0].Dir == pbz && byPbz[0].Exe == pbzExe, Describe(byPbz));
     var ownFolder = Ours(new AppSettings { ExtraFolders = { root } });
     Check("adding an unreal game's own folder adds that one game", ownFolder.Count == 1 && ownFolder[0].Dir == root, Describe(ownFolder));
+    var pbzFolder = Ours(new AppSettings { ExtraFolders = { pbz } });
+    Check("adding phantom blade zero's own folder adds that one game", pbzFolder.Count == 1 && pbzFolder[0].Dir == pbz, Describe(pbzFolder));
     var folderOfGames = Ours(new AppSettings { ExtraFolders = { lib } });
-    Check("a folder of games still lists each game", folderOfGames.Count == 1 && folderOfGames[0].Dir == root && folderOfGames[0].Name == "Phantom Test™ café", Describe(folderOfGames));
+    Check("a folder of games still lists each game", folderOfGames.Count == 2 && folderOfGames.Any(g => g.Dir == root && g.Name == "Phantom Test™ café")
+        && folderOfGames.Any(g => g.Dir == pbz), Describe(folderOfGames));
 
-    // A plain game: its exe at the top, data below. Its own folder adds it; beside it, a folder of two games lists both.
+    // A plain game: its exe at the top, data below. Its own folder adds it; the folder of games now lists three.
     var plain = Path.Combine(lib, "Plain Game");
     Directory.CreateDirectory(Path.Combine(plain, "data"));
     File.WriteAllBytes(Path.Combine(plain, "PlainGame.exe"), RandomNumberGenerator.GetBytes(1_500_000));
     File.WriteAllBytes(Path.Combine(plain, "unins000.exe"), RandomNumberGenerator.GetBytes(2_000_000));
     var plainOwn = Ours(new AppSettings { ExtraFolders = { plain } });
     Check("adding a plain game's own folder adds that one game", plainOwn.Count == 1 && plainOwn[0].Dir == plain, Describe(plainOwn));
-    var both = Ours(new AppSettings { ExtraFolders = { lib } });
-    Check("a folder of two games lists both", both.Count == 2, Describe(both));
+    var all = Ours(new AppSettings { ExtraFolders = { lib } });
+    Check("a folder of three games lists all three", all.Count == 3, Describe(all));
 
     // An install made while the game's folder was read as a folder of games keeps working from where it is.
     var oldInstall = Path.Combine(root, "PTGame");

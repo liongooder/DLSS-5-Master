@@ -278,9 +278,9 @@ public static partial class Library
     }
 
     /// <summary>
-    /// True when a folder added as a folder of games is itself one game: an Unreal Engine game (Engine beside a project
-    /// folder with Binaries), or the game's exe at the top with no other program folders beside it. Read as a folder of
-    /// games, such a folder would list its own insides ("Engine", the project folder) as games.
+    /// True when a folder added as a folder of games is itself one game: one with an Engine folder (Unreal Engine, also
+    /// CryEngine), or the game's exe at the top with no other program folders beside it. Read as a folder of games, such
+    /// a folder would list its own insides ("Engine", the project folder) as games.
     /// </summary>
     private static bool IsOneGame(string folder)
     {
@@ -289,9 +289,7 @@ public static partial class Library
             var subs = Directory.EnumerateDirectories(folder).ToList();
             // An install made while the folder was read as a folder of games stays where it was.
             if (subs.Any(s => File.Exists(Journal.ManifestPath(s)))) return false;
-            if (subs.Any(s => Path.GetFileName(s).Equals("Engine", StringComparison.OrdinalIgnoreCase))
-                && subs.Any(s => Directory.Exists(Path.Combine(s, "Binaries"))))
-                return true;
+            if (subs.Any(s => Path.GetFileName(s).Equals("Engine", StringComparison.OrdinalIgnoreCase))) return true;
             bool Program(string f) => !Scanner.IsHelperExe(Path.GetFileName(f));
             return Directory.EnumerateFiles(folder, "*.exe").Any(f => Program(f) && new FileInfo(f).Length >= 1 << 20)
                    && !subs.Any(s => Directory.EnumerateFiles(s, "*.exe").Any(Program));

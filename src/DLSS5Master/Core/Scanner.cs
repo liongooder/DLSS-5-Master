@@ -210,15 +210,19 @@ public static partial class Scanner
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { return null; }
     }
 
-    /// <summary>The top folder of an Unreal Engine game (the one holding Engine) for an exe in its &lt;Project&gt;\Binaries\Win64 or WinGDK folder; null otherwise.</summary>
+    /// <summary>
+    /// The top folder of an Unreal Engine game: the nearest folder holding Engine, from the exe's own folder up to three
+    /// above it. That covers &lt;Project&gt;\Binaries\Win64 and layouts such as Phantom Blade Zero's (PBZ\platform\steam\PBZ.exe,
+    /// its DLSS under PBZ\Engine\Plugins). Null when there is none.
+    /// </summary>
     public static string? UnrealRootFor(string exe)
     {
         try
         {
-            var binaries = System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(exe)) ?? "");
-            if (binaries is null || !System.IO.Path.GetFileName(binaries).Equals("Binaries", StringComparison.OrdinalIgnoreCase)) return null;
-            var root = System.IO.Path.GetDirectoryName(System.IO.Path.GetDirectoryName(binaries) ?? "");
-            return root is not null && Directory.Exists(System.IO.Path.Combine(root, "Engine")) ? root : null;
+            var dir = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(exe));
+            for (int i = 0; i < 4 && dir is not null; i++, dir = System.IO.Path.GetDirectoryName(dir))
+                if (Directory.Exists(System.IO.Path.Combine(dir, "Engine"))) return dir;
+            return null;
         }
         catch (Exception e) when (e is IOException or ArgumentException or NotSupportedException) { return null; }
     }
