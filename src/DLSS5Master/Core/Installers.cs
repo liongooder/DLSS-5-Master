@@ -499,6 +499,10 @@ public static partial class Installers
         PlaceReShade(job, feederMode: false);
         EnableAddon(job, job.ExeDir, addonName);
         job.Log("In game, open the ReShade overlay (Home key) → Add-ons tab to find and configure the add-on.");
+        // Like a Dragon: Ishin!: After and Before Upscaling ran on every frame yet changed nothing on screen; only the
+        // Present hook point did (the add-on's F5 before/after shots are always taken there, so they look right regardless).
+        if (!multipassMode)
+            job.Log("No visible change in game? In the add-on's panel (Home → Add-ons → DLSS 5 Neural Rendering), set Hook point to Present (alpha), with the game's DLSS on.");
     }
 
     // ------------------------------------------------------------------ Feeder
