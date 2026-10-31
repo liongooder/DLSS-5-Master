@@ -18,7 +18,7 @@ Third-party notices
 
 Bundled with this installer (unmodified, SHA-256 pinned):
 
-- MFGAdaUnlock-RenoDx 1.6.0 (renodx-mfgunlock.addon64) -
+- MFGAdaUnlock-RenoDx 1.7.1 (renodx-mfgunlock.addon64) -
   https://github.com/mavismmg/MFGAdaUnlock-RenoDx
 
   MIT License
@@ -68,11 +68,11 @@ Bundled with this installer (unmodified, SHA-256 pinned):
   in payload\runtime\nvngx_dlss.license.txt, reflex.license.txt and
   nis.license.txt. These files are NVIDIA's property.
 
-- OptiScaler NR pre-SR MFG 0.9.80
-  (payload\optiscaler\OptiScaler-0_9_80-shyvortex.zip, the unmodified
+- OptiScaler NR pre-SR MFG 0.9.81
+  (payload\optiscaler\OptiScaler-0_9_81-shyvortex.zip, the unmodified
   release file) - GPL-3.0; the licence text is the LICENSE file inside the zip.
   Source code: https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG
-  (tag v0.9.80). The zip also contains NVIDIA Streamline, AMD FidelityFX and
+  (tag v0.9.81). The zip also contains NVIDIA Streamline, AMD FidelityFX and
   Intel XeSS libraries under the licences in its Licenses folder.
 
 - The overlay helper (overlay\dlss5-overlay.exe) is part of DLSS 5 Master. It is
