@@ -1182,6 +1182,9 @@ static double RefreshRate()
 // The measured costs move with the choice itself (the game, the neural pass and the in-between frames share the
 // GPU: 13 ms a frame at 2x became 25 ms at 4x in Bloodborne), so the choice is kept calm: another multiplier must
 // promise at least 10 % more frames on screen, hold for a second, and at most one change every 10 seconds.
+// Fewer in-between frames for as many frames on screen is always worth it: more of the real frames are shown and
+// fewer are guessed. Without that, the start at the chosen 4x stayed there for a 60 fps YouTube video on a 120 Hz
+// screen (2x shows the same 120 frames), and half of the video's real frames were dropped: it juddered and flickered.
 static void ChooseFrameGeneration()
 {
     if (!g.fg_feature || g.game_interval <= 0.0) { g.fg_now = g.fg_frames; return; }
@@ -1200,7 +1203,9 @@ static void ChooseFrameGeneration()
         const double shown = shown_with(n, &ri);
         if (shown > best_shown * 1.05) { best_shown = shown; want = n; interval = ri; }
     }
-    if (want != g.fg_now && best_shown < shown_with(g.fg_now, &ignored) * 1.10) want = g.fg_now;   // not worth a change
+    const double shown_now = shown_with(g.fg_now, &ignored);
+    const bool fewer_for_as_many = want < g.fg_now && best_shown >= shown_now * 0.95;
+    if (want != g.fg_now && !fewer_for_as_many && best_shown < shown_now * 1.10) want = g.fg_now;   // not worth a change
     static UINT pending = UINT_MAX;
     static int held = 0;
     static ULONGLONG last_change = 0;
