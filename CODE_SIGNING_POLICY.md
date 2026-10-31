@@ -35,4 +35,4 @@ Community tab (chat, gallery, private line): reading sends only the random insta
 
 DLSS 5 on any window (the overlay) works entirely on your PC and sends nothing.
 
-The app has no telemetry, analytics or accounts. Settings and logs stay on your PC in `%LOCALAPPDATA%\DLSS5Master`.
+The app has no telemetry, analytics or accounts. Settings, logs and the list of games it last found (names, launchers and folders, kept to notice a game that moved to another folder) stay on your PC in `%LOCALAPPDATA%\DLSS5Master`.
