@@ -153,6 +153,16 @@ public sealed partial class MainWindow
 
             AntiCheatBox.Visibility = _scan.AntiCheat ? Visibility.Visible : Visibility.Collapsed;
             AntiCheatBox.IsChecked = false;
+            if (_scan.AntiCheatName is { } antiCheat)
+                AntiCheatBox.Content = new TextBlock
+                {
+                    TextWrapping = TextWrapping.Wrap,
+                    Text = Installers.AntiCheatWarning(antiCheat) + " I understand." +
+                           // ARK: Survival Ascended's own Steam launch choice without BattlEye.
+                           (_game?.Entry is { Launcher: "Steam", Id: "2399830" }
+                               ? " Steam also offers \"Play ARK: No BattlEye AntiCheat, Unofficial Servers Only\", which starts ARK without BattlEye."
+                               : ""),
+                };
             // MFG unlock: keep what is installed; on a fresh game, default on for RTX 40 owners when the game has frame generation.
             MfgBox.IsChecked = manifest is not null
                 ? manifest.MfgUnlock is not null
@@ -319,7 +329,7 @@ public sealed partial class MainWindow
         if (_scan.Dlss is not null) AddChip("DLSS", accent: true);
         if (_scan.Upscalers.Any(u => u.Kind == UpscalerKind.Fsr)) AddChip("FSR");
         if (_scan.Upscalers.Any(u => u.Kind == UpscalerKind.XeSS)) AddChip("XeSS");
-        if (_scan.AntiCheat) AddChip("Anti-cheat");
+        if (_scan.AntiCheatName is { } ac) AddChip(ac.Length <= 24 ? "Anti-cheat: " + ac : "Anti-cheat");
 
         StatusRows.Children.Clear();
         AddRow(StatusRows, "Architecture", exe is null ? "—" : exe.Bitness == 0 ? "unknown" : $"{exe.Bitness}-bit");

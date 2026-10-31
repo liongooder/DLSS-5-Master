@@ -38,7 +38,10 @@ public sealed class GameScan
     /// <summary>Another tool has an install in this game (from its records in %LOCALAPPDATA%\DLSS5Manager\Installs).</summary>
     public bool OtherAppRecord => OtherAppRecordRoute is not null;
     public string? OtherAppRecordRoute { get; set; }
-    public bool AntiCheat { get; set; }
+
+    /// <summary>The anti-cheat this game's folder shows, such as "BattlEye" or "Easy Anti-Cheat and BattlEye"; null when none.</summary>
+    public string? AntiCheatName { get; set; }
+    public bool AntiCheat => AntiCheatName is not null;
 
     /// <summary>The main DLSS super-resolution DLL (shortest relative path wins).</summary>
     public UpscalerFile? Dlss => Upscalers.Where(u => u.Kind == UpscalerKind.DlssSR).OrderBy(u => u.Rel.Length).FirstOrDefault();
@@ -182,14 +185,53 @@ public static partial class Scanner
         "dotnet", "ndp4", "netfx", "windowsdesktop-runtime", "oalinst", "openal",
         "crashreport", "crashhandler", "crashpad", "crash_reporter", "unitycrashhandler", "bugsplat", "bssndrpt", "crs-", "redengineerrorreporter",
         "easyanticheat", "start_protected_game", "eac", "beservice", "battleye", "be_", "vanguard", "anticheat",
+        "eaanticheat", "faceit_start_protected_game", "neacclient",
         "patcher", "patch", "updater", "update", "launcher", "benchmark", "readme", "config", "settingstool",
         "modmanager", "mod_manager", "modorganizer", "steamerrorreporter", "unrealcefsubprocess", "cefsharp", "cef_", "cefprocess",
         "qtwebengineprocess", "epicwebhelper", "createdump", "7z", "python", "ueprereqsetup", "prereqsetup", "gamelaunchhelper",
         "rockstar-games-launcher", "redprelauncher", "playgtav", "dlss5-feed-host", "dgvoodoocpl", "reshade_setup",
     };
 
+    // BattlEye's launcher is the game's own name with "_BE" (ArkAscended_BE.exe, DayZ_BE.exe).
     internal static bool IsHelperExe(string fileName) =>
-        IgnoredExePrefixes.Any(p => fileName.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+        IgnoredExePrefixes.Any(p => fileName.StartsWith(p, StringComparison.OrdinalIgnoreCase))
+        || fileName.EndsWith("_BE.exe", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The anti-cheat a file inside a game's folder belongs to, by its name; null for any other file. Anti-cheat that lives
+    /// outside the game's folder (Riot Vanguard, FACEIT's client, Valve's VAC) cannot be seen this way.
+    /// </summary>
+    internal static string? AntiCheatOfFile(string name)
+    {
+        bool Starts(string p) => name.StartsWith(p, StringComparison.OrdinalIgnoreCase);
+        bool Is(string n) => name.Equals(n, StringComparison.OrdinalIgnoreCase);
+        bool Ends(string s) => name.EndsWith(s, StringComparison.OrdinalIgnoreCase);
+        if (Starts("EasyAntiCheat") || Is("start_protected_game.exe")) return "Easy Anti-Cheat";
+        if (Starts("BEService") || Starts("BEClient") || Ends("_BE.exe")) return "BattlEye";
+        if (Starts("EAAntiCheat.")) return "EA Javelin";
+        if (Is("randgrid.sys")) return "RICOCHET";                                    // Call of Duty
+        if (Ends(".xem")) return "XIGNCODE3";
+        if (Starts("NeacSafe") || Is("NeacClient.exe") || Is("NeacInterface.dll")) return "NetEase";
+        if (Is("HoYoKProtect.sys") || Starts("mhyprot")) return "HoYoverse";
+        if (Starts("denuvo-anti-cheat") || Starts("Denuvo Anti-Cheat")) return "Denuvo Anti-Cheat";
+        if (Starts("FACEIT_Start_Protected_Game")) return "FACEIT";
+        if (Is("equ8_conf.json")) return "EQU8";
+        if (Is("GameGuard.des") || (Starts("GameMon") && Ends(".des")) || (Starts("npggNT") && Ends(".des"))) return "nProtect GameGuard";
+        return null;
+    }
+
+    /// <summary>The anti-cheat a folder inside a game's folder belongs to, by its name; null for any other folder.</summary>
+    internal static string? AntiCheatOfFolder(string name) => name.ToLowerInvariant() switch
+    {
+        "easyanticheat" or "easyanticheat_eos" or "easyanticheateos" => "Easy Anti-Cheat",
+        "battleye" => "BattlEye",
+        "eaanticheat" => "EA Javelin",
+        "anticheatexpert" or "aceantibotclient" => "Anti-Cheat Expert (ACE)",
+        "gameguard" => "nProtect GameGuard",
+        "xigncode" => "XIGNCODE3",
+        "blackcipher" => "Nexon Game Security",
+        _ => null,
+    };
 
     /// <summary>
     /// The real game behind Unreal Engine's launcher stub. The small exe beside an Unreal game's Engine folder only starts
@@ -235,7 +277,7 @@ public static partial class Scanner
         var root = System.IO.Path.GetFullPath(gameDir).TrimEnd('\\', '/');
         var exes = new List<string>();
         var upscalers = new List<UpscalerFile>();
-        bool antiCheat = false;
+        var antiCheats = new List<string>();
         int budget = MaxEntries;
 
         var pending = new Stack<(string dir, int depth)>();
@@ -256,9 +298,7 @@ public static partial class Scanner
             {
                 if (--budget <= 0) break;
                 var name = System.IO.Path.GetFileName(f);
-                if (name.StartsWith("EasyAntiCheat", StringComparison.OrdinalIgnoreCase) || name.StartsWith("BEService", StringComparison.OrdinalIgnoreCase)
-                    || name.Equals("start_protected_game.exe", StringComparison.OrdinalIgnoreCase))
-                    antiCheat = true;
+                if (AntiCheatOfFile(name) is { } ac && !antiCheats.Contains(ac)) antiCheats.Add(ac);
                 if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) exes.Add(f);
                 else if (Classify(name) is { } kind)
                     upscalers.Add(new UpscalerFile(f, System.IO.Path.GetRelativePath(root, f), name, kind, Pe.GetFileVersion(f), Pe.GetBitness(f)));
@@ -268,9 +308,9 @@ public static partial class Scanner
             {
                 if (--budget <= 0) break;
                 var name = System.IO.Path.GetFileName(sub);
-                if (name.Equals("EasyAntiCheat", StringComparison.OrdinalIgnoreCase) || name.Equals("BattlEye", StringComparison.OrdinalIgnoreCase))
+                if (AntiCheatOfFolder(name) is { } ac)
                 {
-                    antiCheat = true;
+                    if (!antiCheats.Contains(ac)) antiCheats.Add(ac);
                     continue;
                 }
                 if (SkipDir(name) || depth + 1 > MaxDepth) continue;
@@ -342,7 +382,12 @@ public static partial class Scanner
             OtherAppBackup = otherBackup,
             OtherAppBackupRoute = otherBackup ? ReadBackupRoute(otherManifest) : null,
             OtherAppRecordRoute = OtherAppRecordRouteFor(root),
-            AntiCheat = antiCheat,
+            AntiCheatName = antiCheats.Count switch
+            {
+                0 => null,
+                1 => antiCheats[0],
+                _ => string.Join(", ", antiCheats.Take(antiCheats.Count - 1)) + " and " + antiCheats[^1],
+            },
         };
         if (scan.Primary is not null) InspectExeDir(scan, System.IO.Path.GetDirectoryName(scan.Primary.Path)!);
         return scan;

@@ -65,7 +65,7 @@ DLSS 5 Master checks GitHub for newer RenoDX, MFG unlock, Feeder and OptiScaler 
 - **Updates**: the app and its add-ons update themselves from GitHub, checked against GitHub's published SHA-256.
 - **DLSS 5 on any window**: draws DLSS 5 over a browser, a video or any other open window, for browsing and videos; nothing in that program is changed. Optional frame generation (2x, 3x or 4x), Quality / Balanced / Performance, 1 or 2 neural passes, and HDR on an HDR screen. F9 switches it on and off. A window in exclusive fullscreen hides every overlay: the overlay then waits without using the graphics card and says so. Games use the routes above.
 
-> **Anti-cheat warning:** injecting DLLs into online games can get your account banned. DLSS 5 Master asks you to confirm this for games that ship anti-cheat.
+> **Anti-cheat warning:** injecting DLLs into online games can get your account banned, and anti-cheat often refuses to load ReShade's add-on build at all (ReShade says it is for single-player games). DLSS 5 Master names the anti-cheat it finds in a game's folder (Easy Anti-Cheat, BattlEye, EA Javelin, RICOCHET, ACE, GameGuard, XIGNCODE3 and others) and asks you to confirm before a setup. Anti-cheat that lives outside the game folder (Riot Vanguard, FACEIT's client, VAC) cannot be seen.
 
 ## Requirements
 

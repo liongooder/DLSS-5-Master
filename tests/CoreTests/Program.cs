@@ -474,12 +474,55 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     var scan = Scanner.Scan(fake);
     Check("scan primary", scan.Primary?.Rel == "FakeGame.exe", scan.Primary?.ToString());
     Check("scan ignores helpers and redist", scan.Executables.Count == 1, string.Join(";", scan.Executables.Select(x => x.Rel)));
-    Check("scan anti-cheat", scan.AntiCheat);
+    Check("scan anti-cheat", scan.AntiCheat && scan.AntiCheatName == "Easy Anti-Cheat", scan.AntiCheatName);
     Check("scan upscaler", scan.Upscalers.Count == 1 && scan.Dlss?.Name == "nvngx_dlss.dll" && scan.HasNativeDlss && !scan.HasFrameGen);
     var pref = Scanner.Scan(fake, Path.Combine(fake, "unins000.exe"));
     Check("scan preferred wins", pref.Primary?.Rel == "unins000.exe");
     Check("exe tostring", scan.Primary!.ToString().StartsWith("FakeGame.exe — ") && scan.Primary.ToString().Contains("-bit — ") && scan.Primary.ToString().EndsWith(" MB"), scan.Primary.ToString());
     Directory.Delete(fake, true);
+
+    // Anti-cheat by the files and folders it leaves in a game's folder.
+    foreach (var (file, expected) in new[]
+    {
+        ("EasyAntiCheat_EOS_Setup.exe", "Easy Anti-Cheat"), ("start_protected_game.exe", "Easy Anti-Cheat"),
+        ("BEService_x64.exe", "BattlEye"), ("BEClient_x64.dll", "BattlEye"), ("ArkAscended_BE.exe", "BattlEye"),
+        ("EAAntiCheat.GameServiceLauncher.exe", "EA Javelin"), ("Randgrid.sys", "RICOCHET"), ("x3_x64.xem", "XIGNCODE3"),
+        ("NeacSafe64.sys", "NetEase"), ("HoYoKProtect.sys", "HoYoverse"), ("mhyprot2.sys", "HoYoverse"),
+        ("denuvo-anti-cheat-runtime.dll", "Denuvo Anti-Cheat"), ("Denuvo Anti-Cheat Installer.exe", "Denuvo Anti-Cheat"),
+        ("FACEIT_Start_Protected_Game.exe", "FACEIT"), ("equ8_conf.json", "EQU8"), ("GameMon64.des", "nProtect GameGuard"),
+        ("npggNT64.des", "nProtect GameGuard"),
+        ("Game.exe", null), ("bootstrapper.exe", null), ("anticheat_readme.txt", null), ("BE_Logo.png", null), ("GameMon.log", null),
+    })
+        Check($"anti-cheat file {file}", Scanner.AntiCheatOfFile(file) == expected, Scanner.AntiCheatOfFile(file));
+    foreach (var (folder, expected) in new[]
+    {
+        ("EasyAntiCheat", "Easy Anti-Cheat"), ("EasyAntiCheatEOS", "Easy Anti-Cheat"), ("battleye", "BattlEye"), ("AntiCheatExpert", "Anti-Cheat Expert (ACE)"),
+        ("GameGuard", "nProtect GameGuard"), ("XIGNCODE", "XIGNCODE3"), ("BlackCipher", "Nexon Game Security"), ("EAAntiCheat", "EA Javelin"),
+        ("Binaries", null), ("AntiCheat", null),
+    })
+        Check($"anti-cheat folder {folder}", Scanner.AntiCheatOfFolder(folder) == expected, Scanner.AntiCheatOfFolder(folder));
+
+    // An ARK-like layout: BattlEye beside the game deep in Binaries\Win64, its _BE launcher never taken for the game.
+    var ark = Path.Combine(Path.GetTempPath(), "dlss5cr-ark-" + Guid.NewGuid().ToString("N"));
+    var win64 = Path.Combine(ark, "ShooterGame", "Binaries", "Win64");
+    Directory.CreateDirectory(Path.Combine(win64, "BattlEye"));
+    File.Copy(notepad, Path.Combine(win64, "ArkLike.exe"));
+    File.Copy(notepad, Path.Combine(win64, "ArkLike_BE.exe"));
+    var arkScan = Scanner.Scan(ark);
+    Check("scan: BattlEye deep in the game", arkScan.AntiCheatName == "BattlEye", arkScan.AntiCheatName);
+    Check("scan: the _BE launcher is not the game", arkScan.Primary?.Rel.EndsWith("ArkLike.exe") == true && arkScan.Executables.Count == 1,
+        string.Join(";", arkScan.Executables.Select(x => x.Rel)));
+    Directory.Delete(ark, true);
+
+    // A Call of Duty-like layout (RICOCHET's driver at the root), with Easy Anti-Cheat too: both named.
+    var cod = Path.Combine(Path.GetTempPath(), "dlss5cr-cod-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(Path.Combine(cod, "EasyAntiCheat"));
+    File.Copy(notepad, Path.Combine(cod, "cod.exe"));
+    File.WriteAllText(Path.Combine(cod, "randgrid.sys"), "not a driver");
+    var codScan = Scanner.Scan(cod);
+    Check("scan: two anti-cheats named", codScan.AntiCheatName is "RICOCHET and Easy Anti-Cheat" or "Easy Anti-Cheat and RICOCHET", codScan.AntiCheatName);
+    Directory.Delete(cod, true);
+    Check("anti-cheat warning says it may not load", Installers.AntiCheatWarning("BattlEye").Contains("(BattlEye)") && Installers.AntiCheatWarning("BattlEye").Contains("stops ReShade from loading"));
 }
 
 // ====================================================================== Installers

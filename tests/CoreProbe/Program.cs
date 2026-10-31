@@ -14,7 +14,7 @@ foreach (var g in games)
         var p = s.Primary;
         var dlss = s.Dlss?.Version ?? "-";
         var routes = p is null ? "" : string.Join(",", Installers.RoutesFor(p.Api, p.Bitness, s.HasNativeDlss).Where(r => r.Unavailable is null).Select(r => r.Route));
-        Console.WriteLine($"[{g.Launcher,-7}] {g.Name,-40} {(p is null ? "NO EXE" : $"{p.Rel} | {Scanner.Label(p.Api)} | {p.Bitness}")} | DLSS {dlss} | RS {(s.ReShade.Installed ? s.ReShade.Version + (s.ReShade.AddonSupport ? "+addon" : "") : "-")} | Opti {s.OptiScalerHook ?? (s.OptiScalerIni ? "ini" : "-")} | other {s.OtherAppBackupRoute ?? (s.OtherAppBackup ? "yes" : "-")} | AC {s.AntiCheat} | routes {routes} | poster {(g.Poster is null ? "no" : "yes")} | {sw.ElapsedMilliseconds}ms");
+        Console.WriteLine($"[{g.Launcher,-7}] {g.Name,-40} {(p is null ? "NO EXE" : $"{p.Rel} | {Scanner.Label(p.Api)} | {p.Bitness}")} | DLSS {dlss} | RS {(s.ReShade.Installed ? s.ReShade.Version + (s.ReShade.AddonSupport ? "+addon" : "") : "-")} | Opti {s.OptiScalerHook ?? (s.OptiScalerIni ? "ini" : "-")} | other {s.OtherAppBackupRoute ?? (s.OtherAppBackup ? "yes" : "-")} | AC {s.AntiCheatName ?? "-"} | routes {routes} | poster {(g.Poster is null ? "no" : "yes")} | {sw.ElapsedMilliseconds}ms");
     }
     catch (Exception e) { Console.WriteLine($"{g.Name}: ERROR {e.Message}"); }
 }

@@ -69,6 +69,14 @@ public static partial class Installers
         _ => "optiscaler",
     };
 
+    /// <summary>
+    /// What a game's anti-cheat means for a setup. Every route loads through ReShade's add-on build, which is unsigned and
+    /// not cleared by anti-cheat makers (ReShade's own release notes), so anti-cheat often refuses to load it at all.
+    /// </summary>
+    public static string AntiCheatWarning(string antiCheat) =>
+        $"This game has anti-cheat ({antiCheat}). It often stops ReShade from loading, so DLSS 5 Master may not work here, " +
+        "and injecting ReShade or OptiScaler can get your account banned, especially online.";
+
     public static string RouteLabel(string? key)
     {
         if (string.IsNullOrEmpty(key)) return "none";
@@ -199,8 +207,8 @@ public static partial class Installers
 
         progress?.Report("Scanning the game…");
         var scan = await Task.Run(() => Scanner.Scan(gameDir, exePath, ct), ct);
-        if (scan.AntiCheat && !req.AntiCheatAcknowledged)
-            throw new InstallException("This game uses anti-cheat (EasyAntiCheat/BattlEye). Injecting ReShade or OptiScaler into it can get your account banned, especially online. Tick the acknowledgement to continue anyway.");
+        if (scan.AntiCheatName is { } antiCheat && !req.AntiCheatAcknowledged)
+            throw new InstallException(AntiCheatWarning(antiCheat) + " Tick the acknowledgement to continue anyway.");
 
         var option = RoutesFor(req.Api, req.Bitness, scan.HasNativeDlss, scan.HasFrameGen).First(o => o.Route == req.Route);
         if (option.Unavailable is not null)
