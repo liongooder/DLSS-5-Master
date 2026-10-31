@@ -19,7 +19,7 @@ $files = @(
     @("$dlss/include/nvsdk_ngx_params_dlssg.h",  'ngx\nvsdk_ngx_params_dlssg.h',  'c24fa5aa68ffa2808c828b75cfa32843f1606f80a145f84055ac450d7e6c74ad'),
     @("$dlss/lib/Windows_x86_64/x64/nvsdk_ngx_d.lib", 'ngx\lib\nvsdk_ngx_d.lib', 'bc43df9ec032004fde681d3e3afd01cde239e03a0125b822e88674c84287f99c'),
     @("$nvof/nvOpticalFlowCommon.h",             'nvof\nvOpticalFlowCommon.h',    'cdbdbf0797fc02d2de1051520d4164bb1e36b7722009f46cb16216675319436a'),
-    @("$nvof/nvOpticalFlowD3D11.h",              'nvof\nvOpticalFlowD3D11.h',     'c33a4da15d849e26270bd9f3aff9fe06e0b60eedfbf5bc455b4e326dd1796003')
+    @("$nvof/nvOpticalFlowD3D12.h",              'nvof\nvOpticalFlowD3D12.h',     'f12bbc6c54278cb5d3ae81723ca0363644f672fc3e72b635a709470ffdd6886f')
 )
 foreach ($f in $files) {
     $dest = Join-Path $root $f[1]
