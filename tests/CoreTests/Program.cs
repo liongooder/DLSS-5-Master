@@ -955,6 +955,292 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     finally { ForeignInstalls.OtherAppRecordsDir = saved; Directory.Delete(tmp, true); }
 }
 
+// ---------------------------------------------------------------- a moved game keeps its page choices
+{
+    var tmp = Path.Combine(Path.GetTempPath(), "d5m-moved-" + Guid.NewGuid().ToString("N")[..8]);
+    string Folder(params string[] parts)
+    {
+        var dir = Path.Combine(new[] { tmp }.Concat(parts).ToArray());
+        Directory.CreateDirectory(dir);
+        return dir;
+    }
+    GameEntry Steam(string id, string dir) => new() { Launcher = "Steam", Id = id, Name = "Moved Game™", Dir = dir };
+    bool SamePath(string? a, string? b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+    var none = Array.Empty<GameEntry>();
+    var logs = new List<string>();
+    // Steam's Move install folder: the game left one library (its folder is gone) for another.
+    var oldDir = Path.Combine(tmp, "OldLibrary", "steamapps", "common", "Moved Game");
+    var newDir = Folder("NewLibrary", "steamapps", "common", "Moved Game");
+    var newExe = Path.Combine(Folder("NewLibrary", "steamapps", "common", "Moved Game", "Bin"), "Game.exe");
+    File.WriteAllText(newExe, "exe");
+    var kept = Folder("KeptLibrary", "steamapps", "common", "Moved Game");
+    var poster = Path.Combine(tmp, "artwork", "custom-1.jpg");
+    var moved = Steam("1001", newDir);
+    try
+    {
+        var s = new AppSettings();
+        s.Overrides[oldDir] = new GameOverride { Exe = Path.Combine(oldDir, "Bin", "Game.exe"), Api = "DX11", Poster = poster, LoadAddonsEarly = true };
+        Check("moved, app open: choices changed", MovedGames.Follow(s, new[] { Steam("1001", oldDir) }, new[] { moved }, logs.Add));
+        var o = s.OverrideOf(moved);
+        Check("moved, app open: choices kept, under the new folder only", o is { Api: "DX11", LoadAddonsEarly: true } && o.Poster == poster
+              && s.Overrides.Count == 1 && s.Overrides.ContainsKey(newDir));
+        Check("moved, app open: exe in the new folder", SamePath(o?.Exe, newExe), o?.Exe);
+        Check("moved, app open: marked with the game", o is { Launcher: "Steam", Id: "1001", Name: "Moved Game™" });
+        Check("moved, app open: logged", logs.Count == 1 && logs[0].Contains("Moved Game™") && logs[0].Contains(oldDir) && logs[0].Contains(newDir), string.Join(" | ", logs));
+        Check("moved: nothing more to do on the next read", !MovedGames.Follow(s, new[] { moved }, new[] { moved }, logs.Add) && logs.Count == 1);
+        Check("moved without choices: nothing to keep", !MovedGames.Follow(new AppSettings(), new[] { Steam("1001", oldDir) }, new[] { moved }, logs.Add) && logs.Count == 1);
+        s = new AppSettings();
+        s.Overrides[oldDir] = new GameOverride { Exe = Path.Combine(oldDir, "Bin", "Old.exe"), Api = "Vulkan", LoadAddonsEarly = true };
+        MovedGames.Follow(s, new[] { Steam("1001", oldDir) }, new[] { moved }, logs.Add);
+        Check("moved: an exe not in the new folder is dropped, the other choices stay",
+              s.OverrideOf(moved) is { Exe: null, Api: "Vulkan", LoadAddonsEarly: true } && s.Overrides.Count == 1);
+
+        // Moved while the app was closed: the choices know their game.
+        s = new AppSettings();
+        s.Overrides[oldDir] = new GameOverride { Exe = Path.Combine(oldDir, "Bin", "Game.exe"), Api = "DX12", Launcher = "Steam", Id = "1001", Name = "Moved Game™" };
+        Check("moved, app closed: choices changed", MovedGames.Follow(s, none, new[] { moved }, logs.Add));
+        o = s.OverrideOf(moved);
+        Check("moved, app closed: choices follow the game", o?.Api == "DX12" && SamePath(o.Exe, newExe) && s.Overrides.Count == 1, o?.Exe);
+
+        // Choices saved by an older version know no game: a Steam game is found by its folder's name in another library.
+        s = new AppSettings();
+        s.Overrides[oldDir] = new GameOverride { Exe = Path.Combine(oldDir, "Bin", "Game.exe"), Api = "DX11" };
+        Check("older choices: moved by Steam folder name", MovedGames.Follow(s, none, new[] { moved }, logs.Add));
+        o = s.OverrideOf(moved);
+        Check("older choices: choices, exe and the game", o is { Api: "DX11", Launcher: "Steam", Id: "1001" } && SamePath(o.Exe, newExe) && s.Overrides.Count == 1);
+        s = new AppSettings();
+        s.Overrides[oldDir] = new GameOverride { Api = "DX11" };
+        s.Overrides[newDir] = new GameOverride { Api = "Vulkan" };
+        MovedGames.Follow(s, none, new[] { moved }, logs.Add);
+        Check("older choices: not onto a game with choices of its own", s.Overrides.Count == 2 && s.Overrides[oldDir].Api == "DX11" && s.OverrideOf(moved)?.Api == "Vulkan");
+        s = new AppSettings();
+        s.Overrides[oldDir] = new GameOverride { Api = "DX11" };
+        MovedGames.Follow(s, none, new[] { moved, Steam("1002", kept) }, logs.Add);
+        Check("older choices: not when two games have that folder name", s.Overrides.Count == 1 && s.Overrides.ContainsKey(oldDir));
+        s = new AppSettings();
+        s.Overrides[kept] = new GameOverride { Api = "DX11" };
+        MovedGames.Follow(s, none, new[] { moved }, logs.Add);
+        Check("older choices: not while the old folder is still there", s.Overrides.Count == 1 && s.Overrides.ContainsKey(kept));
+        s = new AppSettings();
+        s.Overrides[oldDir] = new GameOverride { Exe = Path.Combine(oldDir, "Bin", "Old.exe"), Api = "DX11" };
+        MovedGames.Follow(s, none, new[] { moved }, logs.Add);
+        Check("older choices: not when the picked exe is not in the new folder", s.Overrides.Count == 1 && s.Overrides.ContainsKey(oldDir));
+        s = new AppSettings();
+        s.Overrides[oldDir] = new GameOverride { Api = "DX11" };
+        s.Overrides[Path.Combine(tmp, "Older", "steamapps", "common", "Moved Game")] = new GameOverride { Api = "DX12" };
+        MovedGames.Follow(s, none, new[] { moved }, logs.Add);
+        Check("older choices: not when two old folders had that name", s.Overrides.Count == 2 && s.OverrideOf(moved) is null);
+        s = new AppSettings();
+        s.Overrides[oldDir] = new GameOverride { Api = "DX11" };
+        MovedGames.Follow(s, none, new[] { new GameEntry { Launcher = "Folder", Name = "Moved Game", Dir = newDir } }, logs.Add);
+        Check("older choices: only onto a Steam game", s.Overrides.Count == 1 && s.Overrides.ContainsKey(oldDir));
+
+        // The old folder is still in the library (here as one of the user's folders), or the game is there twice: no move.
+        s = new AppSettings();
+        s.Overrides[kept] = new GameOverride { Api = "DX11", Launcher = "Steam", Id = "1001", Name = "Moved Game™" };
+        Check("still in the library: no move", !MovedGames.Follow(s, new[] { Steam("1001", kept) },
+              new[] { moved, new GameEntry { Launcher = "Folder", Name = "Moved Game", Dir = kept } }, logs.Add) && s.Overrides.Count == 1 && s.Overrides.ContainsKey(kept));
+        s = new AppSettings();
+        s.Overrides[oldDir] = new GameOverride { Api = "DX11", Launcher = "Steam", Id = "1001", Name = "Moved Game™" };
+        Check("the same game twice: no move", !MovedGames.Follow(s, none, new[] { moved, Steam("1001", kept) }, logs.Add) && s.Overrides.ContainsKey(oldDir));
+
+        // A game added by hand or found in the user's own folders is its folder: never marked, never followed.
+        var handOld = Path.Combine(tmp, "Hand", "Old");
+        var hand = new GameEntry { Launcher = "Manual", Name = "Hand Game", Dir = Folder("Hand", "New") };
+        var mine = new GameEntry { Launcher = "Folder", Name = "Folder Game", Dir = Folder("Mine", "Folder Game") };
+        s = new AppSettings();
+        s.Overrides[handOld] = new GameOverride { Api = "DX11" };
+        s.OverrideFor(hand).Api = "DX12";
+        s.OverrideFor(mine).Api = "Vulkan";
+        Check("hand-added and folder games: never marked", !MovedGames.Followable(hand) && !MovedGames.Followable(mine)
+              && s.Overrides.Values.All(v => v.Launcher is null && v.Id is null && v.Name is null));
+        Check("hand-added and folder games: never followed", !MovedGames.Follow(s, new[] { new GameEntry { Launcher = "Manual", Name = "Hand Game", Dir = handOld } },
+              new[] { hand, mine }, logs.Add) && s.Overrides.Count == 3 && s.Overrides[handOld].Api == "DX11" && s.OverrideOf(hand)?.Api == "DX12");
+
+        // The new folder has choices of its own: they win, the moved ones fill in the rest.
+        s = new AppSettings();
+        s.Overrides[oldDir] = new GameOverride { Exe = Path.Combine(oldDir, "Bin", "Game.exe"), Api = "DX11", Poster = poster, LoadAddonsEarly = true,
+                                                 Launcher = "Steam", Id = "1001", Name = "Moved Game™" };
+        s.Overrides[newDir] = new GameOverride { Api = "Vulkan" };
+        Check("moved onto choices: changed", MovedGames.Follow(s, none, new[] { moved }, logs.Add));
+        o = s.OverrideOf(moved);
+        Check("moved onto choices: those win, the moved ones fill in", s.Overrides.Count == 1 && o is { Api: "Vulkan", LoadAddonsEarly: true, Launcher: "Steam", Id: "1001" }
+              && o.Poster == poster && SamePath(o.Exe, newExe));
+        // Choices saved under two spellings of the old folder: the one the page used wins, the other fills in.
+        s = new AppSettings();
+        s.Overrides[oldDir + "\\"] = new GameOverride { Api = "DX12", LoadAddonsEarly = true };
+        s.Overrides[oldDir] = new GameOverride { Api = "DX11", Launcher = "Steam", Id = "1001", Name = "Moved Game™" };
+        MovedGames.Follow(s, none, new[] { moved }, logs.Add);
+        Check("moved from two spellings: the page's own wins, the other fills in", s.Overrides.Count == 1 && s.OverrideOf(moved) is { Api: "DX11", LoadAddonsEarly: true });
+
+        // Xbox games have no ID: they are followed by name.
+        var xbox = new GameEntry { Launcher = "Xbox", Name = "Xbox Game", Dir = Folder("D2", "XboxGames", "Xbox Game", "Content") };
+        var otherXbox = new GameEntry { Launcher = "Xbox", Name = "Other Xbox Game", Dir = Folder("D2", "XboxGames", "Other Xbox Game", "Content") };
+        s = new AppSettings();
+        s.Overrides[Path.Combine(tmp, "D1", "XboxGames", "Xbox Game", "Content")] = new GameOverride { Api = "DX12", Launcher = "Xbox", Name = "Xbox Game" };
+        Check("Xbox: followed by name", MovedGames.Follow(s, none, new[] { otherXbox, xbox }, logs.Add) && s.OverrideOf(xbox)?.Api == "DX12"
+              && s.Overrides.Count == 1 && s.OverrideOf(otherXbox) is null);
+
+        // One game in two folders (a stale Steam manifest in a second library, an Xbox folder left on another drive): a copy
+        // that leaves the library without moving keeps its choices, and the other copy keeps its own.
+        var copy = Folder("CopyLibrary", "steamapps", "common", "Moved Game");
+        s = new AppSettings();
+        s.Overrides[kept] = new GameOverride { Api = "DX11", Poster = poster, LoadAddonsEarly = true, Launcher = "Steam", Id = "1001", Name = "Moved Game™" };
+        s.HiddenGames.Add(Library.Normalize(kept));
+        Check("hidden copy: keeps its choices, app open", !MovedGames.Follow(s, new[] { Steam("1001", kept), Steam("1001", copy) }, new[] { Steam("1001", copy) }, logs.Add)
+              && s.Overrides.Count == 1 && s.Overrides.GetValueOrDefault(kept)?.Api == "DX11");
+        Check("hidden copy: keeps its choices, at start", !MovedGames.Follow(s, none, new[] { Steam("1001", copy) }, logs.Add)
+              && s.Overrides.Count == 1 && s.Overrides.GetValueOrDefault(kept) is { Api: "DX11", LoadAddonsEarly: true } && s.OverrideOf(Steam("1001", copy)) is null);
+        var xboxCopy = new GameEntry { Launcher = "Xbox", Name = "Xbox Game", Dir = Folder("D3", "XboxGames", "Xbox Game", "Content") };
+        s = new AppSettings();
+        s.Overrides[xboxCopy.Dir] = new GameOverride { Api = "DX12", Launcher = "Xbox", Name = "Xbox Game" };
+        s.HiddenGames.Add(Library.Normalize(xboxCopy.Dir));
+        Check("hidden Xbox copy: keeps its choices", !MovedGames.Follow(s, none, new[] { xbox }, logs.Add) && s.Overrides.Count == 1 && s.OverrideOf(xbox) is null);
+        s = new AppSettings();
+        s.Overrides[oldDir] = new GameOverride { Api = "DX11", Launcher = "Steam", Id = "1001", Name = "Moved Game™" };
+        s.HiddenGames.Add(Library.Normalize(oldDir));
+        Check("hidden game that moved: choices follow it", MovedGames.Follow(s, none, new[] { moved }, logs.Add) && s.OverrideOf(moved)?.Api == "DX11" && s.Overrides.Count == 1);
+        // A copy uninstalled, or on a drive that is not connected (Steam skips that library): the other copy was in the last
+        // read (in this run, or kept from the last one), so it is not where a game moved.
+        s = new AppSettings();
+        s.Overrides[oldDir] = new GameOverride { Api = "DX11", LoadAddonsEarly = true, Launcher = "Steam", Id = "1001", Name = "Moved Game™" };
+        Check("copy gone: the other copy keeps its own choices", !MovedGames.Follow(s, new[] { Steam("1001", oldDir), Steam("1001", copy) }, new[] { Steam("1001", copy) }, logs.Add)
+              && s.Overrides.Count == 1 && s.Overrides.GetValueOrDefault(oldDir)?.Api == "DX11" && s.OverrideOf(Steam("1001", copy)) is null);
+        // Not in the last read, but its choices are marked with the game: it was in the library as that game before.
+        s = new AppSettings();
+        s.Overrides[oldDir] = new GameOverride { Api = "DX11", LoadAddonsEarly = true, Launcher = "Steam", Id = "1001", Name = "Moved Game™" };
+        s.Overrides[copy] = new GameOverride { Poster = poster, Launcher = "Steam", Id = "1001", Name = "Moved Game™" };
+        Check("copy gone: not onto a copy whose choices are marked with the game", !MovedGames.Follow(s, none, new[] { Steam("1001", copy) }, logs.Add)
+              && s.Overrides.Count == 2 && s.Overrides.GetValueOrDefault(oldDir)?.Api == "DX11" && s.Overrides.GetValueOrDefault(copy) is { Api: null, LoadAddonsEarly: null });
+        s = new AppSettings();
+        s.Overrides[oldDir] = new GameOverride { Api = "DX11" };
+        Check("copy gone: older choices not onto a copy that was in the last read", !MovedGames.Follow(s, new[] { Steam("1001", copy) }, new[] { Steam("1001", copy) }, logs.Add)
+              && s.Overrides.Count == 1 && s.Overrides.ContainsKey(oldDir));
+        // A folder the last read found only as one of the user's folders (Steam still copying into it) did not hold the game.
+        s = new AppSettings();
+        s.Overrides[oldDir] = new GameOverride { Api = "DX11", Launcher = "Steam", Id = "1001", Name = "Moved Game™" };
+        Check("moved into a folder read before as one of the user's", MovedGames.Follow(s, new[] { Steam("1001", oldDir), new GameEntry { Launcher = "Folder", Name = "Moved Game", Dir = newDir } },
+              new[] { moved }, logs.Add) && s.OverrideOf(moved)?.Api == "DX11" && s.Overrides.Count == 1);
+        // Choices a gone copy left behind do not mix with those of the game that moved.
+        var older = Path.Combine(tmp, "Older", "steamapps", "common", "Moved Game");
+        s = new AppSettings();
+        s.Overrides[older] = new GameOverride { Api = "DX11", Launcher = "Steam", Id = "1001", Name = "Moved Game™" };
+        s.Overrides[oldDir] = new GameOverride { Poster = poster, Launcher = "Steam", Id = "1001", Name = "Moved Game™" };
+        Check("moved, app open, beside an older copy's choices: changed", MovedGames.Follow(s, new[] { Steam("1001", oldDir) }, new[] { moved }, logs.Add));
+        o = s.OverrideOf(moved);
+        Check("moved, app open, beside an older copy's choices: only its own move", o is { Api: null } && o.Poster == poster
+              && s.Overrides.Count == 2 && s.Overrides.GetValueOrDefault(older)?.Api == "DX11");
+        s = new AppSettings();
+        s.Overrides[older] = new GameOverride { Api = "DX11", Launcher = "Steam", Id = "1001", Name = "Moved Game™" };
+        Check("moved, app open, with no choices of its own: an older copy's do not take their place",
+              !MovedGames.Follow(s, new[] { Steam("1001", oldDir) }, new[] { moved }, logs.Add) && s.Overrides.Count == 1 && s.OverrideOf(moved) is null);
+        s = new AppSettings();
+        s.Overrides[older] = new GameOverride { Api = "DX11", Launcher = "Steam", Id = "1001", Name = "Moved Game™" };
+        s.Overrides[oldDir] = new GameOverride { Poster = poster, Launcher = "Steam", Id = "1001", Name = "Moved Game™" };
+        Check("moved, app closed, two old folders: which one held it is not known", !MovedGames.Follow(s, none, new[] { moved }, logs.Add)
+              && s.Overrides.Count == 2 && s.OverrideOf(moved) is null);
+
+        // The library as last read is kept: at the next start it is the last read, so a copy that was in it is not where a
+        // game went, while a game that moved since still takes its choices along.
+        MovedGames.KeepLibrary(new[] { Steam("1001", oldDir), Steam("1001", copy), xbox });
+        var last = MovedGames.LastLibrary();
+        Check("last library: kept for the next start", last.Count == 3 && last[0] is { Launcher: "Steam", Id: "1001", Name: "Moved Game™" } && last[0].Dir == oldDir
+              && last[2] is { Launcher: "Xbox", Id: null, Name: "Xbox Game" } && last[2].Dir == xbox.Dir);
+        s = new AppSettings();
+        s.Overrides[oldDir] = new GameOverride { Api = "DX11", Launcher = "Steam", Id = "1001", Name = "Moved Game™" };
+        Check("last library: a copy that was in it keeps its own choices", !MovedGames.Follow(s, last, new[] { Steam("1001", copy) }, logs.Add)
+              && s.Overrides.Count == 1 && s.Overrides.ContainsKey(oldDir));
+        Check("last library: a game that moved since takes its choices along", MovedGames.Follow(s, last.Take(1).ToList(), new[] { moved }, logs.Add)
+              && s.OverrideOf(moved)?.Api == "DX11" && s.Overrides.Count == 1);
+        File.WriteAllText(AppPaths.LibraryCache, """[null,{"Launcher":"Steam","Id":"1001","Name":null,"Dir":null}]""");
+        last = MovedGames.LastLibrary();
+        Check("last library: empty entries read without harm", last.Count == 1 && !MovedGames.Follow(new AppSettings(), last, new[] { moved }, logs.Add));
+        File.WriteAllText(AppPaths.LibraryCache, """[{"Launcher":""");
+        Check("last library: unreadable is empty", MovedGames.LastLibrary().Count == 0);
+        File.Delete(AppPaths.LibraryCache);
+        Check("last library: none is empty", MovedGames.LastLibrary().Count == 0);
+
+        // Choices saved before games were marked get their game when it is read, under any spelling of its folder.
+        var epic = new GameEntry { Launcher = "Epic Games", Id = "test-app-1", Name = "Epic Game", Dir = Folder("Epic", "Epic Game") + "\\" };
+        s = new AppSettings();
+        s.Overrides[epic.Dir.TrimEnd('\\')] = new GameOverride { Api = "DX11" };
+        Check("marked: older choices get their game", MovedGames.Follow(s, none, new[] { epic }, logs.Add)
+              && s.OverrideOf(epic) is { Api: "DX11", Launcher: "Epic Games", Id: "test-app-1", Name: "Epic Game" });
+        Check("marked: once", !MovedGames.Follow(s, none, new[] { epic }, logs.Add));
+        var noId = new GameEntry { Launcher = "Epic Games", Name = "No ID Game", Dir = Folder("Epic", "No ID Game") };
+        s.OverrideFor(noId).Api = "DX12";
+        Check("marked: not an Epic game without its ID", !MovedGames.Followable(noId) && s.OverrideOf(noId) is { Api: "DX12", Launcher: null });
+
+        // An older version saved some choices under the folder as the launcher gives it (artwork, Change .exe) and the rest as
+        // the app writes it (the boxes): they come together when the game is read, those the page showed winning.
+        var spelled = new GameEntry { Launcher = "Epic Games", Id = "test-app-2", Name = "Spelled Game", Dir = Folder("Epic", "Spelled Game") + "\\" };
+        s = new AppSettings();
+        s.Overrides[spelled.Dir.TrimEnd('\\')] = new GameOverride { Exe = Path.Combine(spelled.Dir, "Box.exe"), Api = "Vulkan", LoadAddonsEarly = true };
+        s.Overrides[spelled.Dir] = new GameOverride { Exe = Path.Combine(spelled.Dir, "Picked.exe"), Poster = poster };
+        Check("two spellings: brought together", MovedGames.Follow(s, none, new[] { spelled }, logs.Add) && s.Overrides.Count == 1 && s.Overrides.ContainsKey(spelled.Dir));
+        o = s.OverrideOf(spelled);
+        Check("two spellings: the page's own win, the others fill in", o is { Api: "Vulkan", LoadAddonsEarly: true, Launcher: "Epic Games", Id: "test-app-2" }
+              && o.Poster == poster && o.Exe == Path.Combine(spelled.Dir, "Picked.exe"));
+        Check("two spellings: once", !MovedGames.Follow(s, none, new[] { spelled }, logs.Add));
+        var spelledNoId = new GameEntry { Launcher = "Epic Games", Name = "Spelled Game Without ID", Dir = Folder("Epic", "Spelled Game Without ID") + "\\" };
+        s = new AppSettings();
+        s.Overrides[spelledNoId.Dir.TrimEnd('\\')] = new GameOverride { Api = "DX12" };
+        s.Overrides[spelledNoId.Dir] = new GameOverride { Poster = poster };
+        Check("two spellings: also for a game that is not followed", MovedGames.Follow(s, none, new[] { spelledNoId }, logs.Add) && s.Overrides.Count == 1
+              && s.OverrideOf(spelledNoId) is { Api: "DX12", Launcher: null } && s.OverrideOf(spelledNoId)?.Poster == poster);
+
+        Check("rebase: no exe", MovedGames.RebaseExe(null, oldDir, newDir) is null);
+        Check("rebase: inside the old folder, there in the new one", SamePath(MovedGames.RebaseExe(Path.Combine(oldDir, "Bin", "Game.exe"), oldDir + "\\", newDir), newExe));
+        Check("rebase: inside the old folder, not in the new one", MovedGames.RebaseExe(Path.Combine(oldDir, "Bin", "Old.exe"), oldDir, newDir) is null);
+        Check("rebase: elsewhere and there", MovedGames.RebaseExe(newExe, oldDir, kept) == newExe);
+        Check("rebase: elsewhere and gone", MovedGames.RebaseExe(Path.Combine(tmp, "Elsewhere", "Game.exe"), oldDir, newDir) is null);
+        Check("rebase: not a path", MovedGames.RebaseExe("Game\0.exe", oldDir, newDir) is null);
+
+        // Settings: the game is saved with its choices; read back, lookups ignore case.
+        s = new AppSettings();
+        s.Overrides[newDir] = new GameOverride { Exe = newExe, Api = "DX11", Poster = poster, LoadAddonsEarly = true, Launcher = "Steam", Id = "1001", Name = "Moved Game™" };
+        s.Save();
+        var read = AppSettings.Load();
+        o = read.OverrideOf(moved);
+        Check("settings: the game is saved with its choices", o is { Api: "DX11", LoadAddonsEarly: true, Launcher: "Steam", Id: "1001", Name: "Moved Game™" }
+              && o.Exe == newExe && o.Poster == poster);
+        Check("settings: lookups ignore case after reading", read.Overrides.ContainsKey(newDir.ToUpperInvariant()) && read.OverrideOf(Steam("1001", newDir.ToLowerInvariant())) == o);
+        File.WriteAllText(AppPaths.SettingsFile, """
+            {"Overrides":{"C:\\Games\\Case Game":{"Api":"DX11"},
+                          "c:\\games\\case game":{"Exe":"C:\\Games\\Case Game\\Game.exe","Api":"Vulkan","LoadAddonsEarly":true},
+                          "C:\\Games\\Nothing":null}}
+            """);
+        read = AppSettings.Load();
+        Check("settings: keys that differ only in case are merged, the first one's choices win", read.Overrides.Count == 1
+              && read.OverrideOf(new GameEntry { Dir = @"C:\GAMES\CASE GAME" }) is { Api: "DX11", Exe: @"C:\Games\Case Game\Game.exe", LoadAddonsEarly: true });
+        File.WriteAllText(AppPaths.SettingsFile, """
+            {"ExtraFolders":[],"ManualExes":[],"HiddenGames":[],"RuntimeFolder":"","OptiScalerMenuKey":"0x2D",
+             "Overrides":{"C:\\Games\\Old Game":{"Exe":null,"Api":"DX12","Poster":null,"LoadAddonsEarly":true}}}
+            """);
+        read = AppSettings.Load();
+        Check("settings: a file from an older version reads", read.OverrideOf(new GameEntry { Dir = @"C:\Games\Old Game" })
+              is { Api: "DX12", LoadAddonsEarly: true, Launcher: null, Id: null, Name: null });
+
+        // Launchers report folders differently (Epic with a trailing \, GOG as written): choices are found under any spelling.
+        s = new AppSettings();
+        s.Overrides[newDir + "\\"] = new GameOverride { Api = "DX11" };
+        s.Overrides[kept.Replace('\\', '/')] = new GameOverride { Api = "Vulkan" };
+        Check("lookup: a folder saved with a trailing \\", s.OverrideOf(moved)?.Api == "DX11");
+        Check("lookup: a folder saved with forward slashes", s.OverrideOf(new GameEntry { Dir = kept })?.Api == "Vulkan");
+        s = new AppSettings();
+        s.Overrides[newDir] = new GameOverride { Api = "DX11" };
+        Check("lookup: a folder read with a trailing \\ or forward slashes", s.OverrideOf(new GameEntry { Dir = newDir + "\\" })?.Api == "DX11"
+              && s.OverrideOf(new GameEntry { Dir = newDir.Replace('\\', '/') + "/" })?.Api == "DX11");
+        Check("lookup: choices made there land in the same place", s.OverrideFor(Steam("1001", newDir + "\\")).Api == "DX11" && s.Overrides.Count == 1);
+    }
+    finally
+    {
+        try { File.Delete(AppPaths.SettingsFile); } catch { }
+        try { File.Delete(AppPaths.LibraryCache); } catch { }
+        Directory.Delete(tmp, true);
+    }
+}
+
 // ---------------------------------------------------------------- ReShade that no app recorded: moved aside, never deleted
 {
     var realReShade = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, @"..\..\..\..\..\src\DLSS5Master\payload\reshade\ReShade64.dll"));

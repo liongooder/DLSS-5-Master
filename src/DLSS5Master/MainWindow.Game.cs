@@ -97,7 +97,7 @@ public sealed partial class MainWindow
         if (_game is null) return;
         var game = _game;
         SetBusy(true, "Scanning…");
-        var preferred = _settings.Overrides.GetValueOrDefault(game.Entry.Dir)?.Exe ?? game.Entry.Exe;
+        var preferred = _settings.OverrideOf(game.Entry)?.Exe ?? game.Entry.Exe;
         try
         {
             (_scan, _addonsToLoadEarly, _folderGone) = await Task.Run(() =>
@@ -137,7 +137,7 @@ public sealed partial class MainWindow
             ExeBox.SelectedItem = _scan.Primary;
             if (_scan.Primary is null) ExeBox.PlaceholderText = "No game executable found — use Change .exe";
 
-            var ov = _settings.Overrides.GetValueOrDefault(_game.Entry.Dir);
+            var ov = _settings.OverrideOf(_game.Entry);
             BuildApiBox(ov?.Api);
 
             var manifest = _scan.Manifest;
@@ -395,12 +395,12 @@ public sealed partial class MainWindow
 
     private void ExeBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_populating || _scan is null || SelectedExe is null) return;
+        if (_populating || _scan is null || _game is null || SelectedExe is null) return;
         Scanner.InspectExeDir(_scan, Path.GetDirectoryName(SelectedExe.Path)!);
-        _settings.OverrideFor(_scan.Dir).Exe = SelectedExe == _scan.Executables.FirstOrDefault() ? null : SelectedExe.Path;
+        _settings.OverrideFor(_game.Entry).Exe = SelectedExe == _scan.Executables.FirstOrDefault() ? null : SelectedExe.Path;
         _settings.Save();
         _populating = true;
-        BuildApiBox(_settings.Overrides.GetValueOrDefault(_scan.Dir)?.Api);
+        BuildApiBox(_settings.OverrideOf(_game.Entry)?.Api);
         _populating = false;
         RefreshRoutes();
         RefreshStatus();
@@ -408,8 +408,8 @@ public sealed partial class MainWindow
 
     private void ApiBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_populating || _scan is null) return;
-        _settings.OverrideFor(_scan.Dir).Api = (ApiBox.SelectedItem as ComboBoxItem)?.Tag is RenderApi a ? a.ToString() : null;
+        if (_populating || _scan is null || _game is null) return;
+        _settings.OverrideFor(_game.Entry).Api = (ApiBox.SelectedItem as ComboBoxItem)?.Tag is RenderApi a ? a.ToString() : null;
         _settings.Save();
         RefreshRoutes();
         RefreshStatus();
@@ -430,7 +430,7 @@ public sealed partial class MainWindow
             Log($"Pick an .exe inside {_game.Entry.Dir}. For a game elsewhere, add it with + on the library.");
             return;
         }
-        _settings.OverrideFor(_game.Entry.Dir).Exe = file;
+        _settings.OverrideFor(_game.Entry).Exe = file;
         _settings.Save();
         await RescanAsync();
     }
@@ -521,13 +521,18 @@ public sealed partial class MainWindow
         LogBox.Text = log;
     }
 
-    /// <summary>Reads the library again and opens the same game where it is now (a moved Steam game keeps its app ID).</summary>
+    /// <summary>
+    /// Reads the library again and opens the same game where it is now (a moved Steam game keeps its app ID); reading the
+    /// library has moved the choices made on its page there too.
+    /// </summary>
     private async void RescanLibrary_Click(object sender, RoutedEventArgs e)
     {
         if (_game is null || _busy) return;
         var gone = _game.Entry;
         ClosePanel();
         await LoadLibraryAsync();
+        // A game added by hand is not found again (its page says to add it again): another one by that name is not it.
+        if (gone.Launcher == "Manual") return;
         var found = _all.FirstOrDefault(i => i.Entry.Launcher == gone.Launcher && Directory.Exists(i.Entry.Dir)
             && (gone.Id is not null ? i.Entry.Id == gone.Id : i.Entry.Name.Equals(gone.Name, StringComparison.OrdinalIgnoreCase)));
         if (found is not null) await OpenGameAsync(found);
@@ -535,22 +540,23 @@ public sealed partial class MainWindow
 
     private void EarlyAddonsBox_Click(object sender, RoutedEventArgs e)
     {
-        if (_scan is null) return;
-        _settings.OverrideFor(_scan.Dir).LoadAddonsEarly = EarlyAddonsBox.IsChecked == true ? true : null;
+        if (_scan is null || _game is null) return;
+        _settings.OverrideFor(_game.Entry).LoadAddonsEarly = EarlyAddonsBox.IsChecked == true ? true : null;
         _settings.Save();
     }
 
     private async void LoadEarly_Click(object sender, RoutedEventArgs e)
     {
-        if (_scan is null || _busy) return;
+        if (_scan is null || _game is null || _busy) return;
         var dir = _scan.Dir;
+        var entry = _game.Entry;
         LogBox.Text = "";
         SetBusy(true, "Changing ReShade.ini…");
         try
         {
             await Task.Run(() => Installers.LoadAddonsEarly(dir, Log));
             // Later setups of this game do the same.
-            _settings.OverrideFor(dir).LoadAddonsEarly = true;
+            _settings.OverrideFor(entry).LoadAddonsEarly = true;
             _settings.Save();
             Log("Start the game again. Restore originals undoes this.");
         }

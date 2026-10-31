@@ -34,6 +34,26 @@ public sealed class GameOverride
     public string? Poster { get; set; }
     /// <summary>Setups of this game have ReShade load the add-ons as soon as it starts (ReShade.ini LoadFromDllMain).</summary>
     public bool? LoadAddonsEarly { get; set; }
+    /// <summary>
+    /// The launcher of the game these choices belong to ("Steam", "Epic Games", "GOG", "Ubisoft" or "Xbox"), so they follow
+    /// it to another folder (<see cref="MovedGames"/>); null for a game added by hand or found in the user's own folders.
+    /// </summary>
+    public string? Launcher { get; set; }
+    /// <summary>That launcher's ID of the game (Steam app ID, Epic AppName, GOG or Ubisoft key); null for an Xbox game, found by its name.</summary>
+    public string? Id { get; set; }
+    /// <summary>The game's name as its launcher gives it.</summary>
+    public string? Name { get; set; }
+
+    /// <summary>Takes <paramref name="other"/>'s choices where this one has none: this one's own choices win.</summary>
+    internal void MergeFrom(GameOverride other)
+    {
+        Exe ??= other.Exe;
+        Api ??= other.Api;
+        Poster ??= other.Poster;
+        LoadAddonsEarly ??= other.LoadAddonsEarly;
+        // The game they belong to goes as a whole: never one game's launcher with another one's ID.
+        if (Launcher is null) (Launcher, Id, Name) = (other.Launcher, other.Id, other.Name);
+    }
 }
 
 public sealed class AppSettings
@@ -66,10 +86,32 @@ public sealed class AppSettings
         try
         {
             if (File.Exists(AppPaths.SettingsFile))
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(AppPaths.SettingsFile)) ?? new();
+            {
+                var s = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(AppPaths.SettingsFile)) ?? new();
+                s.Overrides = IgnoringCase(s.Overrides);
+                return s;
+            }
         }
         catch { }
         return new();
+    }
+
+    /// <summary>
+    /// The choices read from the file in a dictionary that ignores case, like a new one. Reading makes a dictionary of its own
+    /// that does not, and after a restart "D:\Games\X" would no longer find what was saved under "d:\games\x". Keys that differ
+    /// only in case are merged.
+    /// </summary>
+    private static Dictionary<string, GameOverride> IgnoringCase(Dictionary<string, GameOverride>? read)
+    {
+        var result = new Dictionary<string, GameOverride>(StringComparer.OrdinalIgnoreCase);
+        if (read is null) return result;
+        foreach (var (dir, o) in read)
+        {
+            if (o is null) continue;
+            if (result.TryGetValue(dir, out var into)) into.MergeFrom(o);
+            else result[dir] = o;
+        }
+        return result;
     }
 
     public void Save()
@@ -80,9 +122,25 @@ public sealed class AppSettings
         File.Move(tmp, AppPaths.SettingsFile, true);
     }
 
-    public GameOverride OverrideFor(string gameDir)
+    /// <summary>
+    /// The choices saved on a game's page, or null. Also found under another spelling of its folder (a trailing \ or /,
+    /// forward slashes), as launchers report folders differently.
+    /// </summary>
+    public GameOverride? OverrideOf(GameEntry game)
     {
-        if (!Overrides.TryGetValue(gameDir, out var o)) Overrides[gameDir] = o = new GameOverride();
+        if (Overrides.TryGetValue(game.Dir, out var o)) return o;
+        if (MovedGames.FolderKey(game.Dir) is not { } key) return null;
+        foreach (var (dir, other) in Overrides)
+            if (string.Equals(MovedGames.FolderKey(dir), key, StringComparison.OrdinalIgnoreCase)) return other;
+        return null;
+    }
+
+    /// <summary>The choices saved on a game's page, made when there are none yet, marked with the game they belong to.</summary>
+    public GameOverride OverrideFor(GameEntry game)
+    {
+        var o = OverrideOf(game);
+        if (o is null) Overrides[game.Dir] = o = new GameOverride();
+        MovedGames.Stamp(o, game);
         return o;
     }
 }

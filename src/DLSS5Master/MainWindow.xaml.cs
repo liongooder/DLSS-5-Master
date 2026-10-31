@@ -17,6 +17,11 @@ public sealed partial class MainWindow : Window
     private readonly List<GameItem> _all = new();
     /// <summary>The games that pass the search and filters, in the order the grid shows them.</summary>
     private List<GameItem> _visible = new();
+    /// <summary>
+    /// The library as last read (at start, as the last run read it): a game missing from the next read may have moved, and a
+    /// folder that was in it is not where one moved to (<see cref="MovedGames"/>).
+    /// </summary>
+    private List<GameEntry> _lastLibrary = MovedGames.LastLibrary();
     private CancellationTokenSource? _scanCts;
 
     public MainWindow()
@@ -183,6 +188,15 @@ public sealed partial class MainWindow : Window
         List<GameEntry> games;
         try { games = await Task.Run(() => Library.Discover(_settings)); }
         catch (Exception e) { LoadingText.Text = "Could not read the game library: " + e.Message; return; }
+        // A game that moved to another folder keeps the choices made on its page; tiles, artwork and scans below use them.
+        if (MovedGames.Follow(_settings, _lastLibrary, games, AppPaths.Log))
+        {
+            try { _settings.Save(); }
+            catch (Exception e) { AppPaths.Log("Could not save settings: " + e.Message); }
+        }
+        _lastLibrary = games;
+        try { MovedGames.KeepLibrary(games); }
+        catch (Exception e) { AppPaths.Log("Could not keep the library list for the next start: " + e.Message); }
         foreach (var g in games) _all.Add(new GameItem(g));
         AppPaths.Log($"Library: found {games.Count} games ({string.Join(", ", games.GroupBy(g => g.Launcher).Select(g => $"{g.Key} {g.Count()}"))}).");
         ApplyFilter(force: true);
@@ -211,7 +225,7 @@ public sealed partial class MainWindow : Window
     /// <summary>The poster file to show: the user's own pick, Steam's local library image, or a downloaded one.</summary>
     private string? PosterPath(GameItem item)
     {
-        var custom = _settings.Overrides.GetValueOrDefault(item.Entry.Dir)?.Poster;
+        var custom = _settings.OverrideOf(item.Entry)?.Poster;
         if (custom is not null && File.Exists(custom)) return custom;
         if (item.Entry.Poster is not null && File.Exists(item.Entry.Poster)) return item.Entry.Poster;
         return Artwork.Cached(item.Entry);
@@ -255,7 +269,7 @@ public sealed partial class MainWindow : Window
         Directory.CreateDirectory(Artwork.CacheDir);
         var copy = Path.Combine(Artwork.CacheDir, "custom-" + Guid.NewGuid().ToString("N")[..12] + Path.GetExtension(file));
         File.Copy(file, copy, true);
-        _settings.OverrideFor(item.Entry.Dir).Poster = copy;
+        _settings.OverrideFor(item.Entry).Poster = copy;
         _settings.Save();
         item.Poster = await LoadImageAsync(copy, 380);
     }
@@ -265,14 +279,14 @@ public sealed partial class MainWindow : Window
         if (ItemOf(sender) is not { } item) return;
         Artwork.ClearCached(item.Entry);
         var path = await Artwork.FetchAsync(item.Entry);
-        var custom = _settings.Overrides.GetValueOrDefault(item.Entry.Dir)?.Poster;
+        var custom = _settings.OverrideOf(item.Entry)?.Poster;
         item.Poster = await LoadImageAsync(custom is not null && File.Exists(custom) ? custom : path ?? item.Entry.Poster, 380);
     }
 
     private async void DefaultArtwork_Click(object sender, RoutedEventArgs e)
     {
         if (ItemOf(sender) is not { } item) return;
-        _settings.OverrideFor(item.Entry.Dir).Poster = null;
+        _settings.OverrideFor(item.Entry).Poster = null;
         _settings.Save();
         var path = PosterPath(item) ?? await Artwork.FetchAsync(item.Entry);
         item.Poster = await LoadImageAsync(path, 380);
@@ -287,7 +301,7 @@ public sealed partial class MainWindow : Window
             await gate.WaitAsync(ct);
             try
             {
-                var preferred = _settings.Overrides.GetValueOrDefault(item.Entry.Dir)?.Exe ?? item.Entry.Exe;
+                var preferred = _settings.OverrideOf(item.Entry)?.Exe ?? item.Entry.Exe;
                 var scan = await Task.Run(() => { try { return Scanner.Scan(item.Entry.Dir, preferred, ct); } catch { return null; } }, ct);
                 item.SetScan(scan);
             }
