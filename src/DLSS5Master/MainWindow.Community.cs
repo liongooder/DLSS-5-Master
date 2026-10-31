@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -85,11 +86,14 @@ public sealed partial class MainWindow
 
         if (editor) target.Children.Add(MyReportEditor(s));
 
-        // Latest notes.
-        if (s.Notes.Count > 0)
+        // Every report with the PC it ran on, newest first (a server before 0.9.8 sends only the ones with a note).
+        if (s.Reports.Count > 0)
         {
-            target.Children.Add(new TextBlock { Text = "WHAT PLAYERS SAY", Style = (Style)Application.Current.Resources["SectionTitle"], Margin = new Thickness(0, 6, 0, 0) });
-            foreach (var n in s.Notes) target.Children.Add(NoteRow(n, s.Mine?.Id == n.Id));
+            var title = !s.AllReports ? "WHAT PLAYERS SAY"
+                : s.Counts.Total > s.Reports.Count ? $"REPORTS · NEWEST {s.Reports.Count} OF {s.Counts.Total}"
+                : $"REPORTS ({s.Reports.Count})";
+            target.Children.Add(new TextBlock { Text = title, Style = (Style)Application.Current.Resources["SectionTitle"], Margin = new Thickness(0, 6, 0, 0) });
+            foreach (var r in s.Reports) target.Children.Add(ReportRow(r, s.Mine?.Id == r.Id));
         }
     }
 
@@ -128,7 +132,8 @@ public sealed partial class MainWindow
 
         var route = manifest.Route;
         bool mfg = manifest.MfgUnlock is not null;
-        box.Children.Add(Muted($"About your install here: {RouteName(route)}{(mfg ? " + MFG " + manifest.MfgUnlock : "")} on {Community.LocalGpu ?? "this PC"}."));
+        var pc = Community.LocalSpecs;
+        box.Children.Add(Muted($"Sent with your report: {RouteName(route)}{(mfg ? " + MFG " + manifest.MfgUnlock : "")} · {(pc.Length > 0 ? pc : "this PC")}."));
         box.Children.Add(buttons);
         box.Children.Add(note);
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
@@ -158,33 +163,54 @@ public sealed partial class MainWindow
         return box;
     }
 
-    private FrameworkElement NoteRow(CommunityNote n, bool mine)
+    /// <summary>
+    /// One player's report: the note (if any), then the route, API, who and when, then the PC it ran on and, smaller, the
+    /// app and add-on versions. A report sent before 0.9.8 knows only the graphics card.
+    /// </summary>
+    private FrameworkElement ReportRow(CommunityReport r, bool mine)
     {
         var grid = new Grid { ColumnSpacing = 10, Padding = new Thickness(0, 8, 0, 8), BorderBrush = Res("RowBorder"), BorderThickness = new Thickness(0, 1, 0, 0) };
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.Children.Add(new TextBlock { Text = Ratings.GetValueOrDefault(n.Rating).Icon ?? "•", FontSize = 18 });
+        var icon = new TextBlock { Text = Ratings.GetValueOrDefault(r.Rating).Icon ?? "•", FontSize = 18 };
+        ToolTipService.SetToolTip(icon, Ratings.GetValueOrDefault(r.Rating).Label);
+        grid.Children.Add(icon);
 
         var text = new StackPanel { Spacing = 2 };
         // Plain text only: notes are shown exactly as typed, never interpreted.
-        text.Children.Add(new TextBlock { Text = n.Note, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+        if (r.Hidden)
+            text.Children.Add(new TextBlock { Text = "Hidden by moderation", FontStyle = Windows.UI.Text.FontStyle.Italic, Foreground = Res("MutedText"), TextWrapping = TextWrapping.Wrap });
+        else if (r.Note.Length > 0)
+            text.Children.Add(new TextBlock { Text = r.Note, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+
+        var who = r.Nickname is { Length: > 0 } nick ? nick + (r.IsDev ? " (developer)" : "") : "";
         text.Children.Add(new TextBlock
         {
-            FontSize = 11, Foreground = Res("MutedText"), TextWrapping = TextWrapping.Wrap,
-            Text = $"{(n.Nickname is { Length: > 0 } who ? who + (n.IsDev ? " (developer)" : "") + " · " : "")}{RouteName(n.Route)}{(n.Mfg ? " + MFG" : "")} · {n.Gpu} · {n.When:d MMM yyyy}{(mine ? " · your report" : "")}",
+            FontSize = 12, TextWrapping = TextWrapping.Wrap,
+            Text = string.Join(" · ", new[]
+            {
+                RouteName(r.Route) + (r.Mfg ? " + MFG" : ""), r.Api.Length > 0 ? Community.ApiLabel(r.Api) : "", who,
+                r.When.ToString("d MMM yyyy", CultureInfo.InvariantCulture), mine ? "your report" : "",
+            }.Where(p => p.Length > 0)),
         });
+        var card = r.Gpu.Length > 0 ? r.Gpu : r.GpuFamily is { Length: > 0 } family && family != "Other" ? family : "";   // a hidden report keeps only the card's family
+        var pc = Community.SpecsLine(card, r.Driver, r.Cpu, r.RamGb, r.Os);
+        if (pc.Length > 0)
+            text.Children.Add(new TextBlock { Text = pc, FontSize = 11, Foreground = Res("MutedText"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+        if (Community.VersionsLine(r.AppVersion, r.Versions) is { Length: > 0 } versions)
+            text.Children.Add(new TextBlock { Text = versions, FontSize = 11, Foreground = Res("MutedText"), TextWrapping = TextWrapping.Wrap, Opacity = 0.75 });
         Grid.SetColumn(text, 1);
         grid.Children.Add(text);
 
-        if (!mine)
+        if (!mine && !r.Hidden)
         {
             var flag = new HyperlinkButton { Content = "Flag", FontSize = 11, Padding = new Thickness(4, 0, 4, 0), VerticalAlignment = VerticalAlignment.Top };
-            ToolTipService.SetToolTip(flag, "Report this note as spam or abusive (needs a community nickname). Notes flagged by several players are hidden.");
+            ToolTipService.SetToolTip(flag, "Report this as spam, fake or abusive (needs a community nickname). The developer sees flagged reports; several flags hide a report's text.");
             flag.Click += async (_, _) =>
             {
                 flag.IsEnabled = false;
-                try { await Community.FlagAsync(n.Id); flag.Content = "Flagged"; }
+                try { await Community.FlagAsync(r.Id); flag.Content = "Flagged"; }
                 catch (Exception ex)
                 {
                     // The server's reason, such as "Choose a nickname first.", says more than "Failed" when it is short.

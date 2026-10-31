@@ -130,13 +130,18 @@ public sealed partial class MainWindow
     {
         var notes = await CommunityHub.ModFlaggedAsync();
         ModList.Children.Clear();
-        if (notes.Count == 0) { ModList.Children.Add(Muted("No flagged notes.")); return; }
+        if (notes.Count == 0) { ModList.Children.Add(Muted("No flagged reports.")); return; }
         foreach (var n in notes)
         {
             var card = Card();
             var info = new StackPanel { Spacing = 6 };
             info.Children.Add(new TextBlock { Text = $"{n.Game} · {n.Rating} · flagged {n.Flags}×{(n.Hidden ? " · HIDDEN" : "")}", FontWeight = FontWeights.SemiBold });
-            info.Children.Add(new TextBlock { Text = n.Note, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+            info.Children.Add(n.Note.Length > 0
+                ? new TextBlock { Text = n.Note, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true }
+                : Muted("(no note)"));
+            // What its author sent besides the note: a report without one can be flagged for these too.
+            var sent = string.Join(" · ", new[] { n.Route.Length > 0 ? RouteName(n.Route) + (n.Mfg ? " + MFG" : "") : "", n.Pc }.Where(p => p.Length > 0));
+            if (sent.Length > 0) info.Children.Add(new TextBlock { Text = sent, FontSize = 12, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
             info.Children.Add(Muted(Ago(n.When)));
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
             buttons.Children.Add(n.Hidden

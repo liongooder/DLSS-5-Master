@@ -9,9 +9,9 @@
 //   GET  /v1/me                          nickname, developer flag, ban, unread private replies
 //   PUT  /v1/me                          { install, nickname }
 //   GET  /v1/games                       list: ?route=&result=working|mixed|broken&q=&sort=recent|reports|name&offset=
-//   GET  /v1/games/<key>                 one game: counts, per-route results, notes, your report
+//   GET  /v1/games/<key>                 one game: counts, per-route results, every report with its PC, notes, your report
 //   POST /v1/reports                     create/replace your report for a game
-//   POST /v1/reports/<id>/flag           3 flags from different nicknamed installs hide a note
+//   POST /v1/reports/<id>/flag           3 flags from different nicknamed installs hide a report's text
 //   GET  /v1/private                     your private thread with the developer
 //   POST /v1/private                     { install, text, image? }
 //   GET  /v1/gallery                     approved pictures, newest first (?offset=)
@@ -42,6 +42,15 @@ const NOTE_MAX = 280, CHAT_MAX = 500, PRIVATE_MAX = 2000, CAPTION_MAX = 140;
 const IMAGE_MAX = 900 * 1024;
 const FLAGS_TO_HIDE = 3;
 const PAGE = 30;
+// The PC a report ran on (sent from 0.9.8 on) and the app's version. A value that does not look like these is stored
+// as '' (memory as 0) rather than refused, so one odd value never loses a report.
+const CPU_RE = /^[A-Za-z0-9 ()@.,+_\/-]{1,64}$/;
+const OS_RE = /^Windows 1[01]( [0-9A-Za-z]{2,8})? \(\d{4,6}\)$/;
+const DRIVER_RE = /^\d{1,5}(\.\d{1,6}){1,3}$/;
+const APP_VERSION_RE = /^\d{1,3}(\.\d{1,5}){1,3}$/;
+const RAM_MAX_GB = 4096;
+// A game's page lists this many reports, newest first.
+const REPORTS_SHOWN = 100;
 // Per hour unless noted.
 const LIMITS = { postPerInstall: 20, postPerIp: 120, readPerIp: 3000, chatPerInstall: 60, uploadsPerInstall: 10, privatePerInstall: 30,
   // Install IDs cost nothing to make, so these also count per connection (hashed IP): one script cannot stuff a game's
@@ -233,12 +242,24 @@ async function getGame(env, key, install) {
        FROM reports r LEFT JOIN profiles p ON p.install = r.install
       WHERE r.game_key = ? AND r.hidden = 0 AND r.note <> ''
       ORDER BY r.updated_at DESC LIMIT 30`).bind(key).all();
+  // Every report with the PC it ran on, newest first and hidden ones last (the app before 0.9.8 reads only "notes"). A
+  // hidden report (flagged, or its author banned) still shows its rating, route and numbers, but none of the text its
+  // author typed or sent: the note, the graphics card and processor names, the add-on versions and the nickname.
+  const reports = await db.prepare(
+    `SELECT r.id, r.rating, r.route, r.mfg, r.api, r.gpu, r.gpu_family, r.driver, r.cpu, r.ram_gb, r.os, r.versions,
+            r.app_version, r.note, r.hidden, r.updated_at, p.nickname, p.is_dev
+       FROM reports r LEFT JOIN profiles p ON p.install = r.install
+      WHERE r.game_key = ?
+      ORDER BY r.hidden, r.updated_at DESC LIMIT ?`).bind(key, REPORTS_SHOWN).all();
   const counts = { works: 0, partly: 0, broken: 0 };
   for (const r of totals.results) counts[r.rating] = r.n;
   const mine = install ? await db.prepare(
     `SELECT id, rating, route, mfg, note, hidden, updated_at FROM reports WHERE install = ? AND game_key = ?`).bind(install, key).first() : null;
   return json({
     key, total: counts.works + counts.partly + counts.broken, counts, byRoute: byRoute.results,
+    reports: reports.results.map(r => r.hidden
+      ? { ...r, gpu: '', cpu: '', note: '', versions: {}, nickname: null, mfg: !!r.mfg, is_dev: false, hidden: true }
+      : { ...r, versions: safeJson(r.versions), mfg: !!r.mfg, is_dev: !!r.is_dev, hidden: false }),
     notes: notes.results.map(n => ({ ...n, mfg: !!n.mfg, is_dev: !!n.is_dev, versions: safeJson(n.versions) })),
     mine,
   });
@@ -257,8 +278,12 @@ async function postReport(env, body, ipHash) {
   const family = clean(str(body.gpuFamily ?? 'Other', 1, 20));
   const api = APIS.has(body.api) ? body.api : '';
   const note = clean(str(body.note ?? '', 0, NOTE_MAX * 2)).slice(0, NOTE_MAX);
-  const appVersion = clean(str(body.appVersion ?? '', 0, 20));
+  const appVersion = matching(body.appVersion, APP_VERSION_RE);
   const versions = JSON.stringify(body.versions && typeof body.versions === 'object' ? body.versions : {}).slice(0, 400);
+  const cpu = matching(body.cpu, CPU_RE);
+  const ramGb = Number.isInteger(body.ramGb) && body.ramGb > 0 && body.ramGb <= RAM_MAX_GB ? body.ramGb : 0;
+  const os = matching(body.os, OS_RE);
+  const driver = matching(body.driver, DRIVER_RE);
   const p = await profile(env, install);
   if (p?.banned) throw new HttpError(403, 'You can no longer post in the community.');
   await limit(env, `post:${install}`, LIMITS.postPerInstall);
@@ -266,14 +291,17 @@ async function postReport(env, body, ipHash) {
   const now = Date.now();
   const before = await env.DB.prepare(`SELECT id, note FROM reports WHERE install = ? AND game_key = ?`).bind(install, key).first();
   await env.DB.prepare(
-    `INSERT INTO reports (game_key, game_name, install, rating, route, mfg, gpu, gpu_family, api, versions, app_version, note, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO reports (game_key, game_name, install, rating, route, mfg, gpu, gpu_family, driver, cpu, ram_gb, os, api, versions,
+                         app_version, note, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (install, game_key) DO UPDATE SET
        game_name = excluded.game_name, rating = excluded.rating, route = excluded.route, mfg = excluded.mfg,
-       gpu = excluded.gpu, gpu_family = excluded.gpu_family, api = excluded.api, versions = excluded.versions,
+       gpu = excluded.gpu, gpu_family = excluded.gpu_family, driver = excluded.driver, cpu = excluded.cpu,
+       ram_gb = excluded.ram_gb, os = excluded.os, api = excluded.api, versions = excluded.versions,
        app_version = excluded.app_version, note = excluded.note, updated_at = excluded.updated_at,
        hidden = CASE WHEN reports.note = excluded.note THEN reports.hidden ELSE 0 END`)
-    .bind(key, name, install, rating, routeName, body.mfg ? 1 : 0, gpu, family, api, versions, appVersion, note, now, now).run();
+    .bind(key, name, install, rating, routeName, body.mfg ? 1 : 0, gpu, family, driver, cpu, ramGb, os, api, versions,
+          appVersion, note, now, now).run();
   if (before && before.note !== note) await env.DB.prepare(`DELETE FROM flags WHERE report_id = ?`).bind(before.id).run();
   return json({ ok: true });
 }
@@ -472,7 +500,8 @@ async function admin(request, env, path, m, q) {
   // Reports / notes
   if (m === 'GET' && path === '/v1/admin/flagged') {
     const r = await db.prepare(
-      `SELECT r.id, r.install AS author, r.game_name, r.rating, r.note, r.hidden, COUNT(f.install) AS flags, r.updated_at
+      `SELECT r.id, r.install AS author, r.game_name, r.rating, r.route, r.mfg, r.gpu, r.driver, r.cpu, r.ram_gb, r.os, r.note,
+              r.hidden, COUNT(f.install) AS flags, r.updated_at
          FROM reports r JOIN flags f ON f.report_id = r.id GROUP BY r.id ORDER BY r.updated_at DESC LIMIT 200`).all();
     return json(r.results);
   }
@@ -585,6 +614,9 @@ function str(v, min, max) {
   if (typeof v !== 'string' || v.length < min || v.length > max) throw new HttpError(400, 'Bad field');
   return v;
 }
+
+/** The value when it is a string that matches <re> in full, else ''. */
+function matching(v, re) { return typeof v === 'string' && re.test(v) ? v : ''; }
 
 // Plain text only: drop control and direction-override characters; keep line breaks where allowed.
 function clean(s, keepLines = false) {

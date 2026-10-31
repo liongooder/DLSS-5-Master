@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -13,12 +14,19 @@ public sealed record CommunityCounts(int Works, int Partly, int Broken)
 
 public sealed record CommunityCombo(string Route, bool Mfg, string GpuFamily, int Works, int Partly, int Broken);
 
-public sealed record CommunityNote(long Id, string Rating, string Route, bool Mfg, string Gpu, string GpuFamily, string AppVersion, string Note, DateTime When,
-                                   string Nickname = "", bool IsDev = false);
+/// <summary>
+/// One player's report and the PC it ran on. Reports sent before 0.9.8 have no driver, processor, memory or Windows ("" / 0);
+/// a hidden one (flagged, or its author banned) comes without its note, card and processor names, versions and nickname.
+/// </summary>
+public sealed record CommunityReport(long Id, string Rating, string Route, bool Mfg, string Api, string Gpu, string GpuFamily, string Driver,
+                                     string Cpu, int RamGb, string Os, string AppVersion, IReadOnlyDictionary<string, string> Versions,
+                                     string Note, bool Hidden, DateTime When, string Nickname = "", bool IsDev = false);
 
 public sealed record CommunityMine(long Id, string Rating, string Route, bool Mfg, string Note, bool Hidden);
 
-public sealed record CommunitySummary(string Key, CommunityCounts Counts, List<CommunityCombo> Combos, List<CommunityNote> Notes, CommunityMine? Mine);
+/// <summary>A game's community page. <paramref name="AllReports"/> is false when the server sent only the reports with a note (its "notes", before 0.9.8).</summary>
+public sealed record CommunitySummary(string Key, CommunityCounts Counts, List<CommunityCombo> Combos, List<CommunityReport> Reports, bool AllReports,
+                                      CommunityMine? Mine);
 
 /// <summary>
 /// Per-game community reports ("works / partly / broken" + an optional short note) shared through the DLSS 5 Master
@@ -91,6 +99,17 @@ public static partial class Community
 
     public static string? LocalGpu => Gpu.Nvidia ?? Gpu.Names.FirstOrDefault();
 
+    /// <summary>
+    /// A report's PC in one line, leaving out what is not known:
+    /// "NVIDIA GeForce RTX 4070 · driver 581.57 · AMD Ryzen 7 7800X3D · 32 GB RAM · Windows 11 24H2 (26100)".
+    /// </summary>
+    public static string SpecsLine(string gpu, string driver, string cpu, int ramGb, string os) => string.Join(" · ",
+        new[] { gpu, driver.Length > 0 ? "driver " + driver : "", cpu, ramGb > 0 ? ramGb.ToString(CultureInfo.InvariantCulture) + " GB RAM" : "", os }
+            .Where(p => p.Length > 0));
+
+    /// <summary>This PC as a report sent from it describes it.</summary>
+    public static string LocalSpecs => SpecsLine(LocalGpu ?? "", Gpu.DriverFor(LocalGpu), PcSpecs.Cpu, PcSpecs.RamGb, PcSpecs.Windows);
+
     // ------------------------------------------------------------------ calls
 
     public static async Task<CommunitySummary> GetAsync(string key, CancellationToken ct = default)
@@ -99,21 +118,59 @@ public static partial class Community
         req.Headers.Add("X-Install", InstallId);
         using var resp = await Http.SendAsync(req, ct);
         await EnsureOk(resp, ct);
-        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
+        return ParseSummary(key, await resp.Content.ReadAsStringAsync(ct));
+    }
+
+    /// <summary>The server's page for one game. A server before 0.9.8 sends no "reports", only the ones with a note ("notes").</summary>
+    internal static CommunitySummary ParseSummary(string key, string json)
+    {
+        using var doc = JsonDocument.Parse(json);
         var r = doc.RootElement;
         var c = r.GetProperty("counts");
         var counts = new CommunityCounts(c.GetProperty("works").GetInt32(), c.GetProperty("partly").GetInt32(), c.GetProperty("broken").GetInt32());
         var combos = r.GetProperty("byRoute").EnumerateArray().Select(x => new CommunityCombo(
             Str(x, "route"), Num(x, "mfg") != 0, Str(x, "gpu_family"), (int)Num(x, "works"), (int)Num(x, "partly"), (int)Num(x, "broken"))).ToList();
-        var notes = r.GetProperty("notes").EnumerateArray().Select(x => new CommunityNote(
-            (long)Num(x, "id"), Str(x, "rating"), Str(x, "route"), x.TryGetProperty("mfg", out var m) && m.ValueKind == JsonValueKind.True,
-            Str(x, "gpu"), Str(x, "gpu_family"), Str(x, "app_version"), Str(x, "note"),
-            DateTimeOffset.FromUnixTimeMilliseconds((long)Num(x, "updated_at")).LocalDateTime,
-            Str(x, "nickname"), x.TryGetProperty("is_dev", out var d) && d.ValueKind == JsonValueKind.True)).ToList();
+        bool all = r.TryGetProperty("reports", out var list) && list.ValueKind == JsonValueKind.Array;
+        var reports = (all ? list : r.GetProperty("notes")).EnumerateArray().Select(x => new CommunityReport(
+            (long)Num(x, "id"), Str(x, "rating"), Str(x, "route"), Bool(x, "mfg"), Str(x, "api"), Str(x, "gpu"), Str(x, "gpu_family"),
+            Str(x, "driver"), Str(x, "cpu"), (int)Num(x, "ram_gb"), Str(x, "os"), Str(x, "app_version"), Versions(x), Str(x, "note"), Bool(x, "hidden"),
+            DateTimeOffset.FromUnixTimeMilliseconds((long)Num(x, "updated_at")).LocalDateTime, Str(x, "nickname"), Bool(x, "is_dev"))).ToList();
         CommunityMine? mine = null;
         if (r.TryGetProperty("mine", out var mi) && mi.ValueKind == JsonValueKind.Object)
             mine = new CommunityMine((long)Num(mi, "id"), Str(mi, "rating"), Str(mi, "route"), Num(mi, "mfg") != 0, Str(mi, "note"), Num(mi, "hidden") != 0);
-        return new CommunitySummary(key, counts, combos, notes, mine);
+        return new CommunitySummary(key, counts, combos, reports, all, mine);
+    }
+
+    private static Dictionary<string, string> Versions(JsonElement e)
+    {
+        var versions = new Dictionary<string, string>();
+        if (e.TryGetProperty("versions", out var v) && v.ValueKind == JsonValueKind.Object)
+            foreach (var p in v.EnumerateObject())
+                if (p.Value.ValueKind == JsonValueKind.String) versions[p.Name] = p.Value.GetString() ?? "";
+        return versions;
+    }
+
+    [GeneratedRegex(@"^[0-9A-Za-z][0-9A-Za-z.\-_+ ]{0,39}$")]
+    private static partial Regex VersionText();
+
+    [GeneratedRegex(@"^\d{1,3}(\.\d{1,5}){1,3}$")]
+    private static partial Regex AppVersionText();
+
+    /// <summary>
+    /// What a report's install used, for a line under it: "DLSS 5 Master 0.9.8 · RenoDX DLSS5 add-on 10.8.0 · MFG unlock (MFGAdaUnlock) 1.7.0".
+    /// Only the add-ons this app knows, with version-looking values: anything else a report carries is not shown.
+    /// </summary>
+    public static string VersionsLine(string appVersion, IReadOnlyDictionary<string, string> versions)
+    {
+        var parts = new List<string>();
+        if (AppVersionText().IsMatch(appVersion)) parts.Add("DLSS 5 Master " + appVersion);
+        foreach (var (id, version) in versions)
+        {
+            if (!VersionText().IsMatch(version)) continue;
+            var name = id == "optiscaler" ? "OptiScaler" : Updates.Sources.FirstOrDefault(s => s.Id == id)?.Name;
+            if (name is not null) parts.Add(name + " " + version);
+        }
+        return string.Join(" · ", parts);
     }
 
     public sealed record Report(string Key, string Name, string Rating, string Route, bool Mfg, string Note, Dictionary<string, string> Versions, RenderApi Api = RenderApi.Unknown);
@@ -151,6 +208,10 @@ public static partial class Community
             ["mfg"] = report.Mfg,
             ["gpu"] = gpu.Length > 80 ? gpu[..80] : gpu,
             ["gpuFamily"] = GpuFamily(gpu),
+            ["driver"] = Gpu.DriverFor(gpu),
+            ["cpu"] = PcSpecs.Cpu,
+            ["ramGb"] = PcSpecs.RamGb,
+            ["os"] = PcSpecs.Windows,
             ["api"] = ApiKey(report.Api),
             ["versions"] = report.Versions,
             ["appVersion"] = Updates.CurrentAppVersion.ToString(),
@@ -176,4 +237,5 @@ public static partial class Community
 
     private static string Str(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
     private static double Num(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : 0;
+    private static bool Bool(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
 }

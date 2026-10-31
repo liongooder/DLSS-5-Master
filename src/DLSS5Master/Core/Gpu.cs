@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
@@ -15,8 +16,8 @@ public static partial class Gpu
     [GeneratedRegex(@"RTX\s*(20|30)\d{2}|RTX\s*A\d{3,4}\b|Quadro\s*RTX", RegexOptions.IgnoreCase)]
     private static partial Regex Rtx20or30();
 
-    private static readonly Lazy<List<string>> _names = new(Read);
-    public static IReadOnlyList<string> Names => _names.Value;
+    private static readonly Lazy<List<(string Name, string Driver)>> _adapters = new(Read);
+    public static IReadOnlyList<string> Names => _adapters.Value.Select(a => a.Name).ToList();
 
     /// <summary>MFGAdaUnlock's default DLSS-G mode targets GeForce RTX 40-series (Ada) cards.</summary>
     public static bool HasRtx40 => Names.Any(n => Rtx40().IsMatch(n));
@@ -28,9 +29,34 @@ public static partial class Gpu
     public static bool HasRtx => Names.Any(n => n.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) && n.Contains("RTX", StringComparison.OrdinalIgnoreCase));
     public static string? Nvidia => Names.FirstOrDefault(n => n.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase));
 
-    private static List<string> Read()
+    /// <summary>
+    /// The driver of the adapter called <paramref name="name"/>: NVIDIA's own numbering for an NVIDIA card ("581.57"),
+    /// Windows' version for any other ("32.0.101.6979"); "" when unknown.
+    /// </summary>
+    public static string DriverFor(string? name)
     {
-        var list = new List<string>();
+        var version = _adapters.Value.FirstOrDefault(a => a.Name == name).Driver;
+        if (string.IsNullOrEmpty(version)) return "";
+        return name!.Contains("NVIDIA", StringComparison.OrdinalIgnoreCase) ? NvidiaDriver(version) : version;
+    }
+
+    /// <summary>
+    /// NVIDIA's driver number from Windows' version of it: the last five digits of its last two parts, so 32.0.15.8157 is
+    /// driver 581.57. Anything else comes back unchanged.
+    /// </summary>
+    internal static string NvidiaDriver(string windowsVersion)
+    {
+        var parts = windowsVersion.Split('.');
+        if (parts.Length != 4 || parts.Any(p => p.Length == 0 || !p.All(char.IsAsciiDigit)) || parts[3].Length > 4) return windowsVersion;
+        var digits = parts[2] + parts[3].PadLeft(4, '0');
+        if (digits.Length < 5) return windowsVersion;
+        digits = digits[^5..];
+        return int.Parse(digits[..3], NumberStyles.None, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture) + "." + digits[3..];
+    }
+
+    private static List<(string Name, string Driver)> Read()
+    {
+        var list = new List<(string Name, string Driver)>();
         try
         {
             using var cls = Registry.LocalMachine.OpenSubKey(DisplayClass);
@@ -38,7 +64,8 @@ public static partial class Gpu
             foreach (var sub in cls.GetSubKeyNames().Where(s => Regex.IsMatch(s, @"^\d{4}$")))
             {
                 using var k = cls.OpenSubKey(sub);
-                if (k?.GetValue("DriverDesc") is string name && !list.Contains(name)) list.Add(name);
+                if (k?.GetValue("DriverDesc") is string name && !list.Any(a => a.Name == name))
+                    list.Add((name, k.GetValue("DriverVersion") as string ?? ""));
             }
         }
         catch { }

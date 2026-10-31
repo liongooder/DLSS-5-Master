@@ -301,13 +301,15 @@ public sealed partial class MainWindow
 
     private async Task ShowCommunityGameAsync(CommunityGame g)
     {
-        var panel = new StackPanel { Spacing = 12, MinWidth = 560 };
+        var panel = new StackPanel { Spacing = 12, MinWidth = 700 };
         panel.Children.Add(Muted("Loading…"));
         var dialog = new ContentDialog
         {
             XamlRoot = Root.XamlRoot, Title = g.Name, CloseButtonText = "Close",
             Content = new ScrollViewer { Content = panel, MaxHeight = 560, Padding = new Thickness(0, 0, 12, 0) },
         };
+        // Wider than the 548 px a dialog allows by default (which also cut off the Flag links), so each report's PC line fits.
+        dialog.Resources["ContentDialogMaxWidth"] = 860.0;
         _ = Task.Run(async () =>
         {
             try

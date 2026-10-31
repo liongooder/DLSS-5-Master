@@ -652,6 +652,66 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Check("install id: 32 hex, stable", id1.Length == 32 && id1.All(Uri.IsHexDigit) && id1 == id2);
 }
 
+// ---------------------------------------------------------------- community: the PC a report ran on, and every report on a game's page
+{
+    Check("cpu: AMD core count dropped", PcSpecs.CleanCpu("AMD Ryzen 7 7800X3D 8-Core Processor           ") == "AMD Ryzen 7 7800X3D", PcSpecs.CleanCpu("AMD Ryzen 7 7800X3D 8-Core Processor           "));
+    Check("cpu: Intel trademarks and clock dropped", PcSpecs.CleanCpu("Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz") == "Intel Core i7-8700K", PcSpecs.CleanCpu("Intel(R) Core(TM) i7-8700K CPU @ 3.70GHz"));
+    Check("cpu: Intel 13th gen", PcSpecs.CleanCpu("13th Gen Intel(R) Core(TM) i7-13700K") == "13th Gen Intel Core i7-13700K");
+    Check("cpu: Core Ultra", PcSpecs.CleanCpu("Intel(R) Core(TM) Ultra 9 285K") == "Intel Core Ultra 9 285K");
+    Check("cpu: built-in Radeon dropped", PcSpecs.CleanCpu("AMD Ryzen 7 7840HS w/ Radeon 780M Graphics") == "AMD Ryzen 7 7840HS", PcSpecs.CleanCpu("AMD Ryzen 7 7840HS w/ Radeon 780M Graphics"));
+    Check("cpu: with Radeon Graphics dropped", PcSpecs.CleanCpu("AMD Ryzen 5 5600G with Radeon Graphics") == "AMD Ryzen 5 5600G");
+    Check("cpu: unknown", PcSpecs.CleanCpu(null) == "" && PcSpecs.CleanCpu("   ") == "");
+    Check("cpu: capped at 64", PcSpecs.CleanCpu(new string('x', 90)).Length == 64);
+    Check("nvidia driver: 581.57", Gpu.NvidiaDriver("32.0.15.8157") == "581.57", Gpu.NvidiaDriver("32.0.15.8157"));
+    Check("nvidia driver: 536.23", Gpu.NvidiaDriver("31.0.15.3623") == "536.23", Gpu.NvidiaDriver("31.0.15.3623"));
+    Check("nvidia driver: 456.71", Gpu.NvidiaDriver("27.21.14.5671") == "456.71", Gpu.NvidiaDriver("27.21.14.5671"));
+    Check("nvidia driver: odd values kept", Gpu.NvidiaDriver("garbage") == "garbage" && Gpu.NvidiaDriver("1.2.3") == "1.2.3" && Gpu.NvidiaDriver("32.0.15.81570") == "32.0.15.81570");
+    Check("windows: 11 with release", PcSpecs.WindowsLabel(26100, "24H2") == "Windows 11 24H2 (26100)", PcSpecs.WindowsLabel(26100, "24H2"));
+    Check("windows: 10", PcSpecs.WindowsLabel(19045, "22H2") == "Windows 10 22H2 (19045)");
+    Check("windows: odd release left out", PcSpecs.WindowsLabel(22631, "x y") == "Windows 11 (22631)" && PcSpecs.WindowsLabel(22631, null) == "Windows 11 (22631)");
+    Check("windows: unknown", PcSpecs.WindowsLabel(0, "24H2") == "");
+    Check("specs line: full", Community.SpecsLine("NVIDIA GeForce RTX 4070", "581.57", "AMD Ryzen 7 7800X3D", 32, "Windows 11 24H2 (26100)")
+        == "NVIDIA GeForce RTX 4070 · driver 581.57 · AMD Ryzen 7 7800X3D · 32 GB RAM · Windows 11 24H2 (26100)");
+    Check("specs line: unknowns left out", Community.SpecsLine("NVIDIA GeForce RTX 4070", "", "", 0, "") == "NVIDIA GeForce RTX 4070");
+    Check("versions line: known add-ons only", Community.VersionsLine("0.9.8", new Dictionary<string, string> { ["renodx-dlss5"] = "10.8.0", ["mfgunlock"] = "1.7.0", ["made-up"] = "1.0", ["optiscaler"] = "0.9.81" })
+        == "DLSS 5 Master 0.9.8 · RenoDX DLSS5 add-on 10.8.0 · MFG unlock (MFGAdaUnlock) 1.7.0 · OptiScaler 0.9.81",
+        Community.VersionsLine("0.9.8", new Dictionary<string, string> { ["renodx-dlss5"] = "10.8.0", ["mfgunlock"] = "1.7.0", ["made-up"] = "1.0", ["optiscaler"] = "0.9.81" }));
+    Check("versions line: text that is not a version is not shown", Community.VersionsLine("free text", new Dictionary<string, string> { ["renodx-dlss5"] = "<b>hello</b>" }) == "");
+
+    // This PC's own values must pass the community server's checks (community/src/worker.js), or they would be stored empty.
+    var cpu = PcSpecs.Cpu; var os = PcSpecs.Windows; var driver = Gpu.DriverFor(Community.LocalGpu);
+    Check("this pc: processor fits the server", cpu.Length == 0 || System.Text.RegularExpressions.Regex.IsMatch(cpu, @"^[A-Za-z0-9 ()@.,+_/-]{1,64}$"), cpu);
+    Check("this pc: Windows fits the server", System.Text.RegularExpressions.Regex.IsMatch(os, @"^Windows 1[01]( [0-9A-Za-z]{2,8})? \(\d{4,6}\)$"), os);
+    Check("this pc: driver fits the server", driver.Length == 0 || System.Text.RegularExpressions.Regex.IsMatch(driver, @"^\d{1,5}(\.\d{1,6}){1,3}$"), driver);
+    Check("this pc: memory", PcSpecs.RamGb is > 0 and <= 4096, PcSpecs.RamGb.ToString());
+    Check("this pc: app version fits the server", System.Text.RegularExpressions.Regex.IsMatch(Updates.CurrentAppVersion.ToString(), @"^\d{1,3}(\.\d{1,5}){1,3}$"), Updates.CurrentAppVersion.ToString());
+
+    var page = Community.ParseSummary("steam:1", """
+        {"key":"steam:1","total":3,"counts":{"works":1,"partly":0,"broken":2},
+         "byRoute":[{"route":"native","mfg":1,"gpu_family":"RTX 40","works":0,"partly":0,"broken":1}],
+         "reports":[
+           {"id":7,"rating":"broken","route":"native","mfg":true,"api":"dx12","gpu":"NVIDIA GeForce RTX 4070","gpu_family":"RTX 40","driver":"581.57",
+            "cpu":"AMD Ryzen 7 7800X3D","ram_gb":32,"os":"Windows 11 24H2 (26100)","versions":{"renodx-dlss5":"10.8.0"},"app_version":"0.9.8",
+            "note":"","hidden":false,"updated_at":1793404800000,"nickname":null,"is_dev":false},
+           {"id":6,"rating":"broken","route":"feeder","mfg":false,"api":"","gpu":"","gpu_family":"RTX 30","driver":"","cpu":"","ram_gb":16,"os":"",
+            "versions":{},"app_version":"0.9.5","note":"","hidden":true,"updated_at":1793304800000,"nickname":null,"is_dev":false}],
+         "notes":[],"mine":{"id":6,"rating":"broken","route":"feeder","mfg":0,"note":"","hidden":1,"updated_at":1793304800000}}
+        """);
+    Check("page: every report", page.AllReports && page.Reports.Count == 2 && page.Reports[0].Id == 7 && page.Reports[1].Hidden);
+    var first = page.Reports[0];
+    Check("page: a report's PC", first.Cpu == "AMD Ryzen 7 7800X3D" && first.RamGb == 32 && first.Driver == "581.57" && first.Os == "Windows 11 24H2 (26100)"
+        && first.Mfg && first.Api == "dx12" && first.Versions.GetValueOrDefault("renodx-dlss5") == "10.8.0", first.ToString());
+    Check("page: own report", page.Mine is { Id: 6, Hidden: true });
+    var older = Community.ParseSummary("steam:1", """
+        {"key":"steam:1","total":1,"counts":{"works":0,"partly":0,"broken":1},
+         "byRoute":[{"route":"native","mfg":1,"gpu_family":"RTX 40","works":0,"partly":0,"broken":1}],
+         "notes":[{"id":3,"rating":"broken","route":"native","mfg":true,"gpu":"NVIDIA GeForce RTX 4070","gpu_family":"RTX 40","versions":{},
+                   "app_version":"0.9.7","note":"Blocked by the anti-cheat","updated_at":1793404800000,"nickname":null,"is_dev":false}],"mine":null}
+        """);
+    Check("page: a server before 0.9.8 sends only notes", !older.AllReports && older.Reports.Count == 1 && older.Reports[0].Note == "Blocked by the anti-cheat"
+        && older.Reports[0].Cpu == "" && older.Reports[0].RamGb == 0 && older.Combos[0].Mfg && older.Mine is null);
+}
+
 // ---------------------------------------------------------------- add-on updates the app now includes are dropped
 {
     var mfg = Updates.Sources.First(s => s.Id == "mfgunlock");
