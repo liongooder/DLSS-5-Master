@@ -28,6 +28,9 @@ public sealed class InstallRequest
 
 public sealed record RouteOption(Route Route, string Label, string Description, string? Unavailable);
 
+/// <summary>A settings file the player changed in the game, kept across a reinstall: its path inside the game folder and its bytes.</summary>
+internal sealed record KeptSetting(string Rel, byte[] Bytes);
+
 public static partial class Installers
 {
     public static readonly string[] OptiHookNames = { "dxgi.dll", "winmm.dll", "version.dll", "dbghelp.dll", "d3d12.dll", "wininet.dll", "winhttp.dll", "OptiScaler.asi" };
@@ -268,20 +271,35 @@ public static partial class Installers
         if (wantMfg) mfg = await components.MfgUnlockAsync(progress, ct);
         ct.ThrowIfCancellationRequested();
 
-        // ---- 3. undo an earlier install by this app
-        if (Journal.ReadManifest(gameDir) is not null)
+        // ---- 3. undo an earlier install by this app, keeping the settings the player changed in the game
+        var kept = new List<KeptSetting>();
+        var old = Journal.ReadManifest(gameDir);
+        if (old is not null)
         {
+            // The downloads can take minutes, and ReShade saves its settings while the game runs.
+            AssertGameClosed(exePath);
             log("Restoring the previous install by DLSS 5 Master first…");
             progress?.Report("Restoring the previous install…");
-            await Task.Run(() => Session.Restore(gameDir, log));
+            kept = await Task.Run(() => KeepSettings(gameDir, old, exeDir, req.Route, req.Bitness, wantMfg, build.Id, log));
+            await Task.Run(() => RestoreForReinstall(gameDir, kept, log));
         }
 
         // ---- 4. install
         progress?.Report("Installing…");
         var session = Session.Begin(gameDir, exePath, RouteKey(req.Route), ApiKey(req.Api), req.Bitness, log);
+        // Recorded with the route, before any file is written: a setup that stops part-way still tells the next Reinstall
+        // which OptiScaler build and which MFG unlock the settings it put back belong to.
+        if (req.Route == Route.OptiScaler)
+        {
+            session.Manifest.OptiScalerBuild = build.Id;
+            session.Manifest.OptiScalerHook = req.OptiHook;
+        }
+        if (wantMfg) session.Manifest.MfgUnlock = Updates.InUse(Updates.Sources.First(s => s.Id == "mfgunlock")).Version;
         session.Save();
         await Task.Run(() =>
         {
+            // First, so the route code puts the app's own keys back on top of the player's settings.
+            if (kept.Count > 0) PutBackSettings(session, exeDir, kept);
             var job = new Job
             {
                 Req = req, S = session, ExeDir = exeDir, Runtime = runtime,
@@ -303,6 +321,131 @@ public static partial class Installers
             session.Save();
         });
         session.Log($"Done: {RouteLabel(RouteKey(req.Route))} installed. Restore originals undoes every change.");
+    }
+
+    // ------------------------------------------------------------------ in-game settings kept across a reinstall
+
+    /// <summary>
+    /// Reads, before the restore that starts a reinstall, the settings files that restore would undo: ReShade.ini (ReShade's
+    /// own settings and the RenoDX add-ons') with its presets, the Feeder's, OptiScaler's and the MFG unlock's. A route's files
+    /// only while the route stays the same (for OptiScaler also the build, whose settings differ from build to build), the MFG
+    /// unlock's while it stays on, and none when the game's executable is in another folder now. Files the restore leaves
+    /// alone need nothing. <see cref="PutBackSettings"/> writes them into the new install.
+    /// </summary>
+    internal static List<KeptSetting> KeepSettings(string gameDir, Manifest old, string exeDir, Route route, int bitness, bool mfg,
+                                                   string? optiBuild, Action<string> log)
+    {
+        var kept = new List<KeptSetting>();
+        var root = Path.GetFullPath(gameDir).TrimEnd('\\', '/');
+        var dir = Path.GetFullPath(exeDir).TrimEnd('\\', '/');
+        bool routeBefore = old.Route is "native" or "multipass" or "feeder" or "optiscaler";
+        string? dirBefore = null;
+        try { if (!string.IsNullOrEmpty(old.Exe)) dirBefore = Path.GetDirectoryName(Journal.SafePath(root, old.Exe)); }
+        catch (InstallException) { }
+        if (dirBefore is null || !dirBefore.Equals(dir, StringComparison.OrdinalIgnoreCase))
+        {
+            if (routeBefore) log("The game's executable is in another folder now, so this setup starts with fresh in-game settings.");
+            return kept;
+        }
+
+        var candidates = new List<string>();
+        var routeKey = RouteKey(route);
+        if (old.Route != routeKey)
+        {
+            if (routeBefore) log($"The route changed from {RouteLabel(old.Route)} to {RouteLabel(routeKey)}, so this setup starts with fresh in-game settings.");
+        }
+        else if (route == Route.OptiScaler)
+        {
+            if (old.OptiScalerBuild == optiBuild) candidates.Add(Path.Combine(dir, "OptiScaler.ini"));
+        }
+        else
+        {
+            var ini = Path.Combine(dir, "ReShade.ini");
+            candidates.Add(ini);
+            var presetPath = Ini.Get(Ini.ReadText(ini), "GENERAL", "PresetPath");
+            // ReShade's own preset also when the player has since switched to another one: the restore would remove it.
+            candidates.Add(Path.Combine(dir, "ReShadePreset.ini"));
+            // A preset is an .ini or .txt file: a PresetPath naming anything else (a DLL of the install, say) brings nothing back.
+            if (!string.IsNullOrWhiteSpace(presetPath) && PresetInGame(root, dir, presetPath) is { } preset
+                && (preset.EndsWith(".ini", StringComparison.OrdinalIgnoreCase) || preset.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)))
+                candidates.Add(preset);
+            if (route == Route.Feeder) candidates.Add(Path.Combine(dir, "dlss5-feed.cfg"));
+            if (route == Route.Feeder && bitness == 32) candidates.Add(Path.Combine(dir, "host64", "ReShade.ini"));
+        }
+        // The player's choices (XeMFG or not, the per-game profiles), not the add-on's log or compatibility report.
+        if (old.MfgUnlock is not null && mfg)
+        {
+            candidates.Add(Path.Combine(dir, "MFGAdaUnlock.ini"));
+            candidates.Add(Path.Combine(dir, "MFGAdaUnlock.profiles.json"));
+        }
+
+        // Only what the restore changes: the files in the record, and those the add-ons wrote while the game ran.
+        var recorded = old.Added.Concat(old.Replaced.Select(r => r.Rel)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var leftovers = Journal.RuntimeLeftovers(root, old);
+        foreach (var file in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var rel = Path.GetRelativePath(root, file);
+            if (!File.Exists(file) || !(recorded.Contains(rel) || leftovers.Contains(file, StringComparer.OrdinalIgnoreCase))) continue;
+            try { kept.Add(new KeptSetting(rel, File.ReadAllBytes(file))); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { log($"Could not keep {rel}: {e.Message}"); }
+        }
+        return kept;
+    }
+
+    /// <summary>
+    /// The restore that starts a reinstall. When it stops part-way (another program holds a file of the install open), its
+    /// record stays and still covers every file <see cref="KeepSettings"/> read: the kept settings go back where they were
+    /// before the error is passed on, so the next try keeps them again and Restore originals still undoes them.
+    /// </summary>
+    private static void RestoreForReinstall(string gameDir, IReadOnlyList<KeptSetting> kept, Action<string> log)
+    {
+        try { Session.Restore(gameDir, log); }
+        catch
+        {
+            // Never once the record is closed: nothing would undo them then.
+            if (File.Exists(Journal.ManifestPath(gameDir)))
+            {
+                var putBack = new List<string>();
+                foreach (var k in kept)
+                {
+                    var file = Journal.SafePath(gameDir, k.Rel);
+                    try
+                    {
+                        if (File.Exists(file) && File.ReadAllBytes(file).AsSpan().SequenceEqual(k.Bytes)) continue;
+                        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+                        Journal.ClearReadOnly(file);
+                        File.WriteAllBytes(file, k.Bytes);
+                        putBack.Add(k.Rel);
+                    }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException) { log($"Could not put back {k.Rel}: {e.Message}"); }
+                }
+                if (putBack.Count > 0) log($"Put back your in-game settings: {string.Join(", ", putBack)}.");
+            }
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Writes the settings <see cref="KeepSettings"/> kept into the new install, recorded like every other change so Restore
+    /// originals still puts back what was there before the first setup. The route code runs after it and puts the app's own
+    /// keys back on top. The DLSS 5 add-ons come off ReShade.ini's LoadFromDllMain line, other entries stay: the "Load add-ons
+    /// early" box decides those, and <see cref="UpdateEarlyAddons"/> puts them back when it is ticked. Those that the player's
+    /// own ReShade.ini from before the first setup listed stay as well, as they did through that setup.
+    /// </summary>
+    internal static void PutBackSettings(Session s, string exeDir, IReadOnlyList<KeptSetting> kept)
+    {
+        var iniPath = Path.GetFullPath(Path.Combine(exeDir, "ReShade.ini"));
+        // What the restore left there: the player's own ReShade.ini from before the first setup, if there was one.
+        var listedBefore = SplitList(Ini.Get(Ini.ReadText(iniPath), "ADDON", "LoadFromDllMain"));
+        foreach (var k in kept) s.WriteTracked(Journal.SafePath(s.GameDir, k.Rel), k.Bytes, "settings");
+        if (kept.Any(k => Journal.SafePath(s.GameDir, k.Rel).Equals(iniPath, StringComparison.OrdinalIgnoreCase)))
+        {
+            var text = Ini.ReadText(iniPath);
+            var listed = SplitList(Ini.Get(text, "ADDON", "LoadFromDllMain"));
+            var others = listed.Where(n => !IsDlssAddon(n) || listedBefore.Contains(n, StringComparer.OrdinalIgnoreCase)).ToList();
+            if (others.Count < listed.Count) s.WriteTracked(iniPath, Ini.Set(text, "ADDON", "LoadFromDllMain", string.Join(",", others)));
+        }
+        s.Log($"Kept your in-game settings: {string.Join(", ", kept.Select(k => k.Rel))}.");
     }
 
     // ------------------------------------------------------------------ shared steps
@@ -668,10 +811,8 @@ public static partial class Installers
         if (x64) ini = ApplyConsumerSettings(ini, helper: false);
 
         // Never edit a preset shared with other games: fall back to a local one.
-        string presetFile;
-        try { presetFile = Path.GetFullPath(Path.Combine(job.ExeDir, presetPath.Trim().Trim('"'))); }
-        catch { presetFile = ""; }
-        if (presetFile.Length == 0 || !presetFile.StartsWith(job.S.GameDir + "\\", StringComparison.OrdinalIgnoreCase))
+        var presetFile = PresetInGame(job.S.GameDir, job.ExeDir, presetPath);
+        if (presetFile is null)
         {
             job.Log($"The preset path {presetPath} points outside the game; using a local ReShadePreset.ini instead.");
             ini = Ini.Set(ini, "GENERAL", "PresetPath", @".\ReShadePreset.ini");
@@ -715,6 +856,18 @@ public static partial class Installers
         EnableAddon(job, job.ExeDir, feedName);
         EnableAddon(job, hostDir, ConsumerAddon);
         job.Log("In the ReShade overlay, enable DLSS5_Feed and vort_MotionEffects.");
+    }
+
+    /// <summary>
+    /// The preset file a ReShade.ini's PresetPath names, resolved against the game's executable folder; null when it leads
+    /// out of the game folder <paramref name="gameDir"/> (a preset shared with other games).
+    /// </summary>
+    private static string? PresetInGame(string gameDir, string exeDir, string presetPath)
+    {
+        string presetFile;
+        try { presetFile = Path.GetFullPath(Path.Combine(exeDir, presetPath.Trim().Trim('"'))); }
+        catch { return null; }
+        return presetFile.StartsWith(gameDir + "\\", StringComparison.OrdinalIgnoreCase) ? presetFile : null;
     }
 
     private static string ApplyConsumerSettings(string ini, bool helper)
@@ -829,7 +982,7 @@ public static partial class Installers
         var pkg = job.OptiFolder!;
         var exeDir = job.ExeDir;
 
-        // 1. Another proxy DLL or ASI loader in the way?
+        // Another proxy DLL or ASI loader in the way?
         foreach (var f in Directory.EnumerateFiles(exeDir).ToList())
         {
             var name = Path.GetFileName(f);
@@ -849,10 +1002,6 @@ public static partial class Installers
             }
             throw new InstallException($"{name} next to the game belongs to another mod or loader (maybe an older OptiScaler). Remove it, or restore it in the tool that installed it, then try again.");
         }
-
-        // 2. Record what is being installed.
-        job.S.Manifest.OptiScalerBuild = build.Id;
-        job.S.Manifest.OptiScalerHook = hook;
 
         if (build.NeuralRendering)
         {
@@ -951,9 +1100,7 @@ public static partial class Installers
     private static void RunMfg(Job job)
     {
         job.S.CopyTracked(job.MfgFile!, Path.Combine(job.ExeDir, Components.MfgAddon), "addon");
-        var mfgVersion = Updates.InUse(Updates.Sources.First(s => s.Id == "mfgunlock")).Version;
-        job.S.Manifest.MfgUnlock = mfgVersion;
-        job.Log($"Added the MFG unlock add-on {mfgVersion}.");
+        job.Log($"Added the MFG unlock add-on {job.S.Manifest.MfgUnlock}.");
 
         var fresh = Scanner.Scan(job.S.GameDir, job.Req.ExePath);
         var frameGen = fresh.Upscalers.Where(u => u.Kind == UpscalerKind.DlssFG && u.Bitness == 64).ToList();

@@ -354,6 +354,311 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Directory.Delete(game, true);
 }
 
+// ---------------------------------------------------------------- Reinstall keeps in-game settings
+{
+    // What the player changed in the game comes back on Reinstall; Restore originals still puts back the folder as it was
+    // before the first setup.
+    Dictionary<string, string> Snapshot(string dir)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var d in Directory.EnumerateDirectories(dir, "*", SearchOption.AllDirectories))
+        {
+            var rel = Path.GetRelativePath(dir, d);
+            if (!rel.StartsWith(Journal.BackupDir, StringComparison.OrdinalIgnoreCase)) map["D:" + rel] = "";
+        }
+        foreach (var f in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
+        {
+            var rel = Path.GetRelativePath(dir, f);
+            if (!rel.StartsWith(Journal.BackupDir, StringComparison.OrdinalIgnoreCase))
+                map["F:" + rel] = Components.Sha256(f) + "|" + ((File.GetAttributes(f) & FileAttributes.ReadOnly) != 0);
+        }
+        return map;
+    }
+    string Diff(Dictionary<string, string> a, Dictionary<string, string> b) =>
+        string.Join(", ", a.Keys.Where(k => !b.TryGetValue(k, out var v) || v != a[k]).Concat(b.Keys.Where(k => !a.ContainsKey(k))));
+    bool Holds(string file, byte[] bytes) => File.Exists(file) && File.ReadAllBytes(file).SequenceEqual(bytes);
+    string Rels(List<KeptSetting> kept) => string.Join(", ", kept.Select(k => k.Rel));
+    var logs = new List<string>();
+
+    // A Native setup with the MFG unlock, recorded as InstallAsync records it.
+    var game = Path.Combine(Path.GetTempPath(), "dlss5cr-keep-" + Guid.NewGuid().ToString("N"));
+    var bin = Path.Combine(game, "bin");
+    Directory.CreateDirectory(bin);
+    string In(string name) => Path.Combine(bin, name);
+    var exe = In("Game.exe");
+    File.WriteAllBytes(exe, RandomNumberGenerator.GetBytes(4096));
+    File.WriteAllText(In("game.cfg"), "the game's own");
+    var before = Snapshot(game);
+    var s = Session.Begin(game, exe, "native", "dxgi", 64, logs.Add);
+    s.Save();
+    foreach (var f in new[] { "ReShade.ini", "ReShadePreset.ini", "ReShade.log" }) s.TrackBeforeWrite(In(f), "reshade");
+    foreach (var f in new[] { "dxgi.dll", "renodx-dlss5.addon64", "renodx-mfgunlock.addon64" }) s.WriteTracked(In(f), RandomNumberGenerator.GetBytes(512), "test");
+    s.Manifest.MfgUnlock = "1.7.1";
+    s.Save();
+
+    // The game runs later (past the file system's clock tick): the player changes ReShade's and the add-on's settings, tunes
+    // ReShade's preset and then switches to a second one of their own, and picks XeMFG; the add-ons write their logs, and the
+    // player keeps a file of their own.
+    Thread.Sleep(50);
+    var ini = "[GENERAL]\r\nPresetPath=.\\Mine.ini\r\n\r\n[INPUT]\r\nKeyOverlay=36,0,0,0\r\n\r\n[RenoDX.DLSS5]\r\nConfigVersion=3\r\nNRHookPoint=2\r\n\r\n[ADDON]\r\nLoadFromDllMain=renodx-dlss5.addon64,other-addon.addon64\r\n";
+    var settings = new (string Name, byte[] Bytes)[]
+    {
+        ("ReShade.ini", Encoding.UTF8.GetBytes(ini)),
+        ("ReShadePreset.ini", Encoding.UTF8.GetBytes("Techniques=SMAA@SMAA.fx\r\n")),
+        ("MFGAdaUnlock.ini", Encoding.UTF8.GetBytes("[Backend]\r\nSelected=XeMFG\r\n")),
+        // A byte order mark and non-ASCII text: kept as bytes, never decoded and written again.
+        ("MFGAdaUnlock.profiles.json", Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes("{\"Café™ Game.exe\":{\"Mode\":4}}")).ToArray()),
+    };
+    foreach (var (name, bytes) in settings) File.WriteAllBytes(In(name), bytes);
+    var runLogs = new[] { "ReShade.log", "MFGAdaUnlock-XeMFG.log", "MFGAdaUnlock-XeMFG-compatibility.json" };
+    foreach (var name in runLogs) File.WriteAllText(In(name), "written while the game ran");
+    File.WriteAllText(In("Mine.ini"), "Techniques=Clarity@Clarity.fx\r\n");
+    File.WriteAllText(In("save.dat"), "the player's");
+    var old = Journal.ReadManifest(game)!;
+
+    // A new route starts afresh but keeps the MFG unlock's settings; unticked, the MFG unlock keeps none; another exe folder keeps nothing.
+    var newRoute = Installers.KeepSettings(game, old, bin, Route.Feeder, 64, mfg: true, optiBuild: null, logs.Add);
+    Check("a new route starts with fresh settings but keeps the MFG unlock's",
+        Rels(newRoute) == @"bin\MFGAdaUnlock.ini, bin\MFGAdaUnlock.profiles.json", Rels(newRoute));
+    Check("a new route says so", logs.Contains(
+        $"The route changed from {Installers.RouteLabel("native")} to {Installers.RouteLabel("feeder")}, so this setup starts with fresh in-game settings."));
+    var mfgOff = Installers.KeepSettings(game, old, bin, Route.Native, 64, mfg: false, optiBuild: null, logs.Add);
+    Check("with the MFG unlock unticked its settings are not kept", Rels(mfgOff) == @"bin\ReShade.ini, bin\ReShadePreset.ini", Rels(mfgOff));
+    var moved = Installers.KeepSettings(game, old, Path.Combine(game, "Win64"), Route.Native, 64, mfg: true, optiBuild: null, logs.Add);
+    Check("another exe folder keeps nothing and says so", moved.Count == 0
+        && logs.Contains("The game's executable is in another folder now, so this setup starts with fresh in-game settings."), Rels(moved));
+
+    // Reinstall on the same route: keep, restore, begin the new record, put back.
+    var kept = Installers.KeepSettings(game, old, bin, Route.Native, 64, mfg: true, optiBuild: null, logs.Add);
+    Check("reinstall keeps the settings files, not the logs or the player's own files",
+        Rels(kept) == string.Join(", ", settings.Select(x => Path.Combine("bin", x.Name))), Rels(kept));
+    Check("the restore before the reinstall removes them", Session.Restore(game, logs.Add) && settings.All(x => !File.Exists(In(x.Name))));
+    var s2 = Session.Begin(game, exe, "native", "dxgi", 64, logs.Add);
+    s2.Save();
+    Installers.PutBackSettings(s2, bin, kept);
+    s2.Save();
+    Check("reinstall puts the settings back byte for byte", settings.Skip(1).All(x => Holds(In(x.Name), x.Bytes)));
+    Check("reinstall takes the DLSS 5 add-ons off LoadFromDllMain and keeps the rest of ReShade.ini",
+        Holds(In("ReShade.ini"), Encoding.UTF8.GetBytes(Ini.Set(ini, "ADDON", "LoadFromDllMain", "other-addon.addon64"))), Show(File.ReadAllText(In("ReShade.ini"))));
+    Check("the kept MFG unlock files are added files of the new record", s2.WasAdded(@"bin\MFGAdaUnlock.ini") && s2.WasAdded(@"bin\MFGAdaUnlock.profiles.json"));
+    Check("the logs the add-ons wrote are not brought back", runLogs.All(n => !File.Exists(In(n))));
+    Check("the player's own file stays through the reinstall", File.ReadAllText(In("save.dat")) == "the player's");
+    Check("reinstall keeps ReShade's preset after the player switched to one of their own, which stays as it is",
+        Holds(In("ReShadePreset.ini"), settings[1].Bytes) && File.ReadAllText(In("Mine.ini")) == "Techniques=Clarity@Clarity.fx\r\n");
+    Check("reinstall lists the kept files", logs.Contains(@"Kept your in-game settings: bin\ReShade.ini, bin\ReShadePreset.ini, bin\MFGAdaUnlock.ini, bin\MFGAdaUnlock.profiles.json."));
+    File.Delete(In("save.dat"));
+    File.Delete(In("Mine.ini"));
+    Check("restore originals after a reinstall runs", Session.Restore(game, logs.Add));
+    var diff = Diff(before, Snapshot(game));
+    Check("restore originals after a reinstall leaves the folder as it was before the first setup", diff.Length == 0, diff);
+    Directory.Delete(game, true);
+
+    // The player's ReShade.ini and preset from before the first setup, which the Feeder edits, and the profiles of an MFG
+    // unlock set up by hand earlier, which no install recorded. That ReShade.ini already loads the RenoDX add-on early (the
+    // player's own fix for error 1114); the setup, with "Load add-ons early" ticked, added the MFG unlock to that line.
+    var game2 = Path.Combine(Path.GetTempPath(), "dlss5cr-keep-" + Guid.NewGuid().ToString("N"));
+    var bin2 = Path.Combine(game2, "bin");
+    Directory.CreateDirectory(Path.Combine(bin2, "Presets"));
+    var exe2 = Path.Combine(bin2, "Game.exe");
+    File.WriteAllBytes(exe2, RandomNumberGenerator.GetBytes(4096));
+    var ini2 = Path.Combine(bin2, "ReShade.ini");
+    var preset2 = Path.Combine(bin2, "Presets", "Mine.ini");
+    var cfg2 = Path.Combine(bin2, "dlss5-feed.cfg");
+    var profiles2 = Path.Combine(bin2, "MFGAdaUnlock.profiles.json");
+    var originalIni = "[GENERAL]\r\nPresetPath=.\\Presets\\Mine.ini\r\n\r\n[INPUT]\r\nKeyOverlay=45,0,0,0\r\n\r\n[ADDON]\r\nLoadFromDllMain=renodx-dlss5.addon64\r\n";
+    var installedIni = Ini.Set(Ini.Set(originalIni, "ADDON", "AddonPath", ".\\"), "ADDON", "LoadFromDllMain", "renodx-dlss5.addon64,renodx-mfgunlock.addon64");
+    File.WriteAllText(ini2, originalIni);
+    File.WriteAllText(preset2, "Techniques=SMAA@SMAA.fx\r\n");
+    File.WriteAllText(profiles2, "{\"Game.exe\":{\"Mode\":3}}");
+    File.SetCreationTimeUtc(profiles2, DateTime.UtcNow.AddHours(-1));
+    var before2 = Snapshot(game2);
+    var f1 = Session.Begin(game2, exe2, "feeder", "dxgi", 64, logs.Add);
+    f1.WriteTracked(ini2, installedIni);
+    f1.WriteTracked(preset2, "Techniques=DLSS5_Feed@DLSS5_Feed.fx,SMAA@SMAA.fx\r\n");
+    f1.WriteTracked(cfg2, "enabled=1\r\nmode=2\r\n");
+    f1.Manifest.MfgUnlock = "1.7.1";
+    f1.Save();
+    Thread.Sleep(50);
+    var playedIni = Ini.Set(installedIni, "INPUT", "KeyOverlay", "46,0,0,0");
+    var edited = new (string File, byte[] Bytes)[]
+    {
+        (ini2, Encoding.UTF8.GetBytes(playedIni)),
+        (preset2, Encoding.UTF8.GetBytes("Techniques=SMAA@SMAA.fx,DLSS5_Feed@DLSS5_Feed.fx\r\n")),
+        (cfg2, Encoding.UTF8.GetBytes("enabled=1\r\nmode=3\r\n")),
+    };
+    foreach (var (file, bytes) in edited) File.WriteAllBytes(file, bytes);
+    var kept2 = Installers.KeepSettings(game2, Journal.ReadManifest(game2)!, bin2, Route.Feeder, 64, mfg: true, optiBuild: null, logs.Add);
+    Check("reinstall keeps the preset ReShade.ini names and the Feeder's settings, not what the restore leaves alone",
+        Rels(kept2) == @"bin\ReShade.ini, bin\Presets\Mine.ini, bin\dlss5-feed.cfg", Rels(kept2));
+    Check("a settings file the restore leaves alone stays as it is", Session.Restore(game2, logs.Add) && File.ReadAllText(profiles2) == "{\"Game.exe\":{\"Mode\":3}}");
+    var f2 = Session.Begin(game2, exe2, "feeder", "dxgi", 64, logs.Add);
+    f2.Save();
+    Installers.PutBackSettings(f2, bin2, kept2);
+    f2.Save();
+    Check("reinstall brings back the player's later edits of files from before the first setup", edited.Skip(1).All(x => Holds(x.File, x.Bytes))
+        && Holds(ini2, Encoding.UTF8.GetBytes(Ini.Set(playedIni, "ADDON", "LoadFromDllMain", "renodx-dlss5.addon64"))), Show(File.ReadAllText(ini2)));
+    Check("reinstall keeps the DLSS 5 add-on that the player's own ReShade.ini loaded early, and takes off the one the setup added",
+        Installers.EarlyAddons(bin2).SequenceEqual(new[] { "renodx-dlss5.addon64" }), string.Join(",", Installers.EarlyAddons(bin2)));
+    Check("those files keep their originals from before the first setup in the new record",
+        f2.Manifest.Replaced.Select(r => r.Rel).SequenceEqual(new[] { @"bin\ReShade.ini", @"bin\Presets\Mine.ini" }) && f2.WasAdded(@"bin\dlss5-feed.cfg"));
+    Check("restore originals after that reinstall runs", Session.Restore(game2, logs.Add));
+    var diff2 = Diff(before2, Snapshot(game2));
+    Check("restore originals puts back the player's files from before the first setup", diff2.Length == 0 && File.ReadAllText(ini2) == originalIni, diff2);
+    Directory.Delete(game2, true);
+
+    // OptiScaler's settings only for the same build, the 32-bit Feeder helper's only in a 32-bit game, and nothing from a
+    // PresetPath that names no preset (a DLL of the install).
+    var game4 = Path.Combine(Path.GetTempPath(), "dlss5cr-keep-" + Guid.NewGuid().ToString("N"));
+    var bin4 = Path.Combine(game4, "bin");
+    Directory.CreateDirectory(Path.Combine(bin4, "host64"));
+    foreach (var name in new[] { "OptiScaler.ini", @"host64\ReShade.ini", "dxgi.dll" }) File.WriteAllText(Path.Combine(bin4, name), "written by the setup");
+    File.WriteAllText(Path.Combine(bin4, "ReShade.ini"), "[GENERAL]\r\nPresetPath=.\\dxgi.dll\r\n");
+    Manifest Record(string route, params string[] added) =>
+        new() { Route = route, Exe = @"bin\Game.exe", Added = added.Select(a => Path.Combine("bin", a)).ToList() };
+    var optiRecord = Record("optiscaler", "OptiScaler.ini");
+    optiRecord.OptiScalerBuild = "a";
+    var sameBuild = Installers.KeepSettings(game4, optiRecord, bin4, Route.OptiScaler, 64, mfg: false, optiBuild: "a", logs.Add);
+    Check("reinstall keeps OptiScaler's settings for the same build", Rels(sameBuild) == @"bin\OptiScaler.ini", Rels(sameBuild));
+    Check("another OptiScaler build starts with fresh settings",
+        Installers.KeepSettings(game4, optiRecord, bin4, Route.OptiScaler, 64, mfg: false, optiBuild: "b", logs.Add).Count == 0);
+    var helperRecord = Record("feeder", @"host64\ReShade.ini");
+    var helper32 = Installers.KeepSettings(game4, helperRecord, bin4, Route.Feeder, 32, mfg: false, optiBuild: null, logs.Add);
+    Check("a 32-bit game keeps the Feeder helper's ReShade.ini", Rels(helper32) == @"bin\host64\ReShade.ini", Rels(helper32));
+    Check("a 64-bit game has no Feeder helper settings to keep",
+        Installers.KeepSettings(game4, helperRecord, bin4, Route.Feeder, 64, mfg: false, optiBuild: null, logs.Add).Count == 0);
+    var notPreset = Installers.KeepSettings(game4, Record("native", "ReShade.ini", "dxgi.dll"), bin4, Route.Native, 64, mfg: false, optiBuild: null, logs.Add);
+    Check("a PresetPath that names no preset brings nothing back", Rels(notPreset) == @"bin\ReShade.ini", Rels(notPreset));
+    Directory.Delete(game4, true);
+
+    // End to end and offline: a Native setup with the MFG unlock, a game run, Reinstall with and without loading the
+    // add-ons early and two reinstalls that stop part-way, then Restore originals; then OptiScaler.
+    var root3 = Path.Combine(Path.GetTempPath(), "dlss5cr-keep-" + Guid.NewGuid().ToString("N"));
+    var bin3 = Path.Combine(root3, "game", "bin");
+    var rt = Path.Combine(root3, "runtime");
+    var rs = Path.Combine(root3, "reshade");
+    var ad = Path.Combine(root3, "addons");
+    foreach (var d in new[] { bin3, rt, rs, ad }) Directory.CreateDirectory(d);
+    var game3 = Path.GetDirectoryName(bin3)!;
+    var pe64 = Path.Combine(Environment.SystemDirectory, "version.dll"); // any 64-bit PE
+    // A name of its own: AssertGameClosed matches running processes by name.
+    var exe3 = Path.Combine(bin3, "OfflineGame" + Guid.NewGuid().ToString("N")[..6] + ".exe");
+    File.Copy(Path.Combine(Environment.SystemDirectory, "notepad.exe"), exe3);
+    File.WriteAllText(Path.Combine(bin3, "nvngx_dlss.dll"), "not a pe"); // the game's own DLSS
+    File.Copy(pe64, Path.Combine(bin3, "nvngx_dlssg.dll"));            // the MFG unlock needs a 64-bit frame generation DLL
+    File.WriteAllBytes(Path.Combine(bin3, "other-addon.addon64"), RandomNumberGenerator.GetBytes(512));
+    foreach (var n in new[] { "nvngx_dlss.dll", "nvngx_dlssnr.dll", "nvngx_dlssg.dll" }) File.Copy(pe64, Path.Combine(rt, n));
+    File.WriteAllText(Path.Combine(rs, "ReShade64.dll"), "fake ReShade: Searching for add-ons");
+    foreach (var n in new[] { "renodx-dlss5.addon64", "renodx-mfgunlock.addon64" }) File.WriteAllBytes(Path.Combine(ad, n), RandomNumberGenerator.GetBytes(1024));
+    var before3 = Snapshot(game3);
+    var savedRecords = ForeignInstalls.OtherAppRecordsDir;
+    ForeignInstalls.OtherAppRecordsDir = Path.Combine(root3, "no-records");
+    Updates.State.Active["renodx-dlss5"] = new ActiveUpdate { Version = "test", Published = DateTime.UtcNow, Path = Path.Combine(ad, "renodx-dlss5.addon64") };
+    Updates.State.Active["mfgunlock"] = new ActiveUpdate { Version = "test", Published = DateTime.UtcNow, Path = Path.Combine(ad, "renodx-mfgunlock.addon64") };
+    try
+    {
+        var components = new Components(new AppSettings { RuntimeFolder = rt, ReShadeSource = rs });
+        Task Install(bool early) => Installers.InstallAsync(new InstallRequest
+        {
+            GameDir = game3, ExePath = exe3, Api = RenderApi.DX12, Bitness = 64, Route = Route.Native, MfgUnlock = true, LoadAddonsEarly = early,
+        }, components, logs.Add, null, CancellationToken.None);
+        var ini3 = Path.Combine(bin3, "ReShade.ini");
+        var mfgIni3 = Path.Combine(bin3, "MFGAdaUnlock.ini");
+        string Early() => Ini.Get(Ini.ReadText(ini3), "ADDON", "LoadFromDllMain") ?? "";
+
+        await Install(early: true);
+        Check("end to end: the first setup loads the DLSS 5 add-ons early", Early() == "renodx-dlss5.addon64,renodx-mfgunlock.addon64", Early());
+        // The game runs: ReShade saves the player's settings (with the DLSS 5 add-ons switched off in its overlay), the MFG
+        // unlock its own.
+        Thread.Sleep(50);
+        var played = "[ADDON]\r\nDisabledAddons=renodx-dlss5,ShaderToggler,renodx-mfgunlock\r\nLoadFromDllMain=renodx-dlss5.addon64,renodx-mfgunlock.addon64,other-addon.addon64\r\n\r\n[INPUT]\r\nKeyOverlay=36,0,0,0\r\n\r\n[RenoDX.DLSS5]\r\nNRHookPoint=2\r\n";
+        File.WriteAllText(ini3, played);
+        var xemfg = Encoding.UTF8.GetBytes("[Backend]\r\nSelected=XeMFG\r\n");
+        File.WriteAllBytes(mfgIni3, xemfg);
+        // The setup switches its add-ons on again on top of the kept settings; the player's other choices stay.
+        var reenabled = Ini.Set(played, "ADDON", "DisabledAddons", "ShaderToggler");
+
+        await Install(early: true);
+        var loadingEarly = Ini.Set(reenabled, "ADDON", "LoadFromDllMain", "other-addon.addon64,renodx-dlss5.addon64,renodx-mfgunlock.addon64");
+        Check("end to end: reinstall keeps the player's settings, switches the add-ons on again and loads them early",
+            Ini.ReadText(ini3) == loadingEarly && Holds(mfgIni3, xemfg) && logs.Contains(@"Kept your in-game settings: bin\ReShade.ini, bin\MFGAdaUnlock.ini."),
+            Show(Ini.ReadText(ini3)));
+
+        // Another program holds a file of the install open: the restore stops part-way, and the settings stay where they were.
+        Exception? stopped = null;
+        using (new FileStream(Path.Combine(bin3, "dxgi.dll"), FileMode.Open, FileAccess.Read, FileShare.Read))
+            try { await Install(early: true); } catch (IOException e) { stopped = e; }
+        Check("end to end: a reinstall whose restore stops part-way keeps the settings where they were, and says so",
+            stopped is not null && Ini.ReadText(ini3) == loadingEarly && Holds(mfgIni3, xemfg)
+            && logs.Contains(@"Put back your in-game settings: bin\ReShade.ini, bin\MFGAdaUnlock.ini."), stopped is null ? "no error" : Show(Ini.ReadText(ini3)));
+
+        // A reinstall that stops after the settings are back (a runtime file that is no DLL), then the retry.
+        var neural = Path.Combine(rt, "nvngx_dlssnr.dll");
+        File.WriteAllText(neural, "not a pe");
+        string? refused = null;
+        try { await Install(early: true); } catch (InstallException e) { refused = e.Message; }
+        File.Copy(pe64, neural, true);
+        Check("end to end: a reinstall that stops after putting the settings back leaves them in place", refused is not null && Holds(mfgIni3, xemfg),
+            refused is null ? "no error" : Show(Ini.ReadText(mfgIni3)));
+        Check("end to end: the record of that reinstall names the MFG unlock it was setting up", Journal.ReadManifest(game3)?.MfgUnlock == "test",
+            Journal.ReadManifest(game3)?.MfgUnlock ?? "none");
+        await Install(early: false);
+        Check("end to end: the retry without loading early keeps the settings, the MFG unlock's too, and the player's other early add-on",
+            Ini.ReadText(ini3) == Ini.Set(reenabled, "ADDON", "LoadFromDllMain", "other-addon.addon64") && Holds(mfgIni3, xemfg), Show(Ini.ReadText(ini3)));
+        await Installers.RestoreAsync(game3, exe3, logs.Add);
+        var diff3 = Diff(before3, Snapshot(game3));
+        Check("end to end: restore originals after the reinstalls leaves the folder as it was before the first setup", diff3.Length == 0, diff3);
+
+        // OptiScaler, offline: a build of its own whose package waits in the download cache. The player picks XeSS in
+        // OptiScaler's overlay; then a loader of their own beside the game stops a reinstall part-way, and they retry.
+        var binO = Path.Combine(root3, "opti", "bin");
+        var pkgO = Path.Combine(root3, "opti-package");
+        foreach (var d in new[] { binO, pkgO }) Directory.CreateDirectory(d);
+        var gameO = Path.GetDirectoryName(binO)!;
+        var exeO = Path.Combine(binO, "OfflineOpti" + Guid.NewGuid().ToString("N")[..6] + ".exe");
+        File.Copy(Path.Combine(Environment.SystemDirectory, "notepad.exe"), exeO);
+        File.Copy(pe64, Path.Combine(pkgO, "OptiScaler.dll"));
+        File.WriteAllText(Path.Combine(pkgO, "OptiScaler.ini"), "[Menu]\r\nShortcutKey=auto\r\n\r\n[Upscalers]\r\nDx12Upscaler=auto\r\n");
+        var zipO = Path.Combine(root3, "opti.zip");
+        ZipFile.CreateFromDirectory(pkgO, zipO);
+        var buildO = new OptiBuild("test-" + Guid.NewGuid().ToString("N")[..6], "OptiScaler test build", "https://example.invalid/OptiScaler.zip",
+                                   Components.Sha256(zipO), null, null, Forwarded: false, NeuralRendering: false);
+        Directory.CreateDirectory(AppPaths.Components);
+        File.Copy(zipO, Path.Combine(AppPaths.Components, $"OptiScaler-{buildO.Id}.zip"));
+        var beforeO = Snapshot(gameO);
+        Task InstallOpti() => Installers.InstallAsync(new InstallRequest
+        {
+            GameDir = gameO, ExePath = exeO, Api = RenderApi.DX12, Bitness = 64, Route = Route.OptiScaler, OptiBuild = buildO,
+        }, components, logs.Add, null, CancellationToken.None);
+        var optiIni = Path.Combine(binO, "OptiScaler.ini");
+
+        await InstallOpti();
+        var xess = Ini.Set(Ini.ReadText(optiIni), "Upscalers", "Dx12Upscaler", "xess");
+        File.WriteAllText(optiIni, xess);
+        File.WriteAllBytes(Path.Combine(binO, "winmm.dll"), RandomNumberGenerator.GetBytes(512));
+        string? conflict = null;
+        try { await InstallOpti(); } catch (InstallException e) { conflict = e.Message; }
+        File.Delete(Path.Combine(binO, "winmm.dll"));
+        Check("end to end: an OptiScaler reinstall stopped by another loader leaves OptiScaler's settings in place",
+            conflict?.Contains("winmm.dll") == true && Ini.ReadText(optiIni) == xess, conflict is null ? "no error" : conflict + " | " + Show(Ini.ReadText(optiIni)));
+        Check("end to end: the record of that reinstall names the OptiScaler build", Journal.ReadManifest(gameO)?.OptiScalerBuild == buildO.Id,
+            Journal.ReadManifest(gameO)?.OptiScalerBuild ?? "none");
+        await InstallOpti();
+        Check("end to end: the retry with the same build keeps OptiScaler's settings", Ini.ReadText(optiIni) == xess, Show(Ini.ReadText(optiIni)));
+        await Installers.RestoreAsync(gameO, exeO, logs.Add);
+        var diffO = Diff(beforeO, Snapshot(gameO));
+        Check("end to end: restore originals after the OptiScaler reinstalls leaves the folder as it was before the first setup", diffO.Length == 0, diffO);
+    }
+    catch (Exception e) { Check("end to end: setup, reinstalls and restore run", false, e.GetType().Name + ": " + e.Message); }
+    finally
+    {
+        // Process-wide: the later checks must not see them.
+        Updates.State.Active.Remove("renodx-dlss5");
+        Updates.State.Active.Remove("mfgunlock");
+        ForeignInstalls.OtherAppRecordsDir = savedRecords;
+    }
+    Directory.Delete(root3, true);
+}
+
 // ====================================================================== Library: games added by hand (Unreal Engine layouts)
 {
     var lib = Path.Combine(Path.GetTempPath(), "dlss5cr-lib-" + Guid.NewGuid().ToString("N"));

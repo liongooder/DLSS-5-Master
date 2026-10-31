@@ -288,6 +288,15 @@ public sealed class Session
         return rel;
     }
 
+    /// <summary>Writes the bytes exactly as given (a settings file kept from the install before, in its own encoding).</summary>
+    public string WriteTracked(string dest, byte[] bytes, string? kind = "settings")
+    {
+        var rel = TrackBeforeWrite(dest, kind);
+        PrepareTarget(dest);
+        File.WriteAllBytes(dest, bytes);
+        return rel;
+    }
+
     public void DeleteTracked(string target, string? kind = null)
     {
         var rel = Rel(target);
