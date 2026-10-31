@@ -526,7 +526,7 @@ public sealed partial class MainWindow : Window
         "• RenoDX DLSS5 add-on and DLSS Tool — github.com/clshortfuse/renodx (MIT)\n" +
         "• DLSS5-Feeder — github.com/jlrouzies-fr/DLSS5-Feeder (MIT)\n" +
         "• vort_Shaders — github.com/vortigern11/vort_Shaders (MIT)\n" +
-        "• MFGAdaUnlock-RenoDx 1.7.0 — github.com/mavismmg/MFGAdaUnlock-RenoDx (MIT)\n" +
+        "• MFGAdaUnlock-RenoDx 1.7.1 — github.com/mavismmg/MFGAdaUnlock-RenoDx (MIT)\n" +
         "• OptiScaler NR pre-SR MFG 0.9.81 — github.com/ShyVortex/OptiScaler-NR-PreSR-MFG (GPL-3.0; source code at tag v0.9.81)\n" +
         "• The overlay helper (dlss5-overlay.exe) is built with the NVIDIA NGX SDK (github.com/NVIDIA/DLSS, NVIDIA RTX SDKs license) " +
         "and the NVIDIA Optical Flow SDK interface (BSD-3-Clause); its DLSS set-up follows DLSS5-Feeder's 64-bit helper (MIT). " +
