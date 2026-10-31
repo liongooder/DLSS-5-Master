@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 
 namespace DLSS5Master.Core;
@@ -382,7 +383,7 @@ public sealed class Session
         }
 
         var manifestPath = Journal.ManifestPath(s.GameDir);
-        var done = $"{manifestPath}.done-{DateTime.UtcNow:yyyyMMddHHmmss}";
+        var done = $"{manifestPath}.done-{DateTime.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture)}";
         File.Move(manifestPath, done, true);
         s.Log($"Install record closed ({Path.GetFileName(done)}).");
         try

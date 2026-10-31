@@ -45,7 +45,8 @@ public static partial class PcSpecs
     [GeneratedRegex(@"\s+")]
     private static partial Regex Spaces();
 
-    [GeneratedRegex("^[0-9A-Za-z]{2,8}$")]
+    // "24H2", or "1909" (ReleaseId) before 20H2: what the community server accepts.
+    [GeneratedRegex(@"^(\d{2}H\d|\d{4})$")]
     private static partial Regex ReleaseName();
 
     /// <summary>
@@ -79,6 +80,8 @@ public static partial class PcSpecs
         try
         {
             using var k = Registry.LocalMachine.OpenSubKey(@"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
+            // Windows Server shares the client's build numbers, so it would read as Windows 10 or 11: leave it unknown.
+            if ((k?.GetValue("InstallationType") as string)?.StartsWith("Server", StringComparison.OrdinalIgnoreCase) == true) return "";
             if (int.TryParse(k?.GetValue("CurrentBuildNumber") as string, NumberStyles.None, CultureInfo.InvariantCulture, out var b)) build = b;
             // "24H2" since Windows 10 20H2; ReleaseId ("2004") before that.
             release = k?.GetValue("DisplayVersion") as string ?? k?.GetValue("ReleaseId") as string;

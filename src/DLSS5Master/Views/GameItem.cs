@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.CompilerServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -90,7 +91,7 @@ public sealed class GameItem : INotifyPropertyChanged
         if (d.TotalHours < 1) return "just now";
         if (d.TotalDays < 1) return $"{(int)d.TotalHours} h ago";
         if (d.TotalDays < 30) return $"{(int)d.TotalDays} d ago";
-        return when.ToLocalTime().ToString("d MMM yyyy");
+        return when.ToLocalTime().ToString("d MMM yyyy", CultureInfo.InvariantCulture);   // English month names, Gregorian, whatever the region
     }
 
     private static Brush Res(string key) => (Brush)Application.Current.Resources[key];

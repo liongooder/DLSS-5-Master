@@ -142,13 +142,14 @@ public sealed partial class MainWindow
             // What its author sent besides the note: a report without one can be flagged for these too.
             var sent = string.Join(" · ", new[] { n.Route.Length > 0 ? RouteName(n.Route) + (n.Mfg ? " + MFG" : "") : "", n.Pc }.Where(p => p.Length > 0));
             if (sent.Length > 0) info.Children.Add(new TextBlock { Text = sent, FontSize = 12, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-            info.Children.Add(Muted(Ago(n.When)));
+            if (n.Versions.Length > 0) info.Children.Add(new TextBlock { Text = n.Versions, FontSize = 12, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+            info.Children.Add(Muted($"{(n.Nickname is { Length: > 0 } nick ? nick + " · " : "")}{Ago(n.When)}"));
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
             buttons.Children.Add(n.Hidden
                 ? ModButton("Show again (clear flags)", false, async () => await CommunityHub.ModNoteAsync(n.Id, "unhide"))
                 : ModButton("Hide", false, async () => await CommunityHub.ModNoteAsync(n.Id, "hide")));
             buttons.Children.Add(ModButton("Delete report", false, async () => await CommunityHub.ModNoteAsync(n.Id, "delete")));
-            buttons.Children.Add(BanButton(n.Author, null));
+            buttons.Children.Add(BanButton(n.Author, n.Nickname));
             info.Children.Add(buttons);
             card.Child = info;
             ModList.Children.Add(card);

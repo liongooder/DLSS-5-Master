@@ -131,17 +131,32 @@ public static partial class Community
         var combos = r.GetProperty("byRoute").EnumerateArray().Select(x => new CommunityCombo(
             Str(x, "route"), Num(x, "mfg") != 0, Str(x, "gpu_family"), (int)Num(x, "works"), (int)Num(x, "partly"), (int)Num(x, "broken"))).ToList();
         bool all = r.TryGetProperty("reports", out var list) && list.ValueKind == JsonValueKind.Array;
-        var reports = (all ? list : r.GetProperty("notes")).EnumerateArray().Select(x => new CommunityReport(
-            (long)Num(x, "id"), Str(x, "rating"), Str(x, "route"), Bool(x, "mfg"), Str(x, "api"), Str(x, "gpu"), Str(x, "gpu_family"),
-            Str(x, "driver"), Str(x, "cpu"), (int)Num(x, "ram_gb"), Str(x, "os"), Str(x, "app_version"), Versions(x), Str(x, "note"), Bool(x, "hidden"),
-            DateTimeOffset.FromUnixTimeMilliseconds((long)Num(x, "updated_at")).LocalDateTime, Str(x, "nickname"), Bool(x, "is_dev"))).ToList();
+        var reports = (all ? list : r.GetProperty("notes")).EnumerateArray().Select(ParseReport).ToList();
+        if (all && r.TryGetProperty("notes", out var notes) && notes.ValueKind == JsonValueKind.Array)
+        {
+            // A game with more reports than the server lists can have notes older than the newest ones: keep those too.
+            var listed = reports.Select(x => x.Id).ToHashSet();
+            var older = notes.EnumerateArray().Select(ParseReport).Where(n => !listed.Contains(n.Id)).ToList();
+            if (older.Count > 0) reports = reports.Concat(older).OrderBy(x => x.Hidden).ThenByDescending(x => x.When).ToList();
+        }
         CommunityMine? mine = null;
         if (r.TryGetProperty("mine", out var mi) && mi.ValueKind == JsonValueKind.Object)
             mine = new CommunityMine((long)Num(mi, "id"), Str(mi, "rating"), Str(mi, "route"), Num(mi, "mfg") != 0, Str(mi, "note"), Num(mi, "hidden") != 0);
         return new CommunitySummary(key, counts, combos, reports, all, mine);
     }
 
-    private static Dictionary<string, string> Versions(JsonElement e)
+    private static CommunityReport ParseReport(JsonElement x) => new(
+        (long)Num(x, "id"), Str(x, "rating"), Str(x, "route"), Bool(x, "mfg"), Str(x, "api"), Str(x, "gpu"), Str(x, "gpu_family"),
+        Str(x, "driver"), Str(x, "cpu"), (int)Num(x, "ram_gb"), Str(x, "os"), Str(x, "app_version"), Versions(x), Str(x, "note"), Bool(x, "hidden"),
+        DateTimeOffset.FromUnixTimeMilliseconds((long)Num(x, "updated_at")).LocalDateTime, Str(x, "nickname"), Bool(x, "is_dev"));
+
+    [GeneratedRegex(@"^(RTX \d0|GTX|NVIDIA|AMD|Intel)$")]
+    private static partial Regex KnownFamily();
+
+    /// <summary>A family <see cref="GpuFamily"/> makes, other than "Other": anything else in a report is someone's own text.</summary>
+    public static bool IsKnownFamily(string family) => KnownFamily().IsMatch(family);
+
+    internal static Dictionary<string, string> Versions(JsonElement e)
     {
         var versions = new Dictionary<string, string>();
         if (e.TryGetProperty("versions", out var v) && v.ValueKind == JsonValueKind.Object)

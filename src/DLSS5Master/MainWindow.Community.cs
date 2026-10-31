@@ -86,16 +86,28 @@ public sealed partial class MainWindow
 
         if (editor) target.Children.Add(MyReportEditor(s));
 
-        // Every report with the PC it ran on, newest first (a server before 0.9.8 sends only the ones with a note).
+        // Every report with the PC it ran on, newest first (a server before 0.9.8 sends only the ones with a note). The game
+        // panel shows the newest few above its other sections; "Show all" opens the game's report window.
         if (s.Reports.Count > 0)
         {
             var title = !s.AllReports ? "WHAT PLAYERS SAY"
                 : s.Counts.Total > s.Reports.Count ? $"REPORTS · NEWEST {s.Reports.Count} OF {s.Counts.Total}"
                 : $"REPORTS ({s.Reports.Count})";
             target.Children.Add(new TextBlock { Text = title, Style = (Style)Application.Current.Resources["SectionTitle"], Margin = new Thickness(0, 6, 0, 0) });
-            foreach (var r in s.Reports) target.Children.Add(ReportRow(r, s.Mine?.Id == r.Id));
+            var shown = editor ? s.Reports.Take(PanelReports).ToList() : s.Reports;
+            foreach (var r in shown) target.Children.Add(ReportRow(r, s.Mine?.Id == r.Id));
+            if (shown.Count < s.Reports.Count && _game is { } game)
+            {
+                var all = new HyperlinkButton { Content = $"Show all {s.Reports.Count} reports", Padding = new Thickness(0, 4, 0, 4) };
+                var name = game.Name;
+                all.Click += async (_, _) => await ShowCommunityGameAsync(s.Key, name);
+                target.Children.Add(all);
+            }
         }
     }
+
+    /// <summary>Reports listed in the game panel itself; the rest are one click away in the game's report window.</summary>
+    private const int PanelReports = 5;
 
     private FrameworkElement MyReportEditor(CommunitySummary s)
     {
@@ -141,7 +153,11 @@ public sealed partial class MainWindow
         row.Children.Add(status);
         box.Children.Add(row);
         if (s.Mine is { Hidden: true })
-            box.Children.Add(new TextBlock { Text = "Your note is hidden after other players flagged it. Change it to show it again.", Foreground = Res("WarnText"), FontSize = 12, TextWrapping = TextWrapping.Wrap });
+            box.Children.Add(new TextBlock
+            {
+                Text = "Your report is hidden after other players flagged it: others see its rating and route, but not your note, card or processor. The developer can show it again.",
+                Foreground = Res("WarnText"), FontSize = 12, TextWrapping = TextWrapping.Wrap,
+            });
 
         send.Click += async (_, _) =>
         {
@@ -194,7 +210,7 @@ public sealed partial class MainWindow
                 r.When.ToString("d MMM yyyy", CultureInfo.InvariantCulture), mine ? "your report" : "",
             }.Where(p => p.Length > 0)),
         });
-        var card = r.Gpu.Length > 0 ? r.Gpu : r.GpuFamily is { Length: > 0 } family && family != "Other" ? family : "";   // a hidden report keeps only the card's family
+        var card = r.Gpu.Length > 0 ? r.Gpu : Community.IsKnownFamily(r.GpuFamily) ? r.GpuFamily : "";   // a hidden report keeps only the card's family
         var pc = Community.SpecsLine(card, r.Driver, r.Cpu, r.RamGb, r.Os);
         if (pc.Length > 0)
             text.Children.Add(new TextBlock { Text = pc, FontSize = 11, Foreground = Res("MutedText"), TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });

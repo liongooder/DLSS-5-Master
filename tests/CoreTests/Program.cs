@@ -668,8 +668,14 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Check("nvidia driver: odd values kept", Gpu.NvidiaDriver("garbage") == "garbage" && Gpu.NvidiaDriver("1.2.3") == "1.2.3" && Gpu.NvidiaDriver("32.0.15.81570") == "32.0.15.81570");
     Check("windows: 11 with release", PcSpecs.WindowsLabel(26100, "24H2") == "Windows 11 24H2 (26100)", PcSpecs.WindowsLabel(26100, "24H2"));
     Check("windows: 10", PcSpecs.WindowsLabel(19045, "22H2") == "Windows 10 22H2 (19045)");
-    Check("windows: odd release left out", PcSpecs.WindowsLabel(22631, "x y") == "Windows 11 (22631)" && PcSpecs.WindowsLabel(22631, null) == "Windows 11 (22631)");
+    Check("windows: odd release left out", PcSpecs.WindowsLabel(22631, "x y") == "Windows 11 (22631)" && PcSpecs.WindowsLabel(22631, null) == "Windows 11 (22631)"
+        && PcSpecs.WindowsLabel(26300, "Losers") == "Windows 11 (26300)");
+    Check("windows: release before 20H2", PcSpecs.WindowsLabel(18363, "1909") == "Windows 10 1909 (18363)");
     Check("windows: unknown", PcSpecs.WindowsLabel(0, "24H2") == "");
+    Check("gpu family: known ones only", Community.IsKnownFamily("RTX 40") && Community.IsKnownFamily("GTX") && Community.IsKnownFamily("AMD")
+        && !Community.IsKnownFamily("Other") && !Community.IsKnownFamily("visit scam.example") && !Community.IsKnownFamily(""));
+    Check("gpu: adapters present now, each with its driver", Gpu.Names.Count > 0 && Gpu.Names.All(n => n.Length > 0) && Gpu.Names.Distinct().Count() == Gpu.Names.Count,
+        string.Join(" | ", Gpu.Names.Select(n => n + " " + Gpu.DriverFor(n))));
     Check("specs line: full", Community.SpecsLine("NVIDIA GeForce RTX 4070", "581.57", "AMD Ryzen 7 7800X3D", 32, "Windows 11 24H2 (26100)")
         == "NVIDIA GeForce RTX 4070 · driver 581.57 · AMD Ryzen 7 7800X3D · 32 GB RAM · Windows 11 24H2 (26100)");
     Check("specs line: unknowns left out", Community.SpecsLine("NVIDIA GeForce RTX 4070", "", "", 0, "") == "NVIDIA GeForce RTX 4070");
@@ -710,6 +716,22 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
         """);
     Check("page: a server before 0.9.8 sends only notes", !older.AllReports && older.Reports.Count == 1 && older.Reports[0].Note == "Blocked by the anti-cheat"
         && older.Reports[0].Cpu == "" && older.Reports[0].RamGb == 0 && older.Combos[0].Mfg && older.Mine is null);
+    // More reports than the server lists: a note older than the newest ones still shows, after them and before hidden ones.
+    var busy = Community.ParseSummary("steam:1", """
+        {"key":"steam:1","total":120,"counts":{"works":100,"partly":10,"broken":10},"byRoute":[],
+         "reports":[
+           {"id":9,"rating":"works","route":"native","mfg":false,"api":"dx12","gpu":"NVIDIA GeForce RTX 4080","gpu_family":"RTX 40","driver":"","cpu":"","ram_gb":0,"os":"",
+            "versions":{},"app_version":"0.9.8","note":"","hidden":false,"updated_at":1793404800000,"nickname":null,"is_dev":false},
+           {"id":8,"rating":"broken","route":"native","mfg":false,"api":"","gpu":"","gpu_family":"RTX 40","driver":"","cpu":"","ram_gb":0,"os":"",
+            "versions":{},"app_version":"","note":"","hidden":true,"updated_at":1793504800000,"nickname":null,"is_dev":false}],
+         "notes":[
+           {"id":9,"rating":"works","route":"native","mfg":false,"gpu":"NVIDIA GeForce RTX 4080","gpu_family":"RTX 40","versions":{},"app_version":"0.9.8",
+            "note":"","updated_at":1793404800000,"nickname":null,"is_dev":false},
+           {"id":2,"rating":"partly","route":"feeder","mfg":false,"gpu":"NVIDIA GeForce RTX 3070","gpu_family":"RTX 30","versions":{},"app_version":"0.9.2",
+            "note":"An older note","updated_at":1790000000000,"nickname":"Someone","is_dev":false}],
+         "mine":null}
+        """);
+    Check("page: older notes kept", busy.Reports.Select(x => x.Id).SequenceEqual(new long[] { 9, 2, 8 }), string.Join(",", busy.Reports.Select(x => x.Id)));
 }
 
 // ---------------------------------------------------------------- add-on updates the app now includes are dropped

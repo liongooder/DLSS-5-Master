@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -65,7 +66,7 @@ public sealed partial class MainWindow
             {
                 FontSize = 12, Foreground = Res(available is not null ? "AccentText" : "MutedText"), TextWrapping = TextWrapping.Wrap,
                 Text = $"In use: {version}{(updated ? " (updated)" : " (included)")}" +
-                       (available is not null ? $"   ·   New: {available.Version}{(available.Prerelease ? " (beta)" : "")}, {available.Published.ToLocalTime():d MMM yyyy}"
+                       (available is not null ? $"   ·   New: {available.Version}{(available.Prerelease ? " (beta)" : "")}, {available.Published.ToLocalTime().ToString("d MMM yyyy", CultureInfo.InvariantCulture)}"
                         : Updates.State.LastCheck is null ? "" : "   ·   Up to date"),
             });
             grid.Children.Add(info);
@@ -94,7 +95,7 @@ public sealed partial class MainWindow
             UpdateRows.Children.Add(grid);
         }
         UpdateStatus.Text = _updating ? "Checking for updates…" : Updates.State.LastCheck is { } t
-            ? $"Last checked {t.ToLocalTime():d MMM yyyy} at {t.ToLocalTime():t}. {Updates.AvailableCount switch { 0 => "Everything is up to date.", 1 => "1 update available.", var n => $"{n} updates available." }}"
+            ? $"Last checked {t.ToLocalTime().ToString("d MMM yyyy", CultureInfo.InvariantCulture)} at {t.ToLocalTime().ToString("h:mm tt", CultureInfo.InvariantCulture)}. {Updates.AvailableCount switch { 0 => "Everything is up to date.", 1 => "1 update available.", var n => $"{n} updates available." }}"
             : "Not checked yet.";
     }
 

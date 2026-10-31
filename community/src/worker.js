@@ -45,7 +45,8 @@ const PAGE = 30;
 // The PC a report ran on (sent from 0.9.8 on) and the app's version. A value that does not look like these is stored
 // as '' (memory as 0) rather than refused, so one odd value never loses a report.
 const CPU_RE = /^[A-Za-z0-9 ()@.,+_\/-]{1,64}$/;
-const OS_RE = /^Windows 1[01]( [0-9A-Za-z]{2,8})? \(\d{4,6}\)$/;
+const OS_RE = /^Windows 1[01]( (\d{2}H\d|\d{4}))? \(\d{4,6}\)$/;   // release "24H2", or "1909" before 20H2
+const GPU_FAMILY_RE = /^(RTX \d0|GTX|NVIDIA|AMD|Intel|Other)$/;      // Community.GpuFamily in the app
 const DRIVER_RE = /^\d{1,5}(\.\d{1,6}){1,3}$/;
 const APP_VERSION_RE = /^\d{1,3}(\.\d{1,5}){1,3}$/;
 const RAM_MAX_GB = 4096;
@@ -209,8 +210,9 @@ async function listGames(env, q, install = null, keys = null) {
     if (!install) throw new HttpError(400, 'Missing install id');
     where.push('game_key IN (SELECT game_key FROM reports WHERE install = ?)'); binds.push(install);
   }
+  // The name comes from a visible report when there is one: a hidden report's name is its author's text too.
   const rows = (await env.DB.prepare(
-    `SELECT game_key AS key, MAX(game_name) AS name,
+    `SELECT game_key AS key, COALESCE(MAX(CASE WHEN hidden = 0 THEN game_name END), MAX(game_name)) AS name,
             SUM(rating = 'works') AS works, SUM(rating = 'partly') AS partly, SUM(rating = 'broken') AS broken,
             SUM(note <> '' AND hidden = 0) AS notes, MAX(updated_at) AS updated,
             GROUP_CONCAT(DISTINCT NULLIF(api, '')) AS apis, MAX(install = ?) AS mine
@@ -242,12 +244,14 @@ async function getGame(env, key, install) {
        FROM reports r LEFT JOIN profiles p ON p.install = r.install
       WHERE r.game_key = ? AND r.hidden = 0 AND r.note <> ''
       ORDER BY r.updated_at DESC LIMIT 30`).bind(key).all();
-  // Every report with the PC it ran on, newest first and hidden ones last (the app before 0.9.8 reads only "notes"). A
-  // hidden report (flagged, or its author banned) still shows its rating, route and numbers, but none of the text its
-  // author typed or sent: the note, the graphics card and processor names, the add-on versions and the nickname.
+  // Every report with the PC it ran on, newest first and hidden ones last (the app before 0.9.8 reads only "notes"). The
+  // nickname shows only next to a note, as it always has. A hidden report (flagged, or its author banned) still shows its
+  // rating, route and checked numbers, but none of the text its author typed or sent: the note, the graphics card and
+  // processor names, the add-on versions and the nickname.
   const reports = await db.prepare(
     `SELECT r.id, r.rating, r.route, r.mfg, r.api, r.gpu, r.gpu_family, r.driver, r.cpu, r.ram_gb, r.os, r.versions,
-            r.app_version, r.note, r.hidden, r.updated_at, p.nickname, p.is_dev
+            r.app_version, r.note, r.hidden, r.updated_at,
+            CASE WHEN r.note <> '' THEN p.nickname END AS nickname, CASE WHEN r.note <> '' THEN p.is_dev ELSE 0 END AS is_dev
        FROM reports r LEFT JOIN profiles p ON p.install = r.install
       WHERE r.game_key = ?
       ORDER BY r.hidden, r.updated_at DESC LIMIT ?`).bind(key, REPORTS_SHOWN).all();
@@ -275,7 +279,8 @@ async function postReport(env, body, ipHash) {
   if (!ROUTES.has(routeName)) throw new HttpError(400, 'Unknown route');
   const name = clean(str(body.name, 1, 100));
   const gpu = clean(str(body.gpu ?? 'Unknown', 1, 80));
-  const family = clean(str(body.gpuFamily ?? 'Other', 1, 20));
+  // Only the families the app makes (it shows them, and "Most reported to work" names them); anything else is 'Other'.
+  const family = GPU_FAMILY_RE.test(body.gpuFamily) ? body.gpuFamily : 'Other';
   const api = APIS.has(body.api) ? body.api : '';
   const note = clean(str(body.note ?? '', 0, NOTE_MAX * 2)).slice(0, NOTE_MAX);
   const appVersion = matching(body.appVersion, APP_VERSION_RE);
@@ -289,7 +294,8 @@ async function postReport(env, body, ipHash) {
   await limit(env, `post:${install}`, LIMITS.postPerInstall);
   await limit(env, `report:${ipHash}:${key}`, LIMITS.reportsPerIpPerGame);
   const now = Date.now();
-  const before = await env.DB.prepare(`SELECT id, note FROM reports WHERE install = ? AND game_key = ?`).bind(install, key).first();
+  // Sending a report again keeps it hidden, with its flags, if it was hidden: a hide covers its card and processor names
+  // too, so changing the note alone must not bring them back. Only the moderator shows it again (admin .../unhide).
   await env.DB.prepare(
     `INSERT INTO reports (game_key, game_name, install, rating, route, mfg, gpu, gpu_family, driver, cpu, ram_gb, os, api, versions,
                          app_version, note, created_at, updated_at)
@@ -298,17 +304,15 @@ async function postReport(env, body, ipHash) {
        game_name = excluded.game_name, rating = excluded.rating, route = excluded.route, mfg = excluded.mfg,
        gpu = excluded.gpu, gpu_family = excluded.gpu_family, driver = excluded.driver, cpu = excluded.cpu,
        ram_gb = excluded.ram_gb, os = excluded.os, api = excluded.api, versions = excluded.versions,
-       app_version = excluded.app_version, note = excluded.note, updated_at = excluded.updated_at,
-       hidden = CASE WHEN reports.note = excluded.note THEN reports.hidden ELSE 0 END`)
+       app_version = excluded.app_version, note = excluded.note, updated_at = excluded.updated_at`)
     .bind(key, name, install, rating, routeName, body.mfg ? 1 : 0, gpu, family, driver, cpu, ramGb, os, api, versions,
           appVersion, note, now, now).run();
-  if (before && before.note !== note) await env.DB.prepare(`DELETE FROM flags WHERE report_id = ?`).bind(before.id).run();
   return json({ ok: true });
 }
 
 async function flagReport(env, body, id, ipHash) {
   const install = await hashInstall(body.install, env);
-  // Three flags hide a note: flaggers need a nickname (not banned), and one connection can only flag so often.
+  // Three flags hide a report's text: flaggers need a nickname (not banned), and one connection can only flag so often.
   await poster(env, install);
   await limit(env, `flag:${ipHash}`, LIMITS.flagsPerIp);
   const report = await env.DB.prepare(`SELECT install FROM reports WHERE id = ?`).bind(id).first();
@@ -500,10 +504,11 @@ async function admin(request, env, path, m, q) {
   // Reports / notes
   if (m === 'GET' && path === '/v1/admin/flagged') {
     const r = await db.prepare(
-      `SELECT r.id, r.install AS author, r.game_name, r.rating, r.route, r.mfg, r.gpu, r.driver, r.cpu, r.ram_gb, r.os, r.note,
-              r.hidden, COUNT(f.install) AS flags, r.updated_at
-         FROM reports r JOIN flags f ON f.report_id = r.id GROUP BY r.id ORDER BY r.updated_at DESC LIMIT 200`).all();
-    return json(r.results);
+      `SELECT r.id, r.install AS author, r.game_name, r.rating, r.route, r.mfg, r.gpu, r.gpu_family, r.driver, r.cpu, r.ram_gb,
+              r.os, r.versions, r.app_version, r.note, r.hidden, p.nickname, COUNT(f.install) AS flags, r.updated_at
+         FROM reports r JOIN flags f ON f.report_id = r.id LEFT JOIN profiles p ON p.install = r.install
+        GROUP BY r.id ORDER BY r.updated_at DESC LIMIT 200`).all();
+    return json(r.results.map(x => ({ ...x, versions: safeJson(x.versions) })));
   }
   if (m === 'GET' && path === '/v1/admin/recent') {
     const r = await db.prepare(

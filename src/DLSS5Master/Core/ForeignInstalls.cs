@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 
 namespace DLSS5Master.Core;
@@ -216,7 +217,7 @@ public static class ForeignInstalls
         var exeDir = Path.GetDirectoryName(exePath)!;
         var items = UnrecordedReShadeFiles(exeDir, hookFile);
         if (items.Count == 0) throw new InstallException("No ReShade found next to the game's executable. Nothing was changed.");
-        var dest = Path.Combine(gameDir, Journal.BackupDir, "removed", DateTime.Now.ToString("yyyyMMdd-HHmmss"));
+        var dest = Path.Combine(gameDir, Journal.BackupDir, "removed", DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
         var root = Root(gameDir);
         var moved = new List<(string From, string To)>();
         try
@@ -239,7 +240,7 @@ public static class ForeignInstalls
         }
         File.WriteAllLines(Path.Combine(dest, "README.txt"), new[]
         {
-            "DLSS 5 Master moved these ReShade files out of the game on " + DateTime.Now.ToString("g") + ".",
+            "DLSS 5 Master moved these ReShade files out of the game on " + DateTime.Now.ToString("d MMM yyyy, h:mm tt", CultureInfo.InvariantCulture) + ".",
             "No app had a record of this ReShade install. To put it back, move the folders in here back into the game folder.",
             "",
         }.Concat(moved.Select(m => Path.GetRelativePath(root, m.From))));

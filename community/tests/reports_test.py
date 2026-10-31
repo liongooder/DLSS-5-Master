@@ -89,12 +89,24 @@ check("update: still one report, new driver and memory", s == 200 and len(game["
 # Values that do not look right are stored empty; the report itself is never refused for them.
 key = f"name:specodd{run}"
 s, b = report(new_install(False), key, gpu="NVIDIA GeForce RTX 5090", cpu="<b>bold</b>", os="Windows XP", driver="latest",
-              ramGb=99999, appVersion="free text", api="dx99")
+              ramGb=99999, appVersion="free text", api="dx99", gpuFamily="visit scam.example")
 check("odd: accepted", s == 200, (s, b))
 s, game = call("GET", f"/v1/games/{key}")
 row = game["reports"][0] if s == 200 and game["reports"] else {}
 check("odd: stored empty", (row.get("cpu"), row.get("os"), row.get("driver"), row.get("ram_gb"), row.get("app_version"), row.get("api"))
       == ("", "", "", 0, "", ""), row)
+check("odd: unknown card family stored as Other", row.get("gpu_family") == "Other" and game["byRoute"][0]["gpu_family"] == "Other", row)
+k = f"name:specos{run}"
+report(new_install(False), k, os="Windows 11 Losers (26100)")
+s, game = call("GET", f"/v1/games/{k}")
+check("odd: a word as the Windows release is not kept", s == 200 and game["reports"][0]["os"] == "", game)
+
+# The nickname shows only next to a note, as before 0.9.8: a report without one does not name its author.
+key = f"name:specnick{run}"
+named = new_install(True)
+report(named, key, **PC)
+s, game = call("GET", f"/v1/games/{key}")
+check("nickname: not on a report without a note", s == 200 and game["reports"][0]["nickname"] is None and game["reports"][0]["is_dev"] is False, game)
 for bad in ["32", 31.5, -4, True]:
     k = f"name:specram{run}{secrets.token_hex(2)}"
     report(new_install(False), k, ramGb=bad)
@@ -133,6 +145,11 @@ check("hide: text gone", (row.get("hidden"), row.get("note"), row.get("gpu"), ro
 check("hide: rating, route and checked values kept", (row.get("rating"), row.get("route"), row.get("gpu_family"), row.get("driver"), row.get("ram_gb"))
       == ("broken", "native", "RTX 40", "581.57", 32), row)
 check("hide: not in notes", game.get("notes") == [], game.get("notes"))
+# Sending it again with another note does not bring it back: only the moderator does.
+report(writer, key, note="other words", **PC)
+s, game = call("GET", f"/v1/games/{key}")
+row = next((r for r in game.get("reports", []) if r["id"] == rid), {})
+check("hide: a new note keeps it hidden", row.get("hidden") is True and row.get("note") == "" and game.get("notes") == [], row)
 
 # A report without a note can be flagged too (for a fake card or processor name); the developer sees it with its PC.
 key = f"name:specflag{run}"
@@ -149,12 +166,27 @@ if token:
     mine = [f for f in flagged or [] if f["id"] == rid]
     check("moderator: flagged report with its route and PC", s == 200 and mine and (mine[0]["route"], mine[0]["cpu"], mine[0]["ram_gb"], mine[0]["os"])
           == ("native", "Fake CPU", 32, "Windows 11 24H2 (26100)"), (s, mine))
+    check("moderator: its versions and app version", mine and mine[0]["versions"] == {"renodx-dlss5": "10.8.0"} and mine[0]["app_version"] == "0.9.8", mine)
+    s, b = call("POST", f"/v1/admin/reports/{rid}/unhide", token=token)
+    s, game = call("GET", f"/v1/games/{key}")
+    check("moderator: Show again brings the report back", s == 200 and game["reports"][0]["hidden"] is False and game["reports"][0]["cpu"] == "Fake CPU", game)
 else:
-    print("SKIP moderator check: no ADMIN_TOKEN in .dev.vars")
+    print("SKIP moderator checks: no ADMIN_TOKEN in .dev.vars")
 
-# The games list still counts them.
+# The games list still counts them, and takes a game's name from a report that is not hidden.
 s, games = call("GET", f"/v1/games?q=spec+game")
 check("list: still works", s == 200 and games["total"] >= 1, (s, games and games.get("total")))
+key = f"name:specname{run}"
+report(new_install(False), key, name="Proper Name", **PC)
+liar = new_install(False)
+report(liar, key, name="Zzz bad name", note="x", **PC)
+s, game = call("GET", f"/v1/games/{key}")
+lid = next(r["id"] for r in game["reports"] if r["note"] == "x")
+for _ in range(3):
+    call("POST", f"/v1/reports/{lid}/flag", {"install": new_install(True)})
+s, games = call("GET", "/v1/games?q=proper+name")
+check("list: a hidden report's name is not the game's name", s == 200 and [g["name"] for g in games["games"] if g["key"] == key] == ["Proper Name"],
+      (s, games and [g for g in games["games"] if g["key"] == key]))
 
 print(f"{passed} passed, {failed} failed")
 sys.exit(1 if failed else 0)

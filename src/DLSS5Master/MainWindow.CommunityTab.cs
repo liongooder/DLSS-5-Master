@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -280,7 +281,7 @@ public sealed partial class MainWindow
         root.Children.Add(content);
 
         card.Content = root;
-        card.Click += async (_, _) => await ShowCommunityGameAsync(g);
+        card.Click += async (_, _) => await ShowCommunityGameAsync(g.Key, g.Name);
         return card;
     }
 
@@ -299,13 +300,14 @@ public sealed partial class MainWindow
         };
     }
 
-    private async Task ShowCommunityGameAsync(CommunityGame g)
+    /// <summary>A game's report window: counts, what worked where, and every report with its PC.</summary>
+    private async Task ShowCommunityGameAsync(string key, string name)
     {
         var panel = new StackPanel { Spacing = 12, MinWidth = 700 };
         panel.Children.Add(Muted("Loading…"));
         var dialog = new ContentDialog
         {
-            XamlRoot = Root.XamlRoot, Title = g.Name, CloseButtonText = "Close",
+            XamlRoot = Root.XamlRoot, Title = name, CloseButtonText = "Close",
             Content = new ScrollViewer { Content = panel, MaxHeight = 560, Padding = new Thickness(0, 0, 12, 0) },
         };
         // Wider than the 548 px a dialog allows by default (which also cut off the Flag links), so each report's PC line fits.
@@ -314,7 +316,7 @@ public sealed partial class MainWindow
         {
             try
             {
-                var s = await Community.GetAsync(g.Key);
+                var s = await Community.GetAsync(key);
                 DispatcherQueue.TryEnqueue(() => RenderCommunity(s, panel, editor: false));
             }
             catch (Exception ex) { DispatcherQueue.TryEnqueue(() => { panel.Children.Clear(); panel.Children.Add(Muted(ex.Message)); }); }
@@ -478,7 +480,7 @@ public sealed partial class MainWindow
         }
         else
         {
-            sideTime = new TextBlock { Text = m.When.ToString("HH:mm"), FontSize = 10, Foreground = Res("MutedText"), Opacity = 0, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 0) };
+            sideTime = new TextBlock { Text = m.When.ToString("HH:mm", CultureInfo.InvariantCulture), FontSize = 10, Foreground = Res("MutedText"), Opacity = 0, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 4, 0, 0) };
             row.Children.Add(sideTime);
         }
 
@@ -489,7 +491,7 @@ public sealed partial class MainWindow
             head.Children.Add(new TextBlock { Text = m.Nickname, FontWeight = FontWeights.SemiBold, Foreground = m.IsDev ? Res("AccentText") : null });
             if (m.IsDev) head.Children.Add(new Border { Padding = new Thickness(6, 0, 6, 0), CornerRadius = new CornerRadius(5), BorderThickness = new Thickness(1), BorderBrush = Res("AccentText"), Child = new TextBlock { Text = "DEVELOPER", FontSize = 10, Foreground = Res("AccentText") } });
             var time = new TextBlock { Text = Ago(m.When), FontSize = 11, Foreground = Res("MutedText"), VerticalAlignment = VerticalAlignment.Center };
-            ToolTipService.SetToolTip(time, m.When.ToString("dddd d MMMM yyyy, HH:mm"));
+            ToolTipService.SetToolTip(time, m.When.ToString("dddd d MMMM yyyy, HH:mm", CultureInfo.InvariantCulture));
             head.Children.Add(time);
             body.Children.Add(head);
         }
@@ -795,6 +797,6 @@ public sealed partial class MainWindow
         if (d.TotalHours < 1) return $"{(int)d.TotalMinutes} min ago";
         if (d.TotalDays < 1) return $"{(int)d.TotalHours} hour{((int)d.TotalHours == 1 ? "" : "s")} ago";
         if (d.TotalDays < 30) return $"{(int)d.TotalDays} day{((int)d.TotalDays == 1 ? "" : "s")} ago";
-        return when.ToString("d MMM yyyy");
+        return when.ToString("d MMM yyyy", CultureInfo.InvariantCulture);   // English month names, Gregorian, whatever the region
     }
 }

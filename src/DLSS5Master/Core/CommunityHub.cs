@@ -24,9 +24,12 @@ public sealed record PrivateMessage(long Id, bool FromDev, string Text, long? Im
 public sealed record ModSummary(int PendingGallery, int UnreadPrivate, int FlaggedNotes);
 public sealed record ModThread(string Author, string? Nickname, DateTime LastAt, int Unread, int Messages);
 public sealed record ModGallery(long Id, string Author, long ImageId, string Caption, string Game, string Status, string? Nickname, DateTime When);
-/// <summary>A flagged report with its route and its PC in one line (<see cref="Community.SpecsLine"/>), as its author sent them.</summary>
+/// <summary>
+/// A flagged report with its route, its PC in one line (<see cref="Community.SpecsLine"/>), its app and add-on versions
+/// (<see cref="Community.VersionsLine"/>) and its author's nickname, as its author sent them.
+/// </summary>
 public sealed record ModNote(long Id, string Author, string Game, string Rating, string Note, bool Hidden, int Flags, DateTime When,
-                             string Route = "", bool Mfg = false, string Pc = "");
+                             string Route = "", bool Mfg = false, string Pc = "", string Versions = "", string? Nickname = null);
 public sealed record ModChat(long Id, string Author, string Text, bool Hidden, string? Nickname, DateTime When);
 
 /// <summary>
@@ -249,7 +252,8 @@ public static class CommunityHub
         using var d = await Admin(HttpMethod.Get, "flagged");
         return d.RootElement.EnumerateArray().Select(n => new ModNote(Long(n, "id"), Str(n, "author"), Str(n, "game_name"), Str(n, "rating"), Str(n, "note"),
             Int(n, "hidden") != 0, Int(n, "flags"), Time(n, "updated_at"), Str(n, "route"), Int(n, "mfg") != 0,
-            Community.SpecsLine(Str(n, "gpu"), Str(n, "driver"), Str(n, "cpu"), Int(n, "ram_gb"), Str(n, "os")))).ToList();
+            Community.SpecsLine(Str(n, "gpu"), Str(n, "driver"), Str(n, "cpu"), Int(n, "ram_gb"), Str(n, "os")),
+            Community.VersionsLine(Str(n, "app_version"), Community.Versions(n)), NullStr(n, "nickname"))).ToList();
     }
 
     public static async Task ModNoteAsync(long id, string action) =>   // hide | unhide | delete

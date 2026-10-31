@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 
 namespace DLSS5Master.Core;
@@ -18,7 +19,8 @@ public static class AppPaths
         try
         {
             Directory.CreateDirectory(Root);
-            File.AppendAllText(LogFile, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {line}{Environment.NewLine}");
+            // Gregorian whatever the region: a Hijri calendar setting would otherwise date the log in another year.
+            File.AppendAllText(LogFile, $"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)}  {line}{Environment.NewLine}");
         }
         catch { }
     }

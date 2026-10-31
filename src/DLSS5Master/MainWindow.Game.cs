@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -326,7 +327,7 @@ public sealed partial class MainWindow
         var m = _scan.Manifest;
         AddRow(StatusRows, "Installed backend (this app)", Installers.RouteLabel(m?.Route), m is null ? null : "AccentText");
         if (m is not null)
-            AddRow(StatusRows, "Installed on", m.Date.ToLocalTime().ToString("g") + $"  ·  {m.Added.Count} added, {m.Replaced.Count} replaced");
+            AddRow(StatusRows, "Installed on", m.Date.ToLocalTime().ToString("d MMM yyyy, h:mm tt", CultureInfo.InvariantCulture) + $"  ·  {m.Added.Count} added, {m.Replaced.Count} replaced");
         if (_scan.OtherAppBackup || _scan.OtherAppRecord)
             AddRow(StatusRows, "Other app install", _scan.OtherAppRecordRoute ?? _scan.OtherAppBackupRoute ?? "yes", "WarnText");
 
