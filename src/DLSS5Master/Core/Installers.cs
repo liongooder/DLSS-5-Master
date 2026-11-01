@@ -537,6 +537,19 @@ public static partial class Installers
     private static readonly string[] DlssAddonPatterns = { "renodx-dlss*.addon64", "renodx-mfgunlock.addon*", "dlss5-feed*.addon*" };
 
     /// <summary>
+    /// Neural rendering add-ons that this app does not install but players add themselves. Next to this app's add-ons they
+    /// stop working or run a second neural pass (GITC Uplift refuses to run beside RenoDX's, Deep Fried Chicken goes idle,
+    /// lecram's v11+ stops beside renodx-dlss5), so a setup sets them aside too. Only for setting aside: the early-load and
+    /// error 1114 handling stays with this app's own add-ons.
+    /// </summary>
+    private static readonly (string Pattern, string Name)[] OtherNeuralAddons =
+    {
+        ("dlss5-nr*.addon*", "lecram's DLSS5 NR add-on"),
+        ("gitc-uplift*.addon*", "GITC Uplift"),
+        ("deep-fried-chicken*.addon*", "Deep Fried Chicken"),
+    };
+
+    /// <summary>
     /// Sets aside the DLSS 5 add-ons in <paramref name="dir"/> other than <paramref name="keep"/>: each goes into this
     /// install's backup, so Restore originals puts it back. Other add-ons (a game's own RenoDX HDR mod, say) stay.
     /// </summary>
@@ -545,13 +558,17 @@ public static partial class Installers
         var setAside = new List<string>();
         if (!Directory.Exists(dir)) return setAside;
         var kept = keep.OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (var f in DlssAddonPatterns.SelectMany(p => Directory.EnumerateFiles(dir, p)).Distinct(StringComparer.OrdinalIgnoreCase).ToList())
+        foreach (var f in DlssAddonPatterns.Concat(OtherNeuralAddons.Select(o => o.Pattern)).SelectMany(p => Directory.EnumerateFiles(dir, p))
+                     .Distinct(StringComparer.OrdinalIgnoreCase).ToList())
         {
             var name = Path.GetFileName(f);
             if (kept.Contains(name)) continue;
             s.DeleteTracked(f, "addon");
             setAside.Add(name);
-            s.Log($"Set aside {name}: ReShade loads every add-on in this folder, so it would run alongside this install. Restore originals puts it back.");
+            var other = OtherNeuralAddons.FirstOrDefault(o => System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(o.Pattern, name, ignoreCase: true)).Name;
+            s.Log(other is null
+                ? $"Set aside {name}: ReShade loads every add-on in this folder, so it would run alongside this install. Restore originals puts it back."
+                : $"Set aside {name} ({other}, another DLSS 5 add-on): next to this install it would stop working or run a second neural pass. Restore originals puts it back.");
         }
         return setAside;
     }

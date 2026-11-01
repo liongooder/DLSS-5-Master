@@ -275,8 +275,11 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     var exe = Path.Combine(game, "Game.exe");
     File.WriteAllBytes(exe, RandomNumberGenerator.GetBytes(4096));
     // Left by another tool (as in House Party: an older MFG unlock), next to unrelated add-ons the player put there.
-    var others = new[] { "renodx-mfgunlock.addon64", "renodx-dlss.addon64", "dlss5-feed-helper.addon64", "dlss5-feed.addon32" };
-    var unrelated = new[] { "renodx-houseparty.addon64", "ShaderToggler.addon64" };
+    // ...and neural add-ons players add themselves: lecram's v11+, GITC Uplift (both builds), Deep Fried Chicken.
+    var others = new[] { "renodx-mfgunlock.addon64", "renodx-dlss.addon64", "dlss5-feed-helper.addon64", "dlss5-feed.addon32",
+                         "dlss5-nr.addon64", "gitc-uplift.addon64", "gitc-uplift.addon32", "deep-fried-chicken.addon64" };
+    // Their other files are not add-ons, so ReShade does not load them: they stay.
+    var unrelated = new[] { "renodx-houseparty.addon64", "ShaderToggler.addon64", "deep-fried-chicken-nvngx.dll", "Uplift.fx" };
     foreach (var n in others.Concat(unrelated).Append("renodx-dlss5.addon64"))
         File.WriteAllBytes(Path.Combine(game, n), RandomNumberGenerator.GetBytes(512));
     var before = Directory.EnumerateFiles(game).ToDictionary(f => new FileInfo(f).Name, Components.Sha256, StringComparer.OrdinalIgnoreCase);
@@ -290,6 +293,8 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Check("the add-on this install uses and unrelated add-ons stay",
         File.Exists(Path.Combine(game, "renodx-dlss5.addon64")) && unrelated.All(n => File.Exists(Path.Combine(game, n))));
     Check("each one set aside is logged", logs.Count(l => l.StartsWith("Set aside ")) == others.Length);
+    Check("another neural add-on is named in the log", logs.Any(l => l.StartsWith("Set aside gitc-uplift.addon64 (GITC Uplift,"))
+        && logs.Any(l => l.Contains("(Deep Fried Chicken,")) && logs.Any(l => l.Contains("(lecram's DLSS5 NR add-on,")), string.Join(" | ", logs));
     var bin = Path.Combine(game, "bin");
     Directory.CreateDirectory(bin);
     File.WriteAllBytes(Path.Combine(bin, "renodx-mfgunlock.addon64"), RandomNumberGenerator.GetBytes(512));
