@@ -827,7 +827,7 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     var codScan = Scanner.Scan(cod);
     Check("scan: two anti-cheats named", codScan.AntiCheatName is "RICOCHET and Easy Anti-Cheat" or "Easy Anti-Cheat and RICOCHET", codScan.AntiCheatName);
     Directory.Delete(cod, true);
-    Check("anti-cheat warning says it may not load", Installers.AntiCheatWarning("BattlEye").Contains("(BattlEye)") && Installers.AntiCheatWarning("BattlEye").Contains("stops ReShade from loading"));
+    Check("anti-cheat warning says it may not load", Installers.AntiCheatWarning("BattlEye").Contains("(BattlEye)") && Installers.AntiCheatWarning("BattlEye").Contains("stops injected DLLs such as ReShade and OptiScaler from loading"));
 }
 
 // ====================================================================== Installers

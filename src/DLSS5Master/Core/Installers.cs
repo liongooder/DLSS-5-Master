@@ -73,12 +73,13 @@ public static partial class Installers
     };
 
     /// <summary>
-    /// What a game's anti-cheat means for a setup. Every route loads through ReShade's add-on build, which is unsigned and
-    /// not cleared by anti-cheat makers (ReShade's own release notes), so anti-cheat often refuses to load it at all.
+    /// What a game's anti-cheat means for a setup. Every route puts an unsigned DLL into the game (ReShade's add-on build,
+    /// or OptiScaler), which anti-cheat makers have not cleared (ReShade's own release notes), so anti-cheat often refuses
+    /// to load it at all; EA Javelin refuses every unsigned DLL.
     /// </summary>
     public static string AntiCheatWarning(string antiCheat) =>
-        $"This game has anti-cheat ({antiCheat}). It often stops ReShade from loading, so DLSS 5 Master may not work here, " +
-        "and injecting ReShade or OptiScaler can get your account banned, especially online.";
+        $"This game has anti-cheat ({antiCheat}). It often stops injected DLLs such as ReShade and OptiScaler from loading, " +
+        "so DLSS 5 Master may not work here, and injecting them can get your account banned, especially online.";
 
     public static string RouteLabel(string? key)
     {

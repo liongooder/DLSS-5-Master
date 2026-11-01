@@ -688,8 +688,14 @@
                   <CheckBox x:Name="MfgBox" Content="MFG unlock — multi frame generation: DLSS 3x/4x on RTX 40, or Intel XeSS 2x–6x on RTX 20–50 (MFGAdaUnlock 1.7.1)" />
                   <TextBlock x:Name="MfgNote" Margin="28,0,0,0" FontSize="12" Foreground="{StaticResource MutedText}" TextWrapping="Wrap" />
                 </StackPanel>
-                <CheckBox x:Name="EarlyAddonsBox" Click="EarlyAddonsBox_Click"
-                          Content="Load the add-ons as soon as ReShade starts — only for games where ReShade cannot start them (error 1114 in ReShade.log)" />
+                <!-- Rarely needed: closed unless something in it is on -->
+                <Expander x:Name="TroubleshootingExpander" Header="Troubleshooting" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                  <StackPanel>
+                    <CheckBox x:Name="EarlyAddonsBox" Click="EarlyAddonsBox_Click" Content="Load add-ons early" />
+                    <TextBlock Margin="28,0,0,0" FontSize="12" Foreground="{StaticResource MutedText}" TextWrapping="Wrap"
+                               Text="Only for games where ReShade cannot start the DLSS 5 add-ons (error 1114 in ReShade.log): ReShade then starts them as soon as it loads. After a run, this page tells you when a game needs it." />
+                  </StackPanel>
+                </Expander>
               </StackPanel>
               </Border>
 

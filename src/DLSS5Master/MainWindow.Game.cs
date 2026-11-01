@@ -157,11 +157,7 @@ public sealed partial class MainWindow
                 AntiCheatBox.Content = new TextBlock
                 {
                     TextWrapping = TextWrapping.Wrap,
-                    Text = Installers.AntiCheatWarning(antiCheat) + " I understand." +
-                           // ARK: Survival Ascended's own Steam launch choice without BattlEye.
-                           (_game?.Entry is { Launcher: "Steam", Id: "2399830" }
-                               ? " Steam also offers \"Play ARK: No BattlEye AntiCheat, Unofficial Servers Only\", which starts ARK without BattlEye."
-                               : ""),
+                    Text = Installers.AntiCheatWarning(antiCheat) + " I understand." + (ArkNote() is { Length: > 0 } ark ? " " + ark : ""),
                 };
             // MFG unlock: keep what is installed; on a fresh game, default on for RTX 40 owners when the game has frame generation.
             MfgBox.IsChecked = manifest is not null
@@ -169,6 +165,8 @@ public sealed partial class MainWindow
                 : Gpu.HasRtx40 && Installers.MfgUnavailable(SelectedApi, SelectedExe?.Bitness ?? 0, _scan.HasFrameGen) is null;
             ProxyBox.SelectedIndex = manifest?.ReShadeHook?.Equals("d3d11.dll", StringComparison.OrdinalIgnoreCase) == true ? 1 : 0;
             EarlyAddonsBox.IsChecked = ov?.LoadAddonsEarly == true;
+            // Open when it holds a choice that is on, so nothing in it is ever on unseen.
+            TroubleshootingExpander.IsExpanded = EarlyAddonsBox.IsChecked == true;
         }
         finally { _populating = false; }
         RefreshRoutes(selectFromManifest: true);
@@ -281,7 +279,8 @@ public sealed partial class MainWindow
                 : otherApp ? _removeOtherButton
                 : unrecorded && warning is not null && warning.StartsWith("ReShade ") ? _removeReShadeButton
                 : loadEarly ? _loadEarlyButton : null;
-            InstallButton.IsEnabled = !_busy && SelectedExe is not null && (opti ? chosen?.Unavailable is null : RouteBox.SelectedItem is not null);
+            _canInstall = SelectedExe is not null && (opti ? chosen?.Unavailable is null : RouteBox.SelectedItem is not null);
+            InstallButton.IsEnabled = !_busy && _canInstall;
             InstallButton.Content = _scan.Manifest is null ? "Set up DLSS 5" : "Reinstall";
             RenderRouteCards(routes, opti, bits);
         }
@@ -464,14 +463,23 @@ public sealed partial class MainWindow
         if (DispatcherQueue.HasThreadAccess) Append(); else DispatcherQueue.TryEnqueue(Append);
     }
 
+    /// <summary>Whether the page's choices can be set up at all, as RefreshRoutes last worked it out.</summary>
+    private bool _canInstall;
+
     private void SetBusy(bool busy, string text = "")
     {
         _busy = busy;
         BusyRing.IsActive = busy;
         BusyText.Text = text;
-        InstallButton.IsEnabled = !busy;
+        InstallButton.IsEnabled = !busy && _canInstall;
         RestoreButton.IsEnabled = !busy && _scan?.Manifest is not null;
     }
+
+    /// <summary>ARK: Survival Ascended's own Steam launch choice without BattlEye, for the anti-cheat notes; "" for other games.</summary>
+    private string ArkNote() => _game?.Entry is { Launcher: "Steam", Id: "2399830" }
+        ? "Steam also offers \"Play ARK: No BattlEye AntiCheat, Unofficial Servers Only\", which starts ARK without BattlEye. " +
+          "Start it that way every time while DLSS 5 is in the game: the normal Play ARK runs BattlEye with it."
+        : "";
 
     private async void Install_Click(object sender, RoutedEventArgs e)
     {
@@ -480,6 +488,25 @@ public sealed partial class MainWindow
         var build = (OptiBuildBox.SelectedItem as ComboBoxItem)?.Tag as OptiBuild;
         var route = opti ? Route.OptiScaler : (RouteBox.SelectedItem as ComboBoxItem)?.Tag as Route? ?? Route.Native;
         if (SelectedApi == RenderApi.Unknown) { Log("Choose the Rendering API first."); return; }
+        // The anti-cheat box is easy to miss, and the install only logged its refusal: ask here instead.
+        if (_scan.AntiCheatName is { } antiCheat && AntiCheatBox.IsChecked != true)
+        {
+            var action = _scan.Manifest is null ? "Set up" : "Reinstall";
+            var text = Installers.AntiCheatWarning(antiCheat) +
+                       (_scan.Manifest is null ? "" : "\n\nDLSS 5 Master is already in this game: Cancel leaves it there, and Restore originals takes it out.") +
+                       (ArkNote() is { Length: > 0 } ark ? "\n\n" + ark : "");
+            var dialog = new ContentDialog
+            {
+                XamlRoot = Root.XamlRoot,
+                Title = $"{action} {_game.Name} anyway?",
+                Content = new TextBlock { TextWrapping = TextWrapping.Wrap, Text = text },
+                PrimaryButtonText = $"{action} anyway",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Close
+            };
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+            AntiCheatBox.IsChecked = true;
+        }
         var req = new InstallRequest
         {
             GameDir = _scan.Dir,
@@ -502,6 +529,7 @@ public sealed partial class MainWindow
         SetBusy(true, "Installing…");
         _installCts = new CancellationTokenSource();
         var progress = new Progress<string>(t => BusyText.Text = t);
+        string? failure = null;
         try
         {
             await Installers.InstallAsync(req, _components, Log, progress, _installCts.Token);
@@ -511,11 +539,21 @@ public sealed partial class MainWindow
             Log("✖ " + ex.Message);
             AppPaths.Log($"[{_game.Name}] install failed: {ex}");
             if (Journal.ReadManifest(_scan.Dir) is not null) Log("Files changed before the failure are recorded; Restore originals undoes them.");
+            if (ex is not OperationCanceledException) failure = ex.Message;
         }
         finally
         {
             SetBusy(false);
         }
+        // The log sits at the bottom of the page: a refusal shown only there looks like nothing happened.
+        if (failure is not null)
+            await new ContentDialog
+            {
+                XamlRoot = Root.XamlRoot,
+                Title = $"Could not {(_scan.Manifest is null ? "set up" : "reinstall")} {_game.Name}",
+                Content = new TextBlock { TextWrapping = TextWrapping.Wrap, Text = failure },
+                CloseButtonText = "OK",
+            }.ShowAsync();
         var log = LogBox.Text;
         await RescanAsync();
         LogBox.Text = log;
