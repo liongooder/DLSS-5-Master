@@ -80,7 +80,7 @@ public static class Overlay
         if (sm86) await Task.Run(() => ExtractSm86(ct), ct);
         else RemoveSm86();
         var mfg = Path.Combine(Folder, Components.MfgAddon);
-        if (frameGen >= 2 && !sm86) copies.Add((await components.MfgUnlockAsync(p, ct), Components.MfgAddon));
+        if (frameGen >= 2 && !sm86 && Gpu.HasRtx40) copies.Add((await components.MfgUnlockAsync(p, ct), Components.MfgAddon));
         else { try { File.Delete(mfg); } catch { } }
         Directory.CreateDirectory(Folder);
         var files = new List<OverlayFile>();

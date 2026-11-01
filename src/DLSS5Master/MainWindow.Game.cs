@@ -162,10 +162,11 @@ public sealed partial class MainWindow
                     TextWrapping = TextWrapping.Wrap,
                     Text = Installers.AntiCheatWarning(antiCheat) + " I understand." + (ArkNote() is { Length: > 0 } ark ? " " + ark : ""),
                 };
-            // MFG unlock: keep what is installed; on a fresh game, default on for RTX 40 owners when the game has frame generation.
+            // MFG unlock: keep what is installed; on a fresh game, default on for RTX 40 owners when the game has frame generation,
+            // but off with anti-cheat: its hooks go deep into the game (an older one crashed Call of Duty at start).
             MfgBox.IsChecked = manifest is not null
                 ? manifest.MfgUnlock is not null
-                : Gpu.HasRtx40 && Installers.MfgUnavailable(SelectedApi, SelectedExe?.Bitness ?? 0, _scan.HasFrameGen) is null;
+                : Gpu.HasRtx40 && !_scan.AntiCheat && Installers.MfgUnavailable(SelectedApi, SelectedExe?.Bitness ?? 0, _scan.HasFrameGen) is null;
             ProxyBox.SelectedIndex = manifest?.ReShadeHook?.Equals("d3d11.dll", StringComparison.OrdinalIgnoreCase) == true ? 1 : 0;
             EarlyAddonsBox.IsChecked = ov?.LoadAddonsEarly == true;
             // Open when it holds a choice that is on, so nothing in it is ever on unseen.
@@ -241,9 +242,10 @@ public sealed partial class MainWindow
             var mfgWhy = Installers.MfgUnavailable(SelectedApi, bits, _scan.HasFrameGen);
             MfgBox.IsEnabled = mfgWhy is null;
             if (mfgWhy is not null) MfgBox.IsChecked = false;
-            MfgNote.Text = mfgWhy ?? (Gpu.HasRtx40 ? ""
+            MfgNote.Text = mfgWhy ?? ((_scan.AntiCheat ? "Off by default in games with anti-cheat: it hooks deep into the game, which anti-cheat may block or answer with a crash. " : "") +
+                (Gpu.HasRtx40 ? ""
                 : Gpu.HasRtx ? $"On {Gpu.Nvidia}, choose XeMFG (XeSS frame generation 2x–6x) under General → Frame generation method in the add-on's in-game panel; it installs Intel's files itself. The default DLSS-G mode needs an RTX 40 card."
-                : $"Needs a GeForce RTX 20-series or newer card; this PC has {Gpu.Nvidia ?? "no NVIDIA GPU"}.");
+                : $"Needs a GeForce RTX 20-series or newer card; this PC has {Gpu.Nvidia ?? "no NVIDIA GPU"}.")).TrimEnd();
             MfgNote.Visibility = MfgNote.Text == "" ? Visibility.Collapsed : Visibility.Visible;
             ApplyKeyButton.IsEnabled = _scan.OptiScalerIni;
 
