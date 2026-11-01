@@ -537,7 +537,8 @@ public sealed partial class MainWindow : Window
         "Included with DLSS 5 Master (SHA-256 pinned; licence texts in the install folder):\n" +
         "• NVIDIA DLSS, Frame Generation, Ray Reconstruction, neural rendering runtimes and Streamline — © NVIDIA Corporation, NVIDIA license\n" +
         "• ReShade 6.8 with add-on support — reshade.me, © Patrick Mours (BSD-3-Clause)\n" +
-        "• RenoDX DLSS5 add-on and DLSS Tool — github.com/clshortfuse/renodx (MIT)\n" +
+        "• RenoDX DLSS5 add-on — by lecram (as credited by the community), built on RenoDX (github.com/clshortfuse/renodx, MIT); no licence published for the add-on\n" +
+        "• RenoDX DLSS Tool — by ShortFuse; no licence published\n" +
         "• DLSS5-Feeder — github.com/jlrouzies-fr/DLSS5-Feeder (MIT)\n" +
         "• vort_Shaders — github.com/vortigern11/vort_Shaders (MIT)\n" +
         "• MFGAdaUnlock-RenoDx 1.7.1 — github.com/mavismmg/MFGAdaUnlock-RenoDx (MIT)\n" +

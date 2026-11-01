@@ -108,7 +108,8 @@ The installer bundles these components, unmodified and checked against the pinne
 | OptiScaler NR pre-SR MFG 0.9.81 (bundled; also contains dlssg_for_sm86, which the overlay uses for frame generation on RTX 20/30) | [ShyVortex/OptiScaler-NR-PreSR-MFG](https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG) (source at tag v0.9.81); [sdli1995/dlssg_for_sm86](https://github.com/sdli1995/dlssg_for_sm86) | GPL-3.0 |
 | OptiScaler NR pre-SR multipass 0.8.3 RTX 40 MFG (downloaded when chosen) | [wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) | GPL-3.0 |
 | DLSS5-Feeder | [jlrouzies-fr/DLSS5-Feeder](https://github.com/jlrouzies-fr/DLSS5-Feeder) | MIT |
-| RenoDX DLSS5 add-on / DLSS Tool | [clshortfuse/renodx](https://github.com/clshortfuse/renodx), builds via [RankFTW/rhi-repo](https://github.com/RankFTW/rhi-repo) | MIT |
+| RenoDX DLSS5 add-on | by lecram (as credited by the community), built on [RenoDX](https://github.com/clshortfuse/renodx) (MIT); builds via [RankFTW/rhi-repo](https://github.com/RankFTW/rhi-repo) | No licence published |
+| RenoDX DLSS Tool | by ShortFuse; builds via [RankFTW/rhi-repo](https://github.com/RankFTW/rhi-repo) | No licence published |
 | NVIDIA DLSS / Frame Gen / Ray Reconstruction / neural rendering runtimes, Streamline | NVIDIA | NVIDIA licence (included) |
 | MFGAdaUnlock-RenoDx (multi frame generation, DLSS-G and XeMFG) | [mavismmg/MFGAdaUnlock-RenoDx](https://github.com/mavismmg/MFGAdaUnlock-RenoDx) | MIT |
 | vort_Shaders | [vortigern11/vort_Shaders](https://github.com/vortigern11/vort_Shaders) | MIT |

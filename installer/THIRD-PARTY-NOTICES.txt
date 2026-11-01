@@ -48,10 +48,17 @@ Bundled with this installer (unmodified, SHA-256 pinned):
   BSD-3-Clause; full text in licenses\ReShade-LICENSE.md. Includes the
   ReShade.fxh / ReShadeUI.fxh shader headers in payload\feeder\reshade-shaders.
 
-- RenoDX DLSS5 add-on 10.8.0 and DLSS Tool SF 26.1016.1304
-  (payload\renodx\) - https://github.com/clshortfuse/renodx,
-  Copyright (c) 2025 Carlos Lopez Jr. MIT; full text in
-  licenses\RenoDX-LICENSE.txt.
+- RenoDX DLSS5 add-on 10.8.0 (payload\renodx\renodx-dlss5.addon64) - by
+  lecram (as credited by the community), built on RenoDX. Released as a
+  binary; no licence published.
+
+- RenoDX DLSS Tool SF 26.1016.1304 (payload\renodx\renodx-dlss.addon64) -
+  by ShortFuse. Released as a binary; no licence published.
+
+  Both are the unmodified builds mirrored at
+  https://github.com/RankFTW/rhi-repo. RenoDX itself
+  (https://github.com/clshortfuse/renodx) is Copyright (c) 2025
+  Carlos Lopez Jr., MIT; full text in licenses\RenoDX-LICENSE.txt.
 
 - DLSS5-Feeder 1.19.0 (payload\feeder\) -
   https://github.com/jlrouzies-fr/DLSS5-Feeder,
