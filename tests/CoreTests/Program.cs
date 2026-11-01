@@ -832,6 +832,39 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     var codScan = Scanner.Scan(cod);
     Check("scan: two anti-cheats named", codScan.AntiCheatName is "RICOCHET and Easy Anti-Cheat" or "Easy Anti-Cheat and RICOCHET", codScan.AntiCheatName);
     Directory.Delete(cod, true);
+    // ---- frame generation with too few real frames (the DLSS 5 add-on's own figures in ReShade.log)
+    {
+        string Cost(double ms, int without, int with) =>
+            $"05:07:24:910 [421180] | INFO  | [DLSS 5 Neural Rendering] DLSS5 Generic: NR cost: gpu_ms={ms.ToString(System.Globalization.CultureInfo.InvariantCulture)} | NR: {ms.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)} ms of GPU time per frame (estimate: {without} fps without NR, {with} fps with it)";
+        const string Fg2 = "04:58:21:003 [421180] | INFO  | [DLSS 5 Neural Rendering] DLSS5 Generic: Present hook point: declared: frame generation detected (2x); source=DLSSG.MultiFrameCount";
+        var culture = System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("de-DE");
+        try
+        {
+            var speed = Installers.ReadRunSpeed(new[] { Cost(30.1, 9, 8), Fg2, Cost(14.4, 19, 15) });
+            Check("run speed: last cost line, frame generation, decimal point on any regional format",
+                speed is { FpsWithNr: 15, FpsWithoutNr: 19, FrameGen: 2 } && Math.Abs(speed.NrMs - 14.4) < 0.001, speed?.ToString());
+        }
+        finally { System.Globalization.CultureInfo.CurrentCulture = culture; }
+        Check("run speed: none without a cost line", Installers.ReadRunSpeed(new[] { Fg2 }) is null);
+        Check("run speed: frame generation off by default", Installers.ReadRunSpeed(new[] { Cost(5, 70, 60) }) is { FrameGen: 1 });
+
+        var game = Path.Combine(Path.GetTempPath(), "dlss5cr-fgspeed-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(game);
+        var log = Path.Combine(game, "ReShade.log");
+        Manifest Record(string route) => new() { Route = route, Exe = "Game.exe", Date = DateTime.UtcNow.AddMinutes(-1) };
+        File.WriteAllLines(log, new[] { Fg2, Cost(14.4, 19, 15) });
+        Check("slow frame generation is reported", Installers.SlowFrameGeneration(game, Record("native")) is { FpsWithNr: 15 });
+        Check("only for the routes whose add-on writes these figures", Installers.SlowFrameGeneration(game, Record("multipass")) is null);
+        File.WriteAllLines(log, new[] { Fg2, Cost(6, 70, 60) });
+        Check("enough real frames: nothing to report", Installers.SlowFrameGeneration(game, Record("native")) is null);
+        File.WriteAllLines(log, new[] { Cost(14.4, 19, 15) });
+        Check("without frame generation: nothing to report", Installers.SlowFrameGeneration(game, Record("feeder")) is null);
+        File.WriteAllLines(log, new[] { Fg2, Cost(14.4, 19, 15) });
+        File.SetLastWriteTimeUtc(log, DateTime.UtcNow.AddHours(-1));
+        Check("a log from before the install is not this setup's", Installers.SlowFrameGeneration(game, Record("native")) is null);
+        Directory.Delete(game, true);
+    }
     Check("anti-cheat warning says it may not load", Installers.AntiCheatWarning("BattlEye").Contains("(BattlEye)") && Installers.AntiCheatWarning("BattlEye").Contains("stops injected DLLs such as ReShade and OptiScaler from loading"));
 }
 

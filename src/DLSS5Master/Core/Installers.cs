@@ -632,6 +632,60 @@ public static partial class Installers
         return AddonsFailingToStart(dir, manifest.Date).Where(a => !early.Contains(a, StringComparer.OrdinalIgnoreCase)).ToList();
     }
 
+    /// <summary>What the DLSS 5 add-on measured in a game's run: real frames a second with and without its pass, its cost, frame generation (1 = off).</summary>
+    public sealed record RunSpeed(int FpsWithNr, int FpsWithoutNr, double NrMs, int FrameGen);
+
+    /// <summary>Below this many real frames a second, frame generation's in-between frames get poor and can flicker.</summary>
+    internal const int FrameGenMinFps = 40;
+
+    [GeneratedRegex(@"NR: ([0-9.]+) ms of GPU time per frame \(estimate: (\d+) fps without NR, (\d+) fps with it\)")]
+    private static partial Regex NrCostLine();
+
+    [GeneratedRegex(@"frame generation detected \((\d+)x\)")]
+    private static partial Regex FrameGenLine();
+
+    /// <summary>
+    /// The DLSS 5 add-on's own figures from a ReShade.log: its last cost line and the highest frame generation it saw;
+    /// null when it wrote no cost line.
+    /// </summary>
+    internal static RunSpeed? ReadRunSpeed(IEnumerable<string> lines)
+    {
+        Match? cost = null;
+        int frameGen = 1;
+        foreach (var line in lines)
+        {
+            if (NrCostLine().Match(line) is { Success: true } m) cost = m;
+            if (FrameGenLine().Match(line) is { Success: true } g && int.TryParse(g.Groups[1].Value, out var x)) frameGen = Math.Max(frameGen, x);
+        }
+        if (cost is null || !double.TryParse(cost.Groups[1].Value, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var ms))
+            return null;
+        return new RunSpeed(int.Parse(cost.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture),
+                            int.Parse(cost.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture), ms, frameGen);
+    }
+
+    /// <summary>
+    /// For a game set up with Native or the Feeder (whose add-on writes these figures): the last run since the install, when
+    /// frame generation ran on fewer real frames a second than it needs (CoD at 15 fps flickered); null otherwise.
+    /// </summary>
+    public static RunSpeed? SlowFrameGeneration(string gameDir, Manifest? manifest)
+    {
+        if (manifest is null || manifest.Route is not ("native" or "feeder") || string.IsNullOrEmpty(manifest.Exe)) return null;
+        try
+        {
+            var dir = Path.GetDirectoryName(Journal.SafePath(Path.GetFullPath(gameDir).TrimEnd('\\', '/'), manifest.Exe));
+            if (dir is null) return null;
+            var log = Path.Combine(dir, "ReShade.log");
+            var since = manifest.Date.Kind == DateTimeKind.Local ? manifest.Date.ToUniversalTime() : manifest.Date;
+            if (!File.Exists(log) || File.GetLastWriteTimeUtc(log) < since) return null;
+            // ReShade keeps its log open while the game runs.
+            using var reader = new StreamReader(new FileStream(log, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete));
+            var lines = new List<string>();
+            for (string? line; (line = reader.ReadLine()) is not null;) lines.Add(line);
+            return ReadRunSpeed(lines) is { FrameGen: >= 2 } speed && speed.FpsWithNr < FrameGenMinFps ? speed : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or InstallException) { return null; }
+    }
+
     /// <summary>
     /// Keeps the [ADDON] LoadFromDllMain line of ReShade.ini in <paramref name="dir"/> in step with the add-ons there: names
     /// of add-on files that are gone come off it (ReShade reports "errors loading some add-ons" for each), and with

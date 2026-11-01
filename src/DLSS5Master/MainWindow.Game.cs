@@ -28,6 +28,8 @@ public sealed partial class MainWindow
     private Button? _rescanLibraryButton;
     /// <summary>The installed add-ons ReShade could not start in the game's last run (error 1114), not yet loaded early.</summary>
     private List<string> _addonsToLoadEarly = new();
+    /// <summary>The game's last run when frame generation had too few real frames to work with, else null.</summary>
+    private Installers.RunSpeed? _slowFrameGen;
     /// <summary>The open game's folder no longer exists: it was moved (Steam's Move install folder) or uninstalled.</summary>
     private bool _folderGone;
 
@@ -100,10 +102,11 @@ public sealed partial class MainWindow
         var preferred = _settings.OverrideOf(game.Entry)?.Exe ?? game.Entry.Exe;
         try
         {
-            (_scan, _addonsToLoadEarly, _folderGone) = await Task.Run(() =>
+            (_scan, _addonsToLoadEarly, _slowFrameGen, _folderGone) = await Task.Run(() =>
             {
                 var scan = Scanner.Scan(game.Entry.Dir, preferred);
-                return (scan, Installers.AddonsToLoadEarly(scan.Dir, scan.Manifest), !Directory.Exists(game.Entry.Dir));
+                return (scan, Installers.AddonsToLoadEarly(scan.Dir, scan.Manifest), Installers.SlowFrameGeneration(scan.Dir, scan.Manifest),
+                        !Directory.Exists(game.Entry.Dir));
             });
             game.SetScan(_scan);
             Populate();
@@ -262,6 +265,11 @@ public sealed partial class MainWindow
             if (loadEarly)
                 warning = $"ReShade could not start {string.Join(" and ", _addonsToLoadEarly)} in this game (error 1114 in ReShade.log). " +
                           "Having ReShade load them as soon as it starts fixes this in some games.";
+            // Frame generation fed too few real frames flickers (CoD at 15 fps): say so, with the numbers from the last run.
+            if (warning is null && _slowFrameGen is { } slow)
+                warning = $"Last run: about {slow.FpsWithNr} real frames a second with DLSS 5 ({slow.NrMs.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)} ms of each for DLSS 5) " +
+                          $"and {slow.FrameGen}x frame generation on. Frame generation needs about 60 real frames a second to look clean; below that it can flicker. " +
+                          "Use DLSS Quality in the game, or fewer passes or a lower resolution scale in the DLSS 5 add-on.";
             bool otherApp = _scan.OtherAppBackup || _scan.OtherAppRecord;
             if (otherApp)
                 warning = "Another app has an install in this game. Remove it before installing with DLSS 5 Master.";
