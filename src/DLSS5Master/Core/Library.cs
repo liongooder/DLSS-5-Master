@@ -297,12 +297,15 @@ public static partial class Library
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
     }
 
-    /// <summary>True when an .exe exists in <paramref name="dir"/> or up to <paramref name="levels"/> folders below it.</summary>
+    /// <summary>
+    /// True when a program exists in <paramref name="dir"/> or up to <paramref name="levels"/> folders below it. Helpers do
+    /// not count: a game's Tool folder with only its installer's message box is not a game.
+    /// </summary>
     private static bool HasExe(string dir, int levels)
     {
         try
         {
-            if (Directory.EnumerateFiles(dir, "*.exe").Any()) return true;
+            if (Directory.EnumerateFiles(dir, "*.exe").Any(f => !Scanner.IsHelperExe(Path.GetFileName(f)))) return true;
             if (levels <= 0) return false;
             foreach (var sub in Directory.EnumerateDirectories(dir))
                 if (HasExe(sub, levels - 1)) return true;

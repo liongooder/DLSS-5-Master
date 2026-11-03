@@ -796,6 +796,16 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     File.WriteAllBytes(Path.Combine(plain, "unins000.exe"), RandomNumberGenerator.GetBytes(2_000_000));
     var plainOwn = Ours(new AppSettings { ExtraFolders = { plain } });
     Check("adding a plain game's own folder adds that one game", plainOwn.Count == 1 && plainOwn[0].Dir == plain, Describe(plainOwn));
+    // Onimusha: Way of the Sword: lecram's NR host beside the game and the installer's message box in Tool. Neither is a
+    // program of the game's own: the folder stays one game, and a folder of games lists neither as a game.
+    Directory.CreateDirectory(Path.Combine(plain, "dlss5-nr-host"));
+    File.WriteAllBytes(Path.Combine(plain, "dlss5-nr-host", "nr-host64.exe"), RandomNumberGenerator.GetBytes(400_000));
+    Directory.CreateDirectory(Path.Combine(plain, "Tool"));
+    File.WriteAllBytes(Path.Combine(plain, "Tool", "InstallerMessage.exe"), RandomNumberGenerator.GetBytes(1_600_000));
+    var withHost = Ours(new AppSettings { ExtraFolders = { plain } });
+    Check("lecram's NR host and an installer helper beside the game keep its folder one game", withHost.Count == 1 && withHost[0].Dir == plain, Describe(withHost));
+    Directory.CreateDirectory(Path.Combine(lib, "Tool"));
+    File.WriteAllBytes(Path.Combine(lib, "Tool", "InstallerMessage.exe"), RandomNumberGenerator.GetBytes(1_600_000));
     var all = Ours(new AppSettings { ExtraFolders = { lib } });
     Check("a folder of three games lists all three", all.Count == 3, Describe(all));
 

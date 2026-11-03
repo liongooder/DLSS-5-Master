@@ -190,6 +190,7 @@ public static partial class Scanner
         "modmanager", "mod_manager", "modorganizer", "steamerrorreporter", "unrealcefsubprocess", "cefsharp", "cef_", "cefprocess",
         "qtwebengineprocess", "epicwebhelper", "createdump", "7z", "python", "ueprereqsetup", "prereqsetup", "gamelaunchhelper",
         "rockstar-games-launcher", "redprelauncher", "playgtav", "dlss5-feed-host", "dgvoodoocpl", "reshade_setup",
+        "nr-host", // lecram's DLSS5 NR host, in dlss5-nr-host beside the game
     };
 
     // BattlEye's launcher is the game's own name with "_BE" (ArkAscended_BE.exe, DayZ_BE.exe).
