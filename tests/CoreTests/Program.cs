@@ -998,6 +998,65 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Check("lecram's NR: route identity", Installers.RouteKey(Route.LecramNr) == "lecramnr" && Installers.RouteLabel("lecramnr").Contains("lecram's DLSS5 NR"));
     Check("lecram's NR: never recommended", Installers.RecommendedRoute(RenderApi.OpenGL, 64, false) != Route.LecramNr);
 
+    // lecram's own setup over a game (Like a Dragon: Ishin!): it backed up the game's dxgi.dll and renodx-dlss5, moved NVIDIA's
+    // runtime into its shared store, added its add-on and host, and calls the player's ReShade.ini its own. Removing it here
+    // puts the game back as it was, keeps ReShade.ini, and moves its record aside; a changed backup stops it before anything.
+    {
+        var rootR = Path.Combine(Path.GetTempPath(), "dlss5cr-lecramsetup-" + Guid.NewGuid().ToString("N"));
+        var binR = Path.Combine(rootR, "game", "bin");
+        var gameR = Path.GetDirectoryName(binR)!;
+        var setupR = Path.Combine(binR, "DLSS5-NR-setup");
+        var storeR = Path.Combine(rootR, "store");
+        foreach (var d in new[] { Path.Combine(setupR, "backup"), Path.Combine(binR, LecramNr.HostFolder), storeR }) Directory.CreateDirectory(d);
+        var exeR = Path.Combine(binR, "OfflineIshin" + Guid.NewGuid().ToString("N")[..6] + ".exe");
+        File.WriteAllBytes(exeR, RandomNumberGenerator.GetBytes(2048));
+        byte[] dxgiOurs = RandomNumberGenerator.GetBytes(900), consumer = RandomNumberGenerator.GetBytes(700), runtime = RandomNumberGenerator.GetBytes(800);
+        var ini = Encoding.UTF8.GetBytes("[RenoDX.DLSS5]\r\nNRPasses=2\r\n");
+        string Sha(byte[] b) => Convert.ToHexString(SHA256.HashData(b)).ToLowerInvariant();
+        File.WriteAllBytes(Path.Combine(setupR, "backup", "dxgi.dll"), dxgiOurs);
+        File.WriteAllBytes(Path.Combine(setupR, "backup", "renodx-dlss5.addon64"), consumer);
+        File.WriteAllBytes(Path.Combine(storeR, "nvngx_dlssnr.dll"), runtime);
+        File.WriteAllBytes(Path.Combine(binR, "dxgi.dll"), RandomNumberGenerator.GetBytes(950));       // lecram's ReShade
+        File.WriteAllBytes(Path.Combine(binR, LecramNr.Addon64), RandomNumberGenerator.GetBytes(600));
+        File.WriteAllBytes(Path.Combine(binR, LecramNr.HostFolder, "nr-host64.exe"), RandomNumberGenerator.GetBytes(400));
+        File.WriteAllBytes(Path.Combine(binR, LecramNr.HostFolder, "ReShade.ini"), RandomNumberGenerator.GetBytes(40));
+        File.WriteAllBytes(Path.Combine(binR, "ReShade.ini"), ini);
+        string Entry(string path, string? sha, bool shared = false) =>
+            $"{{\"path\":{System.Text.Json.JsonSerializer.Serialize(path)},\"original_sha256\":{(sha is null ? "null" : "\"" + sha + "\"")}{(shared ? ",\"shared\":true" : "")}}}";
+        File.WriteAllText(LecramNr.SetupRecord(binR), "{\"version\":1,\"entries\":[" + string.Join(",",
+            Entry("renodx-dlss5.addon64", Sha(consumer)), Entry(LecramNr.Addon64, null), Entry(LecramNr.HostFolder, null),
+            Entry(LecramNr.HostFolder + "\\nr-host64.exe", null), Entry(LecramNr.HostFolder + "\\ReShade.ini", null),
+            Entry("nvngx_dlssnr.dll", Sha(runtime), shared: true), Entry("dxgi.dll", Sha(dxgiOurs)), Entry("ReShade.ini", null)) +
+            "],\"shared_runtime\":" + System.Text.Json.JsonSerializer.Serialize(Path.Combine(storeR, "nvngx_dlssnr.dll")) + ",\"addon_version\":\"v12.9.5\"}");
+
+        var logsR = new List<string>();
+        var read = LecramNr.ReadSetupInstall(binR);
+        Check("lecram's setup: its record reads as 3 to put back, 3 added files, its host folder, and ReShade.ini kept",
+            read.Problem is null && read.PutBack.Count == 3 && read.Delete.Count == 3 && read.Dirs.Count == 1 && read.Kept.Count == 1 && read.Version == "v12.9.5",
+            read.Problem ?? $"{read.PutBack.Count}/{read.Delete.Count}/{read.Dirs.Count}/{read.Kept.Count}");
+
+        // A backup changed since: nothing happens.
+        File.WriteAllBytes(Path.Combine(setupR, "backup", "renodx-dlss5.addon64"), RandomNumberGenerator.GetBytes(700));
+        string? refusedR = null;
+        try { LecramNr.RemoveSetupInstallAsync(gameR, exeR, logsR.Add).GetAwaiter().GetResult(); } catch (InstallException e) { refusedR = e.Message; }
+        Check("lecram's setup: a backup that no longer matches its record stops the removal before any change",
+            refusedR?.Contains("renodx-dlss5.addon64") == true && File.Exists(Path.Combine(binR, LecramNr.Addon64)) && File.Exists(LecramNr.SetupRecord(binR)),
+            refusedR ?? "removed");
+        File.WriteAllBytes(Path.Combine(setupR, "backup", "renodx-dlss5.addon64"), consumer);
+
+        var moved = LecramNr.RemoveSetupInstallAsync(gameR, exeR, logsR.Add).GetAwaiter().GetResult();
+        Check("lecram's setup: removing it puts back dxgi.dll, the RenoDX DLSS5 add-on and the runtime, and keeps ReShade.ini",
+            File.ReadAllBytes(Path.Combine(binR, "dxgi.dll")).SequenceEqual(dxgiOurs)
+            && File.ReadAllBytes(Path.Combine(binR, "renodx-dlss5.addon64")).SequenceEqual(consumer)
+            && File.ReadAllBytes(Path.Combine(binR, "nvngx_dlssnr.dll")).SequenceEqual(runtime)
+            && File.ReadAllBytes(Path.Combine(binR, "ReShade.ini")).SequenceEqual(ini));
+        Check("lecram's setup: its add-on and host folder are gone, its record and backups moved into this app's backup folder",
+            !File.Exists(Path.Combine(binR, LecramNr.Addon64)) && !Directory.Exists(Path.Combine(binR, LecramNr.HostFolder)) && !Directory.Exists(setupR)
+            && File.Exists(Path.Combine(moved, "manifest.json")) && moved.StartsWith(Journal.BackupRoot(gameR), StringComparison.OrdinalIgnoreCase)
+            && File.Exists(Path.Combine(storeR, "nvngx_dlssnr.dll")), moved);
+        Directory.Delete(rootR, true);
+    }
+
     Check("routelabel", Installers.RouteLabel("native") == "ReShade · Native DLSS-NR"
         && Installers.RouteLabel("multipass") == "ReShade · RenoDX DLSS Tool (multipass)"
         && Installers.RouteLabel("renodx") == "ReShade · RenoDX DLSS Tool (multipass)"

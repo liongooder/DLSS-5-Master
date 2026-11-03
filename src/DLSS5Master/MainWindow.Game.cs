@@ -24,6 +24,7 @@ public sealed partial class MainWindow
 
     private Button? _removeOtherButton;
     private Button? _removeReShadeButton;
+    private Button? _removeLecramButton;
     private Button? _loadEarlyButton;
     private Button? _rescanLibraryButton;
     /// <summary>The installed add-ons ReShade could not start in the game's last run (error 1114), not yet loaded early.</summary>
@@ -51,6 +52,8 @@ public sealed partial class MainWindow
         _removeOtherButton.Click += RemoveOther_Click;
         _removeReShadeButton = new Button { Content = "Remove ReShade" };
         _removeReShadeButton.Click += RemoveUnrecordedReShade_Click;
+        _removeLecramButton = new Button { Content = "Remove lecram's NR" };
+        _removeLecramButton.Click += RemoveLecramSetup_Click;
         _loadEarlyButton = new Button { Content = "Load add-ons early" };
         _loadEarlyButton.Click += LoadEarly_Click;
         _rescanLibraryButton = new Button { Content = "Rescan library" };
@@ -278,8 +281,10 @@ public sealed partial class MainWindow
             bool otherApp = _scan.OtherAppBackup || _scan.OtherAppRecord;
             if (otherApp)
                 warning = "Another app has an install in this game. Remove it before installing with DLSS 5 Master.";
-            // lecram's own setup installed NR here: its Remove NR goes first (Onimusha: Way of the Sword, over a Native install).
-            else if (SelectedExe is not null && LecramNr.SetupInstalled(Path.GetDirectoryName(SelectedExe.Path)!))
+            // lecram's own setup installed NR here (Onimusha: Way of the Sword, Like a Dragon: Ishin!, over a Native install): it
+            // goes first, removed here or by its own Remove NR.
+            bool lecramSetup = !otherApp && SelectedExe is not null && LecramNr.SetupInstalled(Path.GetDirectoryName(SelectedExe.Path)!);
+            if (lecramSetup)
                 warning = Installers.LecramSetupAfterUs(_scan.Dir) ? LecramNr.SetupAfterUsMessage : LecramNr.SetupInstalledMessage;
             // ReShade that nobody recorded (installed by hand or by an older tool): offer to move it out of the game.
             bool unrecorded = !otherApp && _scan.Manifest is null && _scan.ReShade.Installed && _scan.ReShade.File is not null;
@@ -293,6 +298,7 @@ public sealed partial class MainWindow
             RouteWarning.IsOpen = warning is not null;
             RouteWarning.ActionButton = _folderGone ? _rescanLibraryButton
                 : otherApp ? _removeOtherButton
+                : lecramSetup ? _removeLecramButton
                 : unrecorded && warning is not null && warning.StartsWith("ReShade ") ? _removeReShadeButton
                 : loadEarly ? _loadEarlyButton : null;
             _canInstall = SelectedExe is not null && (opti ? chosen?.Unavailable is null : RouteBox.SelectedItem is not null);
@@ -734,6 +740,50 @@ public sealed partial class MainWindow
         LogBox.Text = "";
         SetBusy(true, "Removing…");
         try { await ForeignInstalls.RemoveAllAsync(dir, SelectedExe?.Path, Log); }
+        catch (Exception ex) { Log("✖ " + ex.Message); }
+        finally { SetBusy(false); }
+        var log = LogBox.Text;
+        await RescanAsync();
+        LogBox.Text = log;
+    }
+
+    /// <summary>Undo lecram's setup install in this game from its own record and backups, keeping the player's ReShade settings.</summary>
+    private async void RemoveLecramSetup_Click(object sender, RoutedEventArgs e)
+    {
+        if (_scan is null || _busy || SelectedExe is null) return;
+        var dir = _scan.Dir;
+        var exe = SelectedExe.Path;
+        var exeDir = Path.GetDirectoryName(exe)!;
+        LogBox.Text = "";
+        SetBusy(true, "Checking lecram's backups…");
+        LecramNr.SetupInstall si;
+        try { si = await Task.Run(() => LecramNr.ReadSetupInstall(exeDir)); }
+        finally { SetBusy(false); }
+        if (si.Problem is not null)
+        {
+            Log("✖ " + si.Problem + " Nothing was changed.");
+            return;
+        }
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Root.XamlRoot,
+            Title = "Remove lecram's DLSS5 NR from this game?",
+            Content = new TextBlock
+            {
+                TextWrapping = TextWrapping.Wrap,
+                Text = $"This undoes lecram's DLSS5 NR Setup{(si.Version is null ? "" : " " + si.Version)} in {_game?.Name ?? "this game"} from its own record " +
+                       $"and backups: {si.PutBack.Count} original file(s) go back (each checked against the record) and the {si.Delete.Count} file(s) " +
+                       "it added are deleted. Your ReShade settings stay.\n\n" +
+                       "Its record and backups move to _DLSS5Master_Backup\\removed in the game folder, so nothing of it is lost.",
+            },
+            PrimaryButtonText = "Remove",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+
+        SetBusy(true, "Removing lecram's NR…");
+        try { await LecramNr.RemoveSetupInstallAsync(dir, exe, Log); }
         catch (Exception ex) { Log("✖ " + ex.Message); }
         finally { SetBusy(false); }
         var log = LogBox.Text;
