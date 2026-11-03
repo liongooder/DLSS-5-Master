@@ -477,6 +477,19 @@
         </Border>
         <Border Style="{StaticResource Card}">
           <StackPanel Spacing="10">
+            <TextBlock Text="LECRAM'S DLSS5 NR (YOUR COPY)" Style="{StaticResource SectionTitle}" />
+            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}" Text="lecram's DLSS5 NR is a paid add-on and is not included with DLSS 5 Master. Pick the folder of your copy (the unzipped add-on folder with dlss5-nr.addon64 and dlss5-nr-host) to offer it as a route in every game. A game that already has it offers it without this." />
+            <Grid ColumnSpacing="8">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+              <TextBox x:Name="LecramNrBox" PlaceholderText="None" IsReadOnly="True" />
+              <Button Grid.Column="1" Click="PickLecramNr_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8B7;" FontSize="13" /><TextBlock Text="Browse…" /></StackPanel></Button>
+              <Button Grid.Column="2" Content="None" Click="ClearLecramNr_Click" />
+            </Grid>
+            <TextBlock x:Name="LecramNrStatus" FontSize="12" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource Card}">
+          <StackPanel Spacing="10">
             <TextBlock Text="LIBRARY FOLDERS" Style="{StaticResource SectionTitle}" />
             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}" Text="Steam, Epic, GOG, Ubisoft and Xbox games are found automatically. Add a game's own folder, or a folder whose sub-folders are games (repacks, standalone games)." />
             <ListView x:Name="FolderList" SelectionMode="Single" MaxHeight="200" />

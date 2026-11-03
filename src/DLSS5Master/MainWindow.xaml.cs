@@ -357,11 +357,13 @@ public sealed partial class MainWindow : Window
         RuntimeFolderBox.Text = _settings.RuntimeFolder;
         CommunityBox.IsChecked = _settings.ShowCommunity;
         ReShadeSourceBox.Text = _settings.ReShadeSource;
+        LecramNrBox.Text = _settings.LecramNrFolder;
         FolderList.ItemsSource = _settings.ExtraFolders.ToList();
         static string Where(string path) =>
             path.StartsWith(Components.BundledPayload, StringComparison.OrdinalIgnoreCase) ? "the copies included with DLSS 5 Master" : path;
 
-        var (rt, runtimeText, rs, reshadeText, libCount) = await Task.Run(() =>
+        var lecramFolder = _settings.LecramNrFolder;
+        var (rt, runtimeText, rs, reshadeText, libCount, lecramText, lecramOk) = await Task.Run(() =>
         {
             var rt = _components.RuntimeDir;
             var files = _components.RuntimeFiles();
@@ -372,7 +374,11 @@ public sealed partial class MainWindow : Window
             var reshadeText = rs is null ? "Not found. Pick a ReShade_Setup_*_Addon.exe." : $"Using ReShade {Pe.GetFileVersion(rs)} ({Where(rs)})";
             int libCount = 0;
             try { libCount = Directory.Exists(AppPaths.DllLibrary) ? Directory.EnumerateFiles(AppPaths.DllLibrary, "*.dll", SearchOption.AllDirectories).Count() : 0; } catch { }
-            return (rt, runtimeText, rs, reshadeText, libCount);
+            bool lecramOk = LecramNr.IsCopy(lecramFolder);
+            var lecramText = lecramFolder.Length == 0 ? "Not set: only games that already have lecram's DLSS5 NR offer its route."
+                : lecramOk ? $"Using lecram's DLSS5 NR {LecramNr.Version(lecramFolder)}" + (Directory.Exists(Path.Combine(lecramFolder, LecramNr.HostFolder)) ? "" : $" (no {LecramNr.HostFolder} folder: 32-bit, Direct3D 9/10 and OpenGL games need it)")
+                : "That folder no longer holds dlss5-nr.addon64. Pick your copy again.";
+            return (rt, runtimeText, rs, reshadeText, libCount, lecramText, lecramOk || lecramFolder.Length == 0);
         });
 
         RuntimeStatus.Text = runtimeText;
@@ -380,6 +386,8 @@ public sealed partial class MainWindow : Window
         ReShadeStatus.Text = reshadeText;
         ReShadeStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[rs is null ? "WarnText" : "AccentText"];
         DllLibraryStatus.Text = $"{libCount} DLL build(s) in {AppPaths.DllLibrary}";
+        LecramNrStatus.Text = lecramText;
+        LecramNrStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[lecramFolder.Length == 0 ? "MutedText" : lecramOk ? "AccentText" : "WarnText"];
     }
 
     // The Windows App SDK pickers. Windows.Storage.Pickers fail with E_FAIL when the app runs as administrator, which is how
@@ -426,6 +434,23 @@ public sealed partial class MainWindow : Window
     }
 
     private void ClearReShade_Click(object sender, RoutedEventArgs e) { _settings.ReShadeSource = ""; _settings.Save(); _ = RefreshSettingsPage(); }
+
+    private async void PickLecramNr_Click(object sender, RoutedEventArgs e)
+    {
+        var dir = await PickFolderAsync();
+        if (dir is null) return;
+        if (LecramNr.ResolveFolder(dir) is not { } copy)
+        {
+            LecramNrStatus.Text = "No dlss5-nr.addon64 in that folder. Pick the unzipped DLSS5 NR add-on folder.";
+            LecramNrStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["WarnText"];
+            return;
+        }
+        _settings.LecramNrFolder = copy;
+        _settings.Save();
+        _ = RefreshSettingsPage();
+    }
+
+    private void ClearLecramNr_Click(object sender, RoutedEventArgs e) { _settings.LecramNrFolder = ""; _settings.Save(); _ = RefreshSettingsPage(); }
 
     private async void AddFolder_Click(object sender, RoutedEventArgs e)
     {

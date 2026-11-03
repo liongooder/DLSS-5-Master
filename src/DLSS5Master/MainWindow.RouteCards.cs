@@ -12,13 +12,14 @@ namespace DLSS5Master;
 /// </summary>
 public sealed partial class MainWindow
 {
-    private static readonly Route[] CardOrder = { Route.Native, Route.Multipass, Route.Feeder, Route.OptiScaler };
+    private static readonly Route[] CardOrder = { Route.Native, Route.Multipass, Route.Feeder, Route.OptiScaler, Route.LecramNr };
 
     private static (string Glyph, string Title, string Line) CardText(Route r) => r switch
     {
         Route.Native => ("", "Native", "RenoDX DLSS5 add-on in ReShade"),
         Route.Multipass => ("", "Multipass", "RenoDX DLSS Tool, several neural passes"),
         Route.Feeder => ("", "Feeder", "For games without their own DLSS"),
+        Route.LecramNr => ("", "lecram's NR", "Your copy of lecram's DLSS5 NR"),
         _ => ("", "OptiScaler", "DLSS-NR through OptiScaler, no ReShade"),
     };
 
@@ -31,7 +32,7 @@ public sealed partial class MainWindow
         var recommended = Installers.RecommendedRoute(SelectedApi, bits, _scan.HasNativeDlss);
         Route? installed = _scan.Manifest?.Route switch
         {
-            "native" => Route.Native, "multipass" => Route.Multipass, "feeder" => Route.Feeder, "optiscaler" => Route.OptiScaler, _ => null,
+            "native" => Route.Native, "multipass" => Route.Multipass, "feeder" => Route.Feeder, "optiscaler" => Route.OptiScaler, "lecramnr" => Route.LecramNr, _ => null,
         };
         var signature = string.Join("|", routes.Select(r => $"{r.Route}:{r.Unavailable is null}")) + $"|{recommended}|{installed}";
         if (!Equals(RouteCards.Tag, signature))

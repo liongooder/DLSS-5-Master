@@ -533,6 +533,8 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
         Installers.KeepSettings(game4, helperRecord, bin4, Route.Feeder, 64, mfg: false, optiBuild: null, logs.Add).Count == 0);
     var notPreset = Installers.KeepSettings(game4, Record("native", "ReShade.ini", "dxgi.dll"), bin4, Route.Native, 64, mfg: false, optiBuild: null, logs.Add);
     Check("a PresetPath that names no preset brings nothing back", Rels(notPreset) == @"bin\ReShade.ini", Rels(notPreset));
+    var toLecram = Installers.KeepSettings(game4, Record("native", "ReShade.ini", "dxgi.dll"), bin4, Route.LecramNr, 64, mfg: false, optiBuild: null, logs.Add);
+    Check("Native to lecram's NR keeps ReShade.ini: both keep NR's settings in [RenoDX.DLSS5]", Rels(toLecram) == @"bin\ReShade.ini", Rels(toLecram));
     Directory.Delete(game4, true);
 
     // End to end and offline: a Native setup with the MFG unlock, a game run, Reinstall with and without loading the
@@ -612,6 +614,73 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
         await Installers.RestoreAsync(game3, exe3, logs.Add);
         var diff3 = Diff(before3, Snapshot(game3));
         Check("end to end: restore originals after the reinstalls leaves the folder as it was before the first setup", diff3.Length == 0, diff3);
+
+        // lecram's DLSS5 NR, the player's own copy. The game already has one, and a RenoDX DLSS5 add-on in a mirror folder
+        // (Onimusha's _storage_). Native sets the game's copy aside; lecram's route then takes it from the backup, then the
+        // copy picked in Settings replaces it; Restore originals puts everything back.
+        var copyL = Path.Combine(root3, "lecram", "DLSS5 NR Add-on");
+        Directory.CreateDirectory(Path.Combine(copyL, LecramNr.HostFolder));
+        var copy64 = RandomNumberGenerator.GetBytes(700);
+        File.WriteAllBytes(Path.Combine(copyL, LecramNr.Addon64), copy64);
+        File.WriteAllBytes(Path.Combine(copyL, LecramNr.Addon32), RandomNumberGenerator.GetBytes(300));
+        File.WriteAllBytes(Path.Combine(copyL, LecramNr.HostFolder, "nr-host64.exe"), RandomNumberGenerator.GetBytes(400));
+        File.WriteAllBytes(Path.Combine(copyL, LecramNr.HostFolder, LecramNr.Addon64), copy64);
+        Check("lecram's NR: the picked folder, its host folder or the folder around it find the copy",
+            LecramNr.ResolveFolder(copyL) == copyL && LecramNr.ResolveFolder(Path.Combine(copyL, LecramNr.HostFolder)) == copyL
+            && LecramNr.ResolveFolder(Path.GetDirectoryName(copyL)!) == copyL && LecramNr.ResolveFolder(rt) is null);
+
+        var binL = Path.Combine(root3, "lecram-game", "bin");
+        var storageL = Path.Combine(root3, "lecram-game", "_storage_");
+        foreach (var d in new[] { binL, storageL }) Directory.CreateDirectory(d);
+        var gameL = Path.GetDirectoryName(binL)!;
+        var exeL = Path.Combine(binL, "OfflineLecram" + Guid.NewGuid().ToString("N")[..6] + ".exe");
+        File.Copy(Path.Combine(Environment.SystemDirectory, "notepad.exe"), exeL);
+        File.WriteAllText(Path.Combine(binL, "nvngx_dlss.dll"), "not a pe");
+        var game64 = RandomNumberGenerator.GetBytes(600);
+        File.WriteAllBytes(Path.Combine(binL, LecramNr.Addon64), game64);
+        File.WriteAllBytes(Path.Combine(storageL, "renodx-dlss5.addon64"), RandomNumberGenerator.GetBytes(256));
+        var beforeL = Snapshot(gameL);
+        Task InstallL(Route route, string? source) => Installers.InstallAsync(new InstallRequest
+        {
+            GameDir = gameL, ExePath = exeL, Api = RenderApi.DX12, Bitness = 64, Route = route, LecramNrSource = source,
+        }, components, logs.Add, null, CancellationToken.None);
+        var addonL = Path.Combine(binL, LecramNr.Addon64);
+
+        Check("lecram's NR: the game's copy is a source", LecramNr.Source(null, gameL, binL, null) == binL && LecramNr.Source(copyL, gameL, binL, null) == copyL);
+        await InstallL(Route.Native, null);
+        Check("lecram's NR: Native sets the game's copy aside, and it is still found in the backup",
+            !File.Exists(addonL) && LecramNr.InGame(gameL, binL, Journal.ReadManifest(gameL)) is { } aside && aside.Contains(Journal.BackupDir)
+            && LecramNr.Source(null, gameL, binL, Journal.ReadManifest(gameL)) == binL);
+        await InstallL(Route.LecramNr, binL);
+        Check("lecram's NR: its route installs the game's copy back, with NVIDIA's neural runtime, and no RenoDX DLSS5 add-on anywhere",
+            Holds(addonL, game64) && File.Exists(Path.Combine(binL, "nvngx_dlssnr.dll")) && !File.Exists(Path.Combine(binL, "renodx-dlss5.addon64"))
+            && !File.Exists(Path.Combine(storageL, "renodx-dlss5.addon64")) && Journal.ReadManifest(gameL)?.Route == "lecramnr",
+            string.Join(" | ", logs.TakeLast(6)));
+        await InstallL(Route.LecramNr, copyL);
+        Check("lecram's NR: from the copy in Settings, both add-ons and the host folder as it is",
+            Holds(addonL, copy64) && File.Exists(Path.Combine(binL, LecramNr.Addon32))
+            && File.Exists(Path.Combine(binL, LecramNr.HostFolder, "nr-host64.exe")) && Holds(Path.Combine(binL, LecramNr.HostFolder, LecramNr.Addon64), copy64));
+        Check("lecram's NR: a reinstall leaves no staged copy behind",
+            !Directory.Exists(Path.Combine(Path.GetTempPath(), "DLSS5Master-lecram-nr")) || !Directory.EnumerateFileSystemEntries(Path.Combine(Path.GetTempPath(), "DLSS5Master-lecram-nr")).Any());
+        Throws<InstallException>("lecram's NR: a source without the copy is refused", () => InstallL(Route.LecramNr, rt).GetAwaiter().GetResult());
+
+        // lecram's own setup then installs NR over this install (its record beside the exe, newer than ours): neither a
+        // setup nor Restore originals here may change its files until its Remove NR has run.
+        var setupRecord = LecramNr.SetupRecord(binL);
+        Directory.CreateDirectory(Path.GetDirectoryName(setupRecord)!);
+        Thread.Sleep(50);
+        File.WriteAllText(setupRecord, "{\"version\":1,\"entries\":[]}");
+        var beforeSetup = Snapshot(gameL);
+        string? setupRefused = null, restoreRefused = null;
+        try { await InstallL(Route.Native, null); } catch (InstallException e) { setupRefused = e.Message; }
+        try { await Installers.RestoreAsync(gameL, exeL, logs.Add); } catch (InstallException e) { restoreRefused = e.Message; }
+        Check("lecram's NR: with lecram's setup install in the game, setup and restore both stop and change nothing",
+            setupRefused?.Contains("Remove NR") == true && restoreRefused?.Contains("Remove NR") == true && Diff(beforeSetup, Snapshot(gameL)).Length == 0,
+            (setupRefused ?? "setup ran") + " | " + (restoreRefused ?? "restore ran"));
+        Directory.Delete(Path.GetDirectoryName(setupRecord)!, true);
+        await Installers.RestoreAsync(gameL, exeL, logs.Add);
+        var diffL = Diff(beforeL, Snapshot(gameL));
+        Check("lecram's NR: restore originals puts the game's own copy and the mirror folder's add-on back", diffL.Length == 0, diffL);
 
         // OptiScaler, offline: a build of its own whose package waits in the download cache. The player picks XeSS in
         // OptiScaler's overlay; then a loader of their own beside the game stops a reinstall part-way, and they retry.
@@ -908,6 +977,16 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Check("feeder note on DirectX 12 with the game's own DLSS", Installers.FeederStandsAside(RenderApi.DX12, true)?.Contains("Use Native") == true);
     Check("no feeder note on DirectX 11 or without DLSS", Installers.FeederStandsAside(RenderApi.DX11, true) is null && Installers.FeederStandsAside(RenderApi.DX12, false) is null);
     Check("the feeder stays selectable there", Installers.RoutesFor(RenderApi.DX12, 64, true).Single(o => o.Route == Route.Feeder).Unavailable is null);
+
+    // lecram's DLSS5 NR: offered only with the player's own copy; its host runs it where ReShade can load it, never Vulkan.
+    RouteOption? Lecram(RenderApi api, int bits) => Installers.RoutesFor(api, bits, false, lecramCopy: true).SingleOrDefault(o => o.Route == Route.LecramNr);
+    Check("lecram's NR: no route without a copy", Installers.RoutesFor(RenderApi.DX12, 64, true).All(o => o.Route != Route.LecramNr));
+    Check("lecram's NR: with a copy, the last route", Installers.RoutesFor(RenderApi.DX12, 64, true, lecramCopy: true)[^1].Route == Route.LecramNr);
+    Check("lecram's NR: Direct3D 9 to 12 and OpenGL, 32-bit too", new[] { RenderApi.DX9, RenderApi.DX10, RenderApi.DX11, RenderApi.DX12, RenderApi.OpenGL }
+        .All(api => Lecram(api, 64) is { Unavailable: null } && Lecram(api, 32) is { Unavailable: null }));
+    Check("lecram's NR: not on Vulkan", Lecram(RenderApi.Vulkan, 64)?.Unavailable?.Contains("Vulkan layer") == true);
+    Check("lecram's NR: route identity", Installers.RouteKey(Route.LecramNr) == "lecramnr" && Installers.RouteLabel("lecramnr").Contains("lecram's DLSS5 NR"));
+    Check("lecram's NR: never recommended", Installers.RecommendedRoute(RenderApi.OpenGL, 64, false) != Route.LecramNr);
 
     Check("routelabel", Installers.RouteLabel("native") == "ReShade · Native DLSS-NR"
         && Installers.RouteLabel("multipass") == "ReShade · RenoDX DLSS Tool (multipass)"

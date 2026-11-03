@@ -7,7 +7,7 @@ namespace DLSS5Master.Core;
 
 public enum Backend { ReShade, OptiScaler }
 
-public enum Route { Native, Multipass, Feeder, OptiScaler }
+public enum Route { Native, Multipass, Feeder, OptiScaler, LecramNr }
 
 public sealed class InstallRequest
 {
@@ -24,6 +24,9 @@ public sealed class InstallRequest
     /// <summary>Have ReShade load the DLSS 5 add-ons as soon as it starts (ReShade.ini [ADDON] LoadFromDllMain).</summary>
     public bool LoadAddonsEarly { get; init; }
     public bool AntiCheatAcknowledged { get; init; }
+
+    /// <summary>For the lecram's DLSS5 NR route: the folder of the player's copy (<see cref="LecramNr.Source"/>).</summary>
+    public string? LecramNrSource { get; init; }
 }
 
 public sealed record RouteOption(Route Route, string Label, string Description, string? Unavailable);
@@ -69,6 +72,7 @@ public static partial class Installers
         Route.Native => "native",
         Route.Multipass => "multipass",
         Route.Feeder => "feeder",
+        Route.LecramNr => "lecramnr",
         _ => "optiscaler",
     };
 
@@ -90,6 +94,7 @@ public static partial class Installers
             "multipass" or "renodx" => "ReShade · RenoDX DLSS Tool (multipass)",
             "feeder" => "ReShade · DLSS5 Feeder",
             "optiscaler" => "OptiScaler",
+            "lecramnr" => "ReShade · lecram's DLSS5 NR (your copy)",
             "swap" => "DLL swap only",
             _ => key,
         };
@@ -114,7 +119,8 @@ public static partial class Installers
             ? "The Feeder stands aside in DirectX 12 games that have DLSS of their own: it switches itself off. Use Native, or set Rendering API to DirectX 11 if the game can run on it."
             : null;
 
-    public static List<RouteOption> RoutesFor(RenderApi api, int bitness, bool hasNativeDlss, bool hasFrameGen = false)
+    /// <param name="lecramCopy">The player has a copy of lecram's DLSS5 NR (<see cref="LecramNr.Source"/>): only then is its route offered.</param>
+    public static List<RouteOption> RoutesFor(RenderApi api, int bitness, bool hasNativeDlss, bool hasFrameGen = false, bool lecramCopy = false)
     {
         bool x64 = bitness == 64;
         const string need64 = "Needs a 64-bit game.";
@@ -148,7 +154,7 @@ public static partial class Installers
         var multipassText = "ReShade with the RenoDX DLSS Tool, which runs several neural passes. Streamline is added when the game has none of its own.";
         if (hasFrameGen) multipassText += " The game's DLSS Frame Generation keeps working.";
 
-        return new List<RouteOption>
+        var options = new List<RouteOption>
         {
             new(Route.Native, "Native DLSS-NR (RenoDX DLSS5)",
                 "ReShade plus the RenoDX DLSS5 add-on and NVIDIA's neural runtime, working through the game's own DLSS with its real depth and motion. The best fit for DirectX 11 and 12 games that use DLSS.", native),
@@ -157,6 +163,19 @@ public static partial class Installers
                 "For games without DLSS: shaders compute motion vectors and feed them through ReShade to the neural pass.", feeder),
             new(Route.OptiScaler, "OptiScaler", optiText, opti),
         };
+        // Its own host runs it in 32-bit, Direct3D 9/10 and OpenGL games. Vulkan needs ReShade's Vulkan layer, installed for
+        // the whole PC, which this app does not do.
+        if (lecramCopy)
+            options.Add(new(Route.LecramNr, "lecram's DLSS5 NR (your copy)",
+                "Your own copy of lecram's DLSS5 NR (a paid add-on, not included with DLSS 5 Master) with ReShade and NVIDIA's neural runtime. " +
+                "It finds the game's depth and motion itself, with or without the game's DLSS. In game, Home opens its panel and Shift+Home opens ReShade.",
+                api switch
+                {
+                    RenderApi.DX9 or RenderApi.DX10 or RenderApi.DX11 or RenderApi.DX12 or RenderApi.OpenGL => null,
+                    RenderApi.Vulkan => "Vulkan games need ReShade's Vulkan layer, which DLSS 5 Master does not install; lecram's own setup does.",
+                    _ => "Needs a Direct3D 9, 10, 11 or 12 game, or an OpenGL one.",
+                }));
+        return options;
     }
 
     public static Route RecommendedRoute(RenderApi api, int bitness, bool hasNativeDlss)
@@ -185,6 +204,8 @@ public static partial class Installers
         public string? OptiFolder { get; init; }
         public OptiBuild? Build { get; init; }
         public string? MfgFile { get; init; }
+        /// <summary>The player's copy of lecram's DLSS5 NR, staged (<see cref="LecramNr.Stage"/>).</summary>
+        public string? LecramNr { get; init; }
         public required GameScan Scan { get; set; }
         public int Bits => Req.Bitness;
         public void Log(string line) => S.Log(line);
@@ -207,6 +228,7 @@ public static partial class Installers
         // Another tool's install in this game: never overwrite it (both apps would then fight over the same files).
         if (File.Exists(Path.Combine(gameDir, "_DLSS5_Backup", "manifest.json")) || Scanner.OtherAppRecordRouteFor(gameDir) is not null)
             throw new InstallException("Another app has an install in this game. Remove it with that app first, then install with DLSS 5 Master.");
+        if (LecramNr.SetupInstalled(exeDir)) throw new InstallException(LecramNr.SetupInstalledMessage);
         AssertGameClosed(exePath);
 
         progress?.Report("Scanning the game…");
@@ -214,7 +236,9 @@ public static partial class Installers
         if (scan.AntiCheatName is { } antiCheat && !req.AntiCheatAcknowledged)
             throw new InstallException(AntiCheatWarning(antiCheat) + " Tick the acknowledgement to continue anyway.");
 
-        var option = RoutesFor(req.Api, req.Bitness, scan.HasNativeDlss, scan.HasFrameGen).First(o => o.Route == req.Route);
+        if (req.Route == Route.LecramNr && !LecramNr.Has(req.LecramNrSource, gameDir, exeDir, Journal.ReadManifest(gameDir)))
+            throw new InstallException($"Your copy of lecram's DLSS5 NR was not found{(req.LecramNrSource is null ? "" : " in " + req.LecramNrSource)}. Pick its folder in Settings.");
+        var option = RoutesFor(req.Api, req.Bitness, scan.HasNativeDlss, scan.HasFrameGen, lecramCopy: req.Route == Route.LecramNr).First(o => o.Route == req.Route);
         if (option.Unavailable is not null)
             throw new InstallException($"{option.Label} cannot be used here: {option.Unavailable}");
 
@@ -271,6 +295,10 @@ public static partial class Installers
         }
         if (wantMfg) mfg = await components.MfgUnlockAsync(progress, ct);
         ct.ThrowIfCancellationRequested();
+        // The player's copy of lecram's DLSS5 NR, put aside before the restore below changes the game folder.
+        using var lecram = req.Route == Route.LecramNr
+            ? await Task.Run(() => LecramNr.Stage(req.LecramNrSource!, gameDir, exeDir, Journal.ReadManifest(gameDir)), ct)
+            : null;
 
         // ---- 3. undo an earlier install by this app, keeping the settings the player changed in the game
         var kept = new List<KeptSetting>();
@@ -305,7 +333,7 @@ public static partial class Installers
             {
                 Req = req, S = session, ExeDir = exeDir, Runtime = runtime,
                 ReShade = reshade, ReShade64 = reshade64, Consumer = consumer, Multipass = multipass,
-                Feeder = feeder, OptiFolder = opti, Build = build, MfgFile = mfg,
+                Feeder = feeder, OptiFolder = opti, Build = build, MfgFile = mfg, LecramNr = lecram?.Dir,
                 // Fresh look at the folder now that any earlier install is gone.
                 Scan = Scanner.Scan(gameDir, exePath),
             };
@@ -315,6 +343,7 @@ public static partial class Installers
                 case Route.Multipass: RunRenoDx(job, multipassMode: true); break;
                 case Route.Feeder: RunFeeder(job); break;
                 case Route.OptiScaler: RunOptiScaler(job); break;
+                case Route.LecramNr: RunLecramNr(job); break;
             }
             if (wantMfg) RunMfg(job);
             // Last, with every add-on in place: ReShade must not be told to load early an add-on that is gone.
@@ -339,7 +368,7 @@ public static partial class Installers
         var kept = new List<KeptSetting>();
         var root = Path.GetFullPath(gameDir).TrimEnd('\\', '/');
         var dir = Path.GetFullPath(exeDir).TrimEnd('\\', '/');
-        bool routeBefore = old.Route is "native" or "multipass" or "feeder" or "optiscaler";
+        bool routeBefore = old.Route is "native" or "multipass" or "feeder" or "optiscaler" or "lecramnr";
         string? dirBefore = null;
         try { if (!string.IsNullOrEmpty(old.Exe)) dirBefore = Path.GetDirectoryName(Journal.SafePath(root, old.Exe)); }
         catch (InstallException) { }
@@ -351,7 +380,9 @@ public static partial class Installers
 
         var candidates = new List<string>();
         var routeKey = RouteKey(route);
-        if (old.Route != routeKey)
+        // Native's add-on and lecram's NR keep their settings in the same ReShade.ini section ([RenoDX.DLSS5]).
+        static string Family(string? key) => key == "lecramnr" ? "native" : key ?? "";
+        if (Family(old.Route) != Family(routeKey))
         {
             if (routeBefore) log($"The route changed from {RouteLabel(old.Route)} to {RouteLabel(routeKey)}, so this setup starts with fresh in-game settings.");
         }
@@ -623,7 +654,7 @@ public static partial class Installers
     /// </summary>
     public static List<string> AddonsToLoadEarly(string gameDir, Manifest? manifest)
     {
-        if (manifest is null || manifest.Route is not ("native" or "multipass" or "feeder") || string.IsNullOrEmpty(manifest.Exe)) return new();
+        if (manifest is null || manifest.Route is not ("native" or "multipass" or "feeder" or "lecramnr") || string.IsNullOrEmpty(manifest.Exe)) return new();
         string? dir;
         try { dir = Path.GetDirectoryName(Journal.SafePath(Path.GetFullPath(gameDir).TrimEnd('\\', '/'), manifest.Exe)); }
         catch (InstallException) { return new(); }
@@ -778,6 +809,55 @@ public static partial class Installers
         }
         job.S.CopyTracked(src, dest, "runtime");
         job.Log($"Added {job.S.Rel(dest)} {srcVersion}.");
+    }
+
+    // ------------------------------------------------------------------ lecram's DLSS5 NR (the player's copy)
+
+    private static void RunLecramNr(Job job)
+    {
+        var bits = job.Bits;
+        var src = job.LecramNr!;
+        FixOldCompiler(job);
+
+        foreach (var u in job.Scan.Upscalers.Where(u => u.Kind is UpscalerKind.DlssSR or UpscalerKind.DlssNR && u.Bitness == bits).ToList())
+            if (job.Runtime.TryGetValue(u.Name, out var dll)) PlaceRuntime(job, dll, u.Path, bits);
+        // NR runs 64-bit in every game (32-bit ones through its host) and looks for its runtime beside the game's exe.
+        PlaceRuntime(job, job.Runtime[NeuralDll], Path.Combine(job.ExeDir, NeuralDll), 64);
+
+        SetAsideOtherAddons(job.S, job.ExeDir, LecramNr.Addon64, LecramNr.Addon32, job.MfgFile is null ? null : Components.MfgAddon);
+        SetAsideConsumerCopies(job);
+        foreach (var addon in new[] { LecramNr.Addon64, LecramNr.Addon32 })
+            if (File.Exists(Path.Combine(src, addon))) job.S.CopyTracked(Path.Combine(src, addon), Path.Combine(job.ExeDir, addon), "addon");
+        if (Directory.Exists(Path.Combine(src, LecramNr.HostFolder)))
+            job.S.CopyTreeTracked(Path.Combine(src, LecramNr.HostFolder), Path.Combine(job.ExeDir, LecramNr.HostFolder), "addon");
+        else if (bits != 64 || job.Req.Api is RenderApi.DX9 or RenderApi.DX10 or RenderApi.OpenGL)
+            job.Log($"Your copy has no {LecramNr.HostFolder} folder: NR needs its host in this game, so it will not start. Pick the whole unzipped add-on folder in Settings.");
+        job.Log($"Added your copy of lecram's DLSS5 NR {LecramNr.Version(src) ?? ""}".TrimEnd() + ".");
+
+        PlaceReShade(job, feederMode: false);
+        var reshade = Scanner.InspectReShade(job.ExeDir);
+        if (reshade.Installed && Scanner.IsVersion(reshade.Version) && Scanner.CompareVersions(reshade.Version, "6.8") < 0)
+            job.Log($"lecram's DLSS5 NR needs ReShade 6.8 or newer, and this game keeps ReShade {reshade.Version}. Remove that ReShade, then reinstall.");
+        EnableAddon(job, job.ExeDir, bits == 64 ? LecramNr.Addon64 : LecramNr.Addon32);
+        if (!job.Scan.Upscalers.Any(u => u.Kind == UpscalerKind.DlssSR && u.Bitness == bits))
+            job.Log("The game has no DLSS of its own: NR takes DLSS Super Resolution from the NVIDIA driver's store, or from the storage lecram's setup fills.");
+        job.Log("In game, Home opens NR's panel and Shift+Home opens ReShade.");
+    }
+
+    /// <summary>
+    /// Sets aside the RenoDX DLSS5 add-on wherever else it is in the game: lecram's NR switches itself off when it finds one
+    /// anywhere there ("two NR add-ons are loaded"), mirror folders included (Onimusha: Way of the Sword's _storage_).
+    /// </summary>
+    private static void SetAsideConsumerCopies(Job job)
+    {
+        var backup = Journal.BackupRoot(job.S.GameDir) + Path.DirectorySeparatorChar;
+        var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, MatchCasing = MatchCasing.CaseInsensitive };
+        foreach (var f in Directory.EnumerateFiles(job.S.GameDir, "renodx-dlss5*.addon*", options).ToList())
+        {
+            if (f.StartsWith(backup, StringComparison.OrdinalIgnoreCase)) continue;
+            job.S.DeleteTracked(f, "addon");
+            job.Log($"Set aside {job.S.Rel(f)}: lecram's NR switches itself off while the RenoDX DLSS5 add-on is anywhere in the game. Restore originals puts it back.");
+        }
     }
 
     // ------------------------------------------------------------------ Native / Multipass
@@ -1193,8 +1273,26 @@ public static partial class Installers
     public static Task RestoreAsync(string gameDir, string? exePath, Action<string> log) => Task.Run(() =>
     {
         if (!string.IsNullOrWhiteSpace(exePath)) AssertGameClosed(exePath);
+        if (LecramSetupAfterUs(gameDir)) throw new InstallException(LecramNr.SetupAfterUsMessage);
         if (!Session.Restore(gameDir, log)) log("Nothing to restore: DLSS 5 Master has no install record in this game.");
     });
+
+    /// <summary>
+    /// lecram's own setup installed NR in the game after this app's install: its record then names this app's files as the
+    /// originals it puts back, so a restore here first would leave its Remove NR putting them back again.
+    /// </summary>
+    public static bool LecramSetupAfterUs(string gameDir)
+    {
+        try
+        {
+            if (Journal.ReadManifest(gameDir) is not { Exe.Length: > 0 } m) return false;
+            var exeDir = Path.GetDirectoryName(Journal.SafePath(Path.GetFullPath(gameDir).TrimEnd('\\', '/'), m.Exe));
+            if (exeDir is null || !LecramNr.SetupInstalled(exeDir)) return false;
+            var ours = m.Date.Kind == DateTimeKind.Local ? m.Date.ToUniversalTime() : m.Date;
+            return File.GetLastWriteTimeUtc(LecramNr.SetupRecord(exeDir)) > ours;
+        }
+        catch (InstallException) { return false; }
+    }
 
     public static void AssertGameClosed(string exePath)
     {

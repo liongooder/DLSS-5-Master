@@ -209,7 +209,7 @@ public sealed partial class MainWindow
             OptiOptions.Visibility = opti ? Visibility.Visible : Visibility.Collapsed;
 
             var bits = SelectedExe?.Bitness ?? 0;
-            var routes = Installers.RoutesFor(SelectedApi, bits, _scan.HasNativeDlss, _scan.HasFrameGen);
+            var routes = Installers.RoutesFor(SelectedApi, bits, _scan.HasNativeDlss, _scan.HasFrameGen, LecramSource is not null);
             var previous = (RouteBox.SelectedItem as ComboBoxItem)?.Tag as Route?;
             var reshadeRoutes = routes.Where(r => r.Route != Route.OptiScaler).ToList();
             // Rebuild the list only when the available routes changed. Rebuilding a ComboBox's items while it is
@@ -230,8 +230,11 @@ public sealed partial class MainWindow
             if (rebuild || selectFromManifest)
             {
                 Route wanted = Installers.RecommendedRoute(SelectedApi, bits, _scan.HasNativeDlss);
-                if (selectFromManifest && _scan.Manifest?.Route is "native" or "multipass" or "feeder")
-                    wanted = _scan.Manifest.Route switch { "native" => Route.Native, "multipass" => Route.Multipass, _ => Route.Feeder };
+                if (selectFromManifest && _scan.Manifest?.Route is "native" or "multipass" or "feeder" or "lecramnr")
+                    wanted = _scan.Manifest.Route switch
+                    {
+                        "native" => Route.Native, "multipass" => Route.Multipass, "lecramnr" => Route.LecramNr, _ => Route.Feeder,
+                    };
                 else if (previous is { } p && routes.Any(r => r.Route == p && r.Unavailable is null)) wanted = p;
                 var target = RouteBox.Items.OfType<ComboBoxItem>().FirstOrDefault(i => (Route)i.Tag == wanted && i.IsEnabled)
                              ?? RouteBox.Items.OfType<ComboBoxItem>().FirstOrDefault(i => i.IsEnabled);
@@ -275,6 +278,9 @@ public sealed partial class MainWindow
             bool otherApp = _scan.OtherAppBackup || _scan.OtherAppRecord;
             if (otherApp)
                 warning = "Another app has an install in this game. Remove it before installing with DLSS 5 Master.";
+            // lecram's own setup installed NR here: its Remove NR goes first (Onimusha: Way of the Sword, over a Native install).
+            else if (SelectedExe is not null && LecramNr.SetupInstalled(Path.GetDirectoryName(SelectedExe.Path)!))
+                warning = Installers.LecramSetupAfterUs(_scan.Dir) ? LecramNr.SetupAfterUsMessage : LecramNr.SetupInstalledMessage;
             // ReShade that nobody recorded (installed by hand or by an older tool): offer to move it out of the game.
             bool unrecorded = !otherApp && _scan.Manifest is null && _scan.ReShade.Installed && _scan.ReShade.File is not null;
             if (unrecorded && warning is null)
@@ -485,6 +491,46 @@ public sealed partial class MainWindow
         RestoreButton.IsEnabled = !busy && _scan?.Manifest is not null;
     }
 
+    /// <summary>The player's copy of lecram's DLSS5 NR for this game (<see cref="LecramNr.Source"/>); its route shows only with one.</summary>
+    private string? LecramSource => _scan is null || SelectedExe is null ? null
+        : LecramNr.Source(_settings.LecramNrFolder, _scan.Dir, Path.GetDirectoryName(SelectedExe.Path)!, _scan.Manifest);
+
+    /// <summary>
+    /// lecram's DLSS5 NR is in the game and another ReShade route is chosen: next to it, NR switches itself off or runs a second
+    /// neural pass. Asks whether to use NR's own route instead or set NR aside. The route to set up, or null for Cancel.
+    /// </summary>
+    private async Task<Route?> AskAboutLecramNrAsync(Route route, string exeDir)
+    {
+        var here = new[] { LecramNr.Addon64, LecramNr.Addon32 }.Select(a => Path.Combine(exeDir, a)).FirstOrDefault(File.Exists);
+        if (route == Route.LecramNr || here is null || _game is null) return route;
+        var version = Pe.GetFileVersion(here);
+        var routes = Installers.RoutesFor(SelectedApi, SelectedExe?.Bitness ?? 0, _scan?.HasNativeDlss == true, _scan?.HasFrameGen == true, lecramCopy: true);
+        var why = routes.First(r => r.Route == Route.LecramNr).Unavailable;
+        var label = routes.FirstOrDefault(r => r.Route == route)?.Label ?? Installers.RouteLabel(Installers.RouteKey(route));
+        var text = $"{_game.Name} has lecram's DLSS5 NR{(version is null ? "" : " " + version)}. Next to {label} it switches itself off or runs a second neural pass, so it cannot stay as it is.\n\n" +
+                   (why is null
+                       ? $"Use lecram's NR: set up its own route instead ({(LecramNr.IsCopy(_settings.LecramNrFolder) ? "your copy from Settings" : "the copy in this game")}).\n\n"
+                       : $"lecram's NR cannot be set up by DLSS 5 Master here: {why}\n\n") +
+                   $"Set it aside: set up {label}. lecram's NR goes into this install's backup, and Restore originals puts it back.";
+        var dialog = new ContentDialog
+        {
+            XamlRoot = Root.XamlRoot,
+            Title = "lecram's DLSS5 NR is in this game",
+            Content = new TextBlock { TextWrapping = TextWrapping.Wrap, Text = text },
+            PrimaryButtonText = "Use lecram's NR",
+            IsPrimaryButtonEnabled = why is null,
+            SecondaryButtonText = "Set it aside",
+            CloseButtonText = "Cancel",
+            DefaultButton = why is null ? ContentDialogButton.Primary : ContentDialogButton.Secondary,
+        };
+        return await dialog.ShowAsync() switch
+        {
+            ContentDialogResult.Primary => Route.LecramNr,
+            ContentDialogResult.Secondary => route,
+            _ => null,
+        };
+    }
+
     /// <summary>ARK: Survival Ascended's own Steam launch choice without BattlEye, for the anti-cheat notes; "" for other games.</summary>
     private string ArkNote() => _game?.Entry is { Launcher: "Steam", Id: "2399830" }
         ? "Steam also offers \"Play ARK: No BattlEye AntiCheat, Unofficial Servers Only\", which starts ARK without BattlEye. " +
@@ -498,6 +544,22 @@ public sealed partial class MainWindow
         var build = (OptiBuildBox.SelectedItem as ComboBoxItem)?.Tag as OptiBuild;
         var route = opti ? Route.OptiScaler : (RouteBox.SelectedItem as ComboBoxItem)?.Tag as Route? ?? Route.Native;
         if (SelectedApi == RenderApi.Unknown) { Log("Choose the Rendering API first."); return; }
+        if (LecramNr.SetupInstalled(Path.GetDirectoryName(SelectedExe.Path)!))
+        {
+            await new ContentDialog
+            {
+                XamlRoot = Root.XamlRoot,
+                Title = $"Could not {(_scan.Manifest is null ? "set up" : "reinstall")} {_game.Name}",
+                Content = new TextBlock { TextWrapping = TextWrapping.Wrap, Text = Installers.LecramSetupAfterUs(_scan.Dir) ? LecramNr.SetupAfterUsMessage : LecramNr.SetupInstalledMessage },
+                CloseButtonText = "OK",
+            }.ShowAsync();
+            return;
+        }
+        if (!opti)
+        {
+            if (await AskAboutLecramNrAsync(route, Path.GetDirectoryName(SelectedExe.Path)!) is not { } chosen) return;
+            if (chosen != route) { route = chosen; PickRoute(route); }
+        }
         // The anti-cheat box is easy to miss, and the install only logged its refusal: ask here instead.
         if (_scan.AntiCheatName is { } antiCheat && AntiCheatBox.IsChecked != true)
         {
@@ -531,6 +593,7 @@ public sealed partial class MainWindow
             MfgUnlock = MfgBox.IsEnabled && MfgBox.IsChecked == true,
             LoadAddonsEarly = EarlyAddonsBox.IsChecked == true,
             AntiCheatAcknowledged = AntiCheatBox.IsChecked == true,
+            LecramNrSource = route == Route.LecramNr ? LecramSource : null,
         };
         if (opti) { _settings.OptiScalerMenuKey = req.MenuKey; _settings.Save(); }
 

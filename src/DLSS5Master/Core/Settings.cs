@@ -65,6 +65,8 @@ public sealed class AppSettings
     public string RuntimeFolder { get; set; } = "";
     /// <summary>Folder or ReShade_Setup_*_Addon.exe providing ReShade32/64.dll. Empty = auto-detect.</summary>
     public string ReShadeSource { get; set; } = "";
+    /// <summary>The player's copy of lecram's DLSS5 NR (the unzipped add-on folder). Empty = only games that already have it offer its route.</summary>
+    public string LecramNrFolder { get; set; } = "";
     public string OptiScalerMenuKey { get; set; } = "0x2D";
     public bool ShowCommunity { get; set; } = true;
     /// <summary>Overlay: neural style 0 Default, 1 Natural, 2 Cinematic.</summary>
