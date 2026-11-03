@@ -1566,16 +1566,17 @@ static void ChooseFrameGeneration()
     const bool fewer_for_as_many = want < g.fg_now && best_shown >= shown_now * 0.95;
     if (want != g.fg_now && !fewer_for_as_many && best_shown < shown_now * 1.10) want = g.fg_now;   // not worth a change
     static UINT pending = UINT_MAX;
-    static int held = 0;
-    static ULONGLONG last_change = 0;
-    if (want == g.fg_now) { held = 0; return; }
-    if (want != pending) { pending = want; held = 0; }
-    if (++held < 30 || GetTickCount64() - last_change < 10000) return;
-    last_change = GetTickCount64();
+    static ULONGLONG pending_since = 0, last_change = 0;
+    const ULONGLONG now = GetTickCount64();
+    if (want == g.fg_now) { pending = UINT_MAX; return; }
+    if (want != pending) { pending = want; pending_since = now; return; }
+    // Hold for real elapsed time: 30 frames can be 0.1 s at 300 fps or 2 s at 15 fps.
+    if (now - pending_since < 1000 || now - last_change < 10000) return;
+    last_change = now;
     Log("frame generation now %ux: the game runs at %.0f fps on a %.0f Hz screen%s%s", want + 1, 1.0 / interval, g.refresh_hz,
         interval > g.game_interval * 1.01 ? " (the overlay's own pace)" : "", want < g.fg_frames ? " (more would not fit on the screen)" : "");
     g.fg_now = want;
-    held = 0;
+    pending = UINT_MAX;
 }
 
 // Called once a second while the overlay draws.
