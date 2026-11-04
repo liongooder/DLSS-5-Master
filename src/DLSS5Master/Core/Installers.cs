@@ -839,9 +839,33 @@ public static partial class Installers
         if (reshade.Installed && Scanner.IsVersion(reshade.Version) && Scanner.CompareVersions(reshade.Version, "6.8") < 0)
             job.Log($"lecram's DLSS5 NR needs ReShade 6.8 or newer, and this game keeps ReShade {reshade.Version}. Remove that ReShade, then reinstall.");
         EnableAddon(job, job.ExeDir, bits == 64 ? LecramNr.Addon64 : LecramNr.Addon32);
+        RemoveFeedTechnique(job);
         if (!job.Scan.Upscalers.Any(u => u.Kind == UpscalerKind.DlssSR && u.Bitness == bits))
             job.Log("The game has no DLSS of its own: NR takes DLSS Super Resolution from the NVIDIA driver's store, or from the storage lecram's setup fills.");
         job.Log("In game, Home opens NR's panel and Shift+Home opens ReShade.");
+    }
+
+    /// <summary>
+    /// Takes the Feeder's DLSS5_Feed technique off the game's ReShade preset (Techniques and TechniqueSorting): lecram's NR finds
+    /// depth and motion itself, and its INSTALL.txt asks for the technique to go. Other techniques stay; a preset outside the
+    /// game is shared with other games and is left as it is.
+    /// </summary>
+    private static void RemoveFeedTechnique(Job job)
+    {
+        var presetPath = Ini.Get(Ini.ReadText(Path.Combine(job.ExeDir, "ReShade.ini")), "GENERAL", "PresetPath");
+        if (string.IsNullOrWhiteSpace(presetPath)) presetPath = @".\ReShadePreset.ini";
+        if (PresetInGame(job.S.GameDir, job.ExeDir, presetPath) is not { } preset || !File.Exists(preset)) return;
+        var text = Ini.ReadText(preset);
+        var changed = text;
+        foreach (var key in new[] { "Techniques", "TechniqueSorting" })
+        {
+            var items = SplitList(Ini.Get(changed, "", key));
+            var kept = items.Where(i => !i.Split('@')[0].Trim().Equals("DLSS5_Feed", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (kept.Count < items.Count) changed = Ini.Set(changed, "", key, string.Join(",", kept));
+        }
+        if (changed == text) return;
+        job.S.WriteTracked(preset, ToCrlf(changed));
+        job.Log($"Took the Feeder's DLSS5_Feed technique off {job.S.Rel(preset)}: lecram's NR finds depth and motion itself.");
     }
 
     /// <summary>

@@ -656,7 +656,16 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
             Holds(addonL, game64) && File.Exists(Path.Combine(binL, "nvngx_dlssnr.dll")) && !File.Exists(Path.Combine(binL, "renodx-dlss5.addon64"))
             && !File.Exists(Path.Combine(storageL, "renodx-dlss5.addon64")) && Journal.ReadManifest(gameL)?.Route == "lecramnr",
             string.Join(" | ", logs.TakeLast(6)));
+        // ReShade's preset still lists the Feeder's techniques (a Feeder install before, then played): the reinstall keeps the
+        // preset and takes only DLSS5_Feed off it, as lecram's INSTALL.txt asks.
+        var presetL = Path.Combine(binL, "ReShadePreset.ini");
+        File.WriteAllText(presetL, "Techniques=vort_MotionEffects@vort_Motion.fx,DLSS5_Feed@DLSS5_Feed.fx,SMAA@SMAA.fx\r\n" +
+                                   "TechniqueSorting=DLSS5_Feed@DLSS5_Feed.fx,SMAA@SMAA.fx\r\n");
         await InstallL(Route.LecramNr, copyL);
+        var presetText = Ini.ReadText(presetL);
+        Check("lecram's NR: the preset loses DLSS5_Feed and keeps every other technique",
+            Ini.Get(presetText, "", "Techniques") == "vort_MotionEffects@vort_Motion.fx,SMAA@SMAA.fx" && Ini.Get(presetText, "", "TechniqueSorting") == "SMAA@SMAA.fx",
+            Show(presetText));
         Check("lecram's NR: from the copy in Settings, both add-ons and the host folder as it is",
             Holds(addonL, copy64) && File.Exists(Path.Combine(binL, LecramNr.Addon32))
             && File.Exists(Path.Combine(binL, LecramNr.HostFolder, "nr-host64.exe")) && Holds(Path.Combine(binL, LecramNr.HostFolder, LecramNr.Addon64), copy64));
