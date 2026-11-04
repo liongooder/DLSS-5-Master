@@ -478,12 +478,13 @@
         <Border Style="{StaticResource Card}">
           <StackPanel Spacing="10">
             <TextBlock Text="LECRAM'S DLSS5 NR (YOUR COPY)" Style="{StaticResource SectionTitle}" />
-            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}" Text="lecram's DLSS5 NR is a paid add-on and is not included with DLSS 5 Master. Pick the folder of your copy (the unzipped add-on folder with dlss5-nr.addon64 and dlss5-nr-host) to offer it as a route in every game. A game that already has it offers it without this." />
+            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}" Text="lecram's DLSS5 NR is a paid add-on: it is not included with DLSS 5 Master, and DLSS 5 Master never downloads it. Buy it from its author, then unzip your copy into DLSS 5 Master's folder for it (Open folder), or pick the folder where you keep it. Every game then offers it as a route; a game that already has it offers it anyway." />
             <Grid ColumnSpacing="8">
-              <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-              <TextBox x:Name="LecramNrBox" PlaceholderText="None" IsReadOnly="True" />
-              <Button Grid.Column="1" Click="PickLecramNr_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8B7;" FontSize="13" /><TextBlock Text="Browse…" /></StackPanel></Button>
-              <Button Grid.Column="2" Content="None" Click="ClearLecramNr_Click" />
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+              <TextBox x:Name="LecramNrBox" PlaceholderText="DLSS 5 Master's folder" IsReadOnly="True" />
+              <Button Grid.Column="1" Click="OpenLecramNrFolder_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE838;" FontSize="13" /><TextBlock Text="Open folder" /></StackPanel></Button>
+              <Button Grid.Column="2" Click="PickLecramNr_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8B7;" FontSize="13" /><TextBlock Text="Browse…" /></StackPanel></Button>
+              <Button Grid.Column="3" Content="Clear" Click="ClearLecramNr_Click" ToolTipService.ToolTip="Forget the folder you picked and use DLSS 5 Master's folder again" />
             </Grid>
             <TextBlock x:Name="LecramNrStatus" FontSize="12" TextWrapping="Wrap" />
           </StackPanel>

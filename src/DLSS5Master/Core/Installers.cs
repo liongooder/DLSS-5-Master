@@ -237,7 +237,8 @@ public static partial class Installers
             throw new InstallException(AntiCheatWarning(antiCheat) + " Tick the acknowledgement to continue anyway.");
 
         if (req.Route == Route.LecramNr && !LecramNr.Has(req.LecramNrSource, gameDir, exeDir, Journal.ReadManifest(gameDir)))
-            throw new InstallException($"Your copy of lecram's DLSS5 NR was not found{(req.LecramNrSource is null ? "" : " in " + req.LecramNrSource)}. Pick its folder in Settings.");
+            throw new InstallException($"Your copy of lecram's DLSS5 NR was not found{(req.LecramNrSource is null ? "" : " in " + req.LecramNrSource)}. " +
+                "Unzip it into DLSS 5 Master's folder for it (Settings → Open folder), or pick its folder in Settings.");
         var option = RoutesFor(req.Api, req.Bitness, scan.HasNativeDlss, scan.HasFrameGen, lecramCopy: req.Route == Route.LecramNr).First(o => o.Route == req.Route);
         if (option.Unavailable is not null)
             throw new InstallException($"{option.Label} cannot be used here: {option.Unavailable}");

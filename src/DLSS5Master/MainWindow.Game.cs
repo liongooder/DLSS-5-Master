@@ -515,7 +515,7 @@ public sealed partial class MainWindow
         var label = routes.FirstOrDefault(r => r.Route == route)?.Label ?? Installers.RouteLabel(Installers.RouteKey(route));
         var text = $"{_game.Name} has lecram's DLSS5 NR{(version is null ? "" : " " + version)}. Next to {label} it switches itself off or runs a second neural pass, so it cannot stay as it is.\n\n" +
                    (why is null
-                       ? $"Use lecram's NR: set up its own route instead ({(LecramNr.IsCopy(_settings.LecramNrFolder) ? "your copy from Settings" : "the copy in this game")}).\n\n"
+                       ? $"Use lecram's NR: set up its own route instead ({(LecramNr.IsCopy(_settings.LecramNrFolder) ? "your copy from Settings" : LecramNr.DropCopy() is not null ? "your copy in DLSS 5 Master's folder" : "the copy in this game")}).\n\n"
                        : $"lecram's NR cannot be set up by DLSS 5 Master here: {why}\n\n") +
                    $"Set it aside: set up {label}. lecram's NR goes into this install's backup, and Restore originals puts it back.";
         var dialog = new ContentDialog

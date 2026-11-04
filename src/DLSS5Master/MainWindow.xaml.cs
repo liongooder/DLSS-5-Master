@@ -51,6 +51,12 @@ public sealed partial class MainWindow : Window
         GameOverlay.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => UpdateTitleBarRegions());
         NoticesText.Text = Notices;
         AboutCoffeeHost.Content = CoffeeButton();
+        // Back on the window (from Explorer after Open folder, say): a copy of lecram's NR may have been unzipped meanwhile.
+        Activated += (_, e) =>
+        {
+            if (e.WindowActivationState != WindowActivationState.Deactivated && SettingsPage.Visibility == Visibility.Visible)
+                _ = RefreshLecramNrStatusAsync(force: false);
+        };
         InitGamePanel();
         InitOverlay();
         Root.Loaded += async (_, _) =>
@@ -362,8 +368,7 @@ public sealed partial class MainWindow : Window
         static string Where(string path) =>
             path.StartsWith(Components.BundledPayload, StringComparison.OrdinalIgnoreCase) ? "the copies included with DLSS 5 Master" : path;
 
-        var lecramFolder = _settings.LecramNrFolder;
-        var (rt, runtimeText, rs, reshadeText, libCount, lecramText, lecramOk) = await Task.Run(() =>
+        var (rt, runtimeText, rs, reshadeText, libCount) = await Task.Run(() =>
         {
             var rt = _components.RuntimeDir;
             var files = _components.RuntimeFiles();
@@ -374,11 +379,7 @@ public sealed partial class MainWindow : Window
             var reshadeText = rs is null ? "Not found. Pick a ReShade_Setup_*_Addon.exe." : $"Using ReShade {Pe.GetFileVersion(rs)} ({Where(rs)})";
             int libCount = 0;
             try { libCount = Directory.Exists(AppPaths.DllLibrary) ? Directory.EnumerateFiles(AppPaths.DllLibrary, "*.dll", SearchOption.AllDirectories).Count() : 0; } catch { }
-            bool lecramOk = LecramNr.IsCopy(lecramFolder);
-            var lecramText = lecramFolder.Length == 0 ? "Not set: only games that already have lecram's DLSS5 NR offer its route."
-                : lecramOk ? $"Using lecram's DLSS5 NR {LecramNr.Version(lecramFolder)}" + (Directory.Exists(Path.Combine(lecramFolder, LecramNr.HostFolder)) ? "" : $" (no {LecramNr.HostFolder} folder: 32-bit, Direct3D 9/10 and OpenGL games need it)")
-                : "That folder no longer holds dlss5-nr.addon64. Pick your copy again.";
-            return (rt, runtimeText, rs, reshadeText, libCount, lecramText, lecramOk || lecramFolder.Length == 0);
+            return (rt, runtimeText, rs, reshadeText, libCount);
         });
 
         RuntimeStatus.Text = runtimeText;
@@ -386,8 +387,49 @@ public sealed partial class MainWindow : Window
         ReShadeStatus.Text = reshadeText;
         ReShadeStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[rs is null ? "WarnText" : "AccentText"];
         DllLibraryStatus.Text = $"{libCount} DLL build(s) in {AppPaths.DllLibrary}";
-        LecramNrStatus.Text = lecramText;
-        LecramNrStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[lecramFolder.Length == 0 ? "MutedText" : lecramOk ? "AccentText" : "WarnText"];
+        await RefreshLecramNrStatusAsync(force: true);
+    }
+
+    /// <summary>The last line computed for lecram's DLSS5 NR, so a refresh on returning to the window changes it only when the copies did.</summary>
+    private string? _lecramNrStatus;
+
+    /// <summary>
+    /// The Settings line for lecram's DLSS5 NR: which copy its route installs, in <see cref="LecramNr.Source"/>'s order. Also
+    /// run when the window is activated on the Settings page (back from Explorer after Open folder); then only a change in the
+    /// copies replaces the line, so a message from Browse… stays until it is out of date.
+    /// </summary>
+    private async Task RefreshLecramNrStatusAsync(bool force)
+    {
+        var picked = _settings.LecramNrFolder;
+        var (text, brush) = await Task.Run(() => LecramNrStatusText(picked));
+        if (!force && text == _lecramNrStatus) return;
+        _lecramNrStatus = text;
+        LecramNrStatus.Text = text;
+        LecramNrStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[brush];
+    }
+
+    private static (string Text, string Brush) LecramNrStatusText(string picked)
+    {
+        static string NoHost(string copy) => Directory.Exists(Path.Combine(copy, LecramNr.HostFolder))
+            ? "" : $" (no {LecramNr.HostFolder} folder: 32-bit, Direct3D 9/10 and OpenGL games need it)";
+        var dropped = LecramNr.DropCopy();
+        var dropVersion = dropped is null ? null : LecramNr.Version(dropped);
+        if (picked.Length > 0 && LecramNr.IsCopy(picked))
+        {
+            var version = LecramNr.Version(picked);
+            return ($"Using your copy from the folder you picked: lecram's DLSS5 NR {version}".TrimEnd() + NoHost(picked) + "." +
+                    (dropVersion is not null && Scanner.CompareVersions(dropVersion, version) > 0
+                        ? $"\nDLSS 5 Master's folder has {dropVersion}: choose Clear to use it." : ""), "AccentText");
+        }
+        var stale = picked.Length > 0 ? $"The folder you picked no longer holds {LecramNr.Addon64}. " : "";
+        if (dropped is not null)
+            return (stale + $"Using your copy in DLSS 5 Master's folder: lecram's DLSS5 NR {dropVersion}".TrimEnd() + NoHost(dropped) + "." +
+                    (stale.Length > 0 ? " Choose Clear to forget the old folder." : ""), stale.Length > 0 ? "WarnText" : "AccentText");
+        if (stale.Length > 0)
+            return (stale + "Pick your copy again, or unzip it into DLSS 5 Master's folder (Open folder) and choose Clear.", "WarnText");
+        return LecramNr.DropHint() is { } hint ? (hint, "WarnText")
+            : ("No copy yet: unzip the DLSS5 NR add-on you bought into DLSS 5 Master's folder (Open folder). " +
+               "Until then, only games that already have it offer its route.", "MutedText");
     }
 
     // The Windows App SDK pickers. Windows.Storage.Pickers fail with E_FAIL when the app runs as administrator, which is how
@@ -451,6 +493,23 @@ public sealed partial class MainWindow : Window
     }
 
     private void ClearLecramNr_Click(object sender, RoutedEventArgs e) { _settings.LecramNrFolder = ""; _settings.Save(); _ = RefreshSettingsPage(); }
+
+    /// <summary>Opens DLSS 5 Master's folder for the player's copy of lecram's DLSS5 NR, made when it is not there yet.</summary>
+    private void OpenLecramNrFolder_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Directory.CreateDirectory(LecramNr.DropFolder);
+            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{LecramNr.DropFolder}\"") { UseShellExecute = true });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        {
+            LecramNrStatus.Text = $"Could not open {LecramNr.DropFolder}: {ex.Message}";
+            LecramNrStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["WarnText"];
+            return;
+        }
+        _ = RefreshSettingsPage();
+    }
 
     private async void AddFolder_Click(object sender, RoutedEventArgs e)
     {
@@ -574,5 +633,8 @@ public sealed partial class MainWindow : Window
         "• dlssg_for_sm86 0.4.1 — github.com/sdli1995/dlssg_for_sm86, inside the OptiScaler package above; the overlay unpacks it on " +
         "RTX 20/30 cards for frame generation (terms in its THIRD_PARTY_NOTICES.txt; its kernel images and the NVIDIA runtime are NVIDIA's)\n\n" +
         "Downloaded when first used, from their authors' release pages and verified by SHA-256:\n" +
-        "• OptiScaler NR pre-SR multipass 0.8.3 RTX 40 MFG — github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0)";
+        "• OptiScaler NR pre-SR multipass 0.8.3 RTX 40 MFG — github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0)\n\n" +
+        "Not included and never downloaded:\n" +
+        "• lecram's DLSS5 NR (version 11 and later), a paid add-on — its route installs only a player's own copy: the one they bought " +
+        "from its author and put in DLSS 5 Master's folder for it or picked in Settings, or the one a game already has, reinstalled in that game";
 }

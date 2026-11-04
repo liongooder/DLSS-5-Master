@@ -2,9 +2,10 @@ namespace DLSS5Master.Core;
 
 /// <summary>
 /// lecram's DLSS5 NR add-on: a paid add-on that players buy themselves. DLSS 5 Master never ships or downloads it; its route
-/// installs the player's own copy, from the folder picked in Settings (the unzipped "DLSS5 NR Add-on" folder) or from a game
-/// that already has it. Its layout, from its INSTALL.txt: dlss5-nr.addon64 and dlss5-nr.addon32 beside the game's ReShade,
-/// and the dlss5-nr-host folder as it is (its 64-bit host for 32-bit, Direct3D 9/10 and OpenGL games).
+/// installs the player's own copy, from the folder picked in Settings (the unzipped "DLSS5 NR Add-on" folder), else from
+/// DLSS 5 Master's own folder for it (<see cref="DropFolder"/>), else from a game that already has it. Its layout, from its
+/// INSTALL.txt: dlss5-nr.addon64 and dlss5-nr.addon32 beside the game's ReShade, and the dlss5-nr-host folder as it is (its
+/// 64-bit host for 32-bit, Direct3D 9/10 and OpenGL games).
 /// </summary>
 public static class LecramNr
 {
@@ -161,12 +162,74 @@ public static class LecramNr
             if (Path.GetFileName(full).Equals(HostFolder, StringComparison.OrdinalIgnoreCase))
                 return Path.GetDirectoryName(full) is { } parent && IsCopy(parent) ? parent : null;
             if (IsCopy(full)) return full;
-            return Directory.EnumerateDirectories(full)
-                .Where(d => !Path.GetFileName(d).Equals(HostFolder, StringComparison.OrdinalIgnoreCase) && IsCopy(d))
-                .OrderByDescending(d => Version(d) ?? "", Comparer<string>.Create((a, b) => Scanner.CompareVersions(a, b)))
-                .FirstOrDefault();
+            return Newest(Directory.EnumerateDirectories(full));
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { return null; }
+    }
+
+    /// <summary>
+    /// The newest copy among <paramref name="dirs"/> (host folders left out), or null: copies whose version can be read come
+    /// before any that cannot (an add-on cut short by an interrupted copy has none), then the higher version, then one with its
+    /// host folder. Of equal copies the first one listed wins.
+    /// </summary>
+    private static string? Newest(IEnumerable<string> dirs) => dirs
+        .Where(d => !Path.GetFileName(d.TrimEnd('\\', '/')).Equals(HostFolder, StringComparison.OrdinalIgnoreCase) && IsCopy(d))
+        .Select(d => (Dir: d, Ver: Version(d)))
+        .OrderByDescending(c => System.Version.TryParse(c.Ver, out _))
+        .ThenByDescending(c => c.Ver ?? "", Comparer<string>.Create((a, b) => Scanner.CompareVersions(a, b)))
+        .ThenByDescending(c => Directory.Exists(Path.Combine(c.Dir, HostFolder)))
+        .Select(c => c.Dir)
+        .FirstOrDefault();
+
+    /// <summary>The folders in <paramref name="dir"/>; none when it cannot be listed (a broken link, no permission), so one bad folder hides no other.</summary>
+    private static List<string> Subfolders(string dir)
+    {
+        try { return Directory.EnumerateDirectories(dir).ToList(); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return new(); }
+    }
+
+    /// <summary>
+    /// DLSS 5 Master's own folder for the player's copy, %LOCALAPPDATA%\DLSS5Master\your-addons\dlss5-nr: the add-on they
+    /// bought, unzipped into it as it is or in a folder of its own, several versions side by side if they like (the newest
+    /// is used). DLSS 5 Master only reads it: nothing in it is shipped, downloaded, changed or deleted by the app, and
+    /// uninstalling keeps it (unless the player also deletes all of DLSS 5 Master's data).
+    /// </summary>
+    public static string DropFolder => Path.Combine(AppPaths.YourAddons, "dlss5-nr");
+
+    /// <summary>
+    /// The copy in <see cref="DropFolder"/>: the newest of the files right in it, the copies in folders in it and those one
+    /// level deeper (a zip unzipped with a folder of its own). The files right in it win only a tie. Null when there is none.
+    /// </summary>
+    public static string? DropCopy()
+    {
+        try
+        {
+            if (!Directory.Exists(DropFolder)) return null;
+            var dirs = Subfolders(DropFolder)
+                .Where(d => !Path.GetFileName(d).Equals(HostFolder, StringComparison.OrdinalIgnoreCase)).ToList();
+            return Newest(new[] { DropFolder }.Concat(dirs).Concat(dirs.SelectMany(d => Subfolders(d))));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { return null; }
+    }
+
+    /// <summary>
+    /// What <see cref="DropFolder"/> holds instead of a usable copy, said for the Settings page: the zip not yet unzipped,
+    /// or lecram's setup program (which is not the add-on). Null when there is nothing to say.
+    /// </summary>
+    public static string? DropHint()
+    {
+        try
+        {
+            if (!Directory.Exists(DropFolder) || DropCopy() is not null) return null;
+            var names = Directory.EnumerateFiles(DropFolder).Select(f => Path.GetFileName(f)).ToList();
+            if (names.FirstOrDefault(n => n.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) is { } zip)
+                return $"{zip} is in DLSS 5 Master's folder: unzip it there (Extract All), then DLSS 5 Master finds it.";
+            if (names.Any(n => n.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)))
+                return "DLSS 5 Master's folder holds a program, not the add-on: put the unzipped DLSS5 NR add-on there " +
+                       $"(the folder with {Addon64} and {HostFolder}), not lecram's setup.";
+            return null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
     }
 
     /// <summary>The copy's version (dlss5-nr.addon64's file version), or null.</summary>
@@ -191,9 +254,13 @@ public static class LecramNr
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InstallException or ArgumentException) { return null; }
     }
 
-    /// <summary>The copy to install: the folder in Settings, else the game's own. Null when neither has one.</summary>
+    /// <summary>
+    /// The copy to install: the folder picked in Settings, else the one in <see cref="DropFolder"/>, else the game's own.
+    /// Null when there is none.
+    /// </summary>
     public static string? Source(string? settingsFolder, string gameDir, string exeDir, Manifest? manifest) =>
         IsCopy(settingsFolder) ? settingsFolder
+        : DropCopy() is { } dropped ? dropped
         : InGame(gameDir, exeDir, manifest) is not null ? exeDir
         : null;
 

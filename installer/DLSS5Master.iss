@@ -168,7 +168,7 @@ begin
   begin
     DataDir := ExpandConstant('{localappdata}\DLSS5Master');
     if DirExists(DataDir) and not UninstallSilent then
-      if MsgBox('Also delete DLSS 5 Master settings, downloaded components and the DLL library?' + #13#10 + DataDir,
+      if MsgBox('Also delete DLSS 5 Master settings, downloaded components, the DLL library and the add-ons you keep in its your-addons folder?' + #13#10 + DataDir,
                 mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
         DelTree(DataDir, True, True, True);
   end;

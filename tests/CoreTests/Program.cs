@@ -691,6 +691,80 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
         var diffL = Diff(beforeL, Snapshot(gameL));
         Check("lecram's NR: restore originals puts the game's own copy and the mirror folder's add-on back", diffL.Length == 0, diffL);
 
+        // The player's copy in DLSS 5 Master's own folder (your-addons\dlss5-nr): used when Settings names none, the newest of
+        // several (also one folder deeper: a zip unzipped with a folder of its own), never written by a setup or a restore;
+        // a folder picked in Settings still comes first.
+        var drop = LecramNr.DropFolder;
+        Check("lecram's NR: DLSS 5 Master's folder for the copy is in its data folder and empty at first, so the game's copy is used",
+            drop.StartsWith(AppPaths.Root, StringComparison.OrdinalIgnoreCase) && LecramNr.DropCopy() is null && LecramNr.DropHint() is null
+            && LecramNr.Source(null, gameL, binL, Journal.ReadManifest(gameL)) == binL);
+        Directory.CreateDirectory(drop);
+        var dropZip = Path.Combine(drop, "DLSS5 NR Add-on v99.zip");
+        File.WriteAllBytes(dropZip, RandomNumberGenerator.GetBytes(64));
+        Check("lecram's NR: a zip not yet unzipped in the folder is no copy, and Settings says to unzip it",
+            LecramNr.DropCopy() is null && LecramNr.DropHint()?.Contains("unzip it") == true, LecramNr.DropHint() ?? "no hint");
+        File.Delete(dropZip);
+        // Two copies of different versions, real PE files so each has a file version: the older one (.NET's CoreLib) in the
+        // first folder listed, the newer one (notepad) one level deeper, so only the version order and the deeper look find it.
+        var peNew = Path.Combine(Environment.SystemDirectory, "notepad.exe");
+        var peOld = typeof(object).Assembly.Location;
+        var dropA = Path.Combine(drop, "copy A");
+        var dropB = Path.Combine(drop, "copy B", "DLSS5 NR Add-on");
+        foreach (var (dir, pe) in new[] { (dropA, peOld), (dropB, peNew) })
+        {
+            Directory.CreateDirectory(Path.Combine(dir, LecramNr.HostFolder));
+            File.Copy(pe, Path.Combine(dir, LecramNr.Addon64));
+            File.Copy(pe, Path.Combine(dir, LecramNr.HostFolder, LecramNr.Addon64));
+            File.WriteAllBytes(Path.Combine(dir, LecramNr.HostFolder, "nr-host64.exe"), RandomNumberGenerator.GetBytes(64));
+        }
+        // The copies' own versions decide (Windows reports another version for System32's notepad.exe than for a copy of it).
+        Check("lecram's NR: the deeper test copy has the higher version", Scanner.CompareVersions(LecramNr.Version(dropB), LecramNr.Version(dropA)) > 0,
+            $"{LecramNr.Version(dropA)} vs {LecramNr.Version(dropB)}");
+        var newerDrop = dropB;
+        Check("lecram's NR: of several copies in the folder the newest version is used, also one folder deeper, and Settings still comes first",
+            LecramNr.DropCopy() == newerDrop && LecramNr.Source(null, gameL, binL, Journal.ReadManifest(gameL)) == newerDrop
+            && LecramNr.Source(copyL, gameL, binL, Journal.ReadManifest(gameL)) == copyL,
+            $"picked {LecramNr.DropCopy()}, expected {newerDrop}; source {LecramNr.Source(null, gameL, binL, Journal.ReadManifest(gameL))}");
+        // A copy cut short (no version can be read) listed first, and a link to a folder that is gone: neither hides the copy.
+        var dropPartial = Path.Combine(drop, "0 partial");
+        Directory.CreateDirectory(dropPartial);
+        File.WriteAllBytes(Path.Combine(dropPartial, LecramNr.Addon64), RandomNumberGenerator.GetBytes(64));
+        var linkTarget = Path.Combine(root3, "drop-link-target");
+        Directory.CreateDirectory(linkTarget);
+        var brokenLink = Path.Combine(drop, "Z link");
+        using (var mklink = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd.exe", $"/c mklink /J \"{brokenLink}\" \"{linkTarget}\"")
+               { CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true }))
+            mklink?.WaitForExit();
+        Directory.Delete(linkTarget);
+        bool linkMade = false;
+        try { linkMade = File.GetAttributes(brokenLink).HasFlag(FileAttributes.ReparsePoint); } catch (IOException) { }
+        Check("lecram's NR: a copy with no version and a broken link in the folder hide nothing",
+            linkMade && LecramNr.DropCopy() == newerDrop, $"link made: {linkMade}; picked {LecramNr.DropCopy()}");
+        Directory.CreateDirectory(linkTarget); // the link works again, so it is removed like the other tests' links
+        if (linkMade) Directory.Delete(brokenLink);
+        Directory.Delete(linkTarget);
+        Directory.Delete(dropPartial, true);
+        var beforeDrop = Snapshot(drop);
+        await InstallL(Route.LecramNr, LecramNr.Source(null, gameL, binL, Journal.ReadManifest(gameL)));
+        Check("lecram's NR: from DLSS 5 Master's folder, its add-on and its host folder go into the game",
+            Holds(addonL, File.ReadAllBytes(Path.Combine(newerDrop, LecramNr.Addon64)))
+            && File.Exists(Path.Combine(binL, LecramNr.HostFolder, "nr-host64.exe")) && Journal.ReadManifest(gameL)?.Route == "lecramnr",
+            string.Join(" | ", logs.TakeLast(4)));
+        await Installers.RestoreAsync(gameL, exeL, logs.Add);
+        var diffDrop = Diff(beforeL, Snapshot(gameL));
+        Check("lecram's NR: setup and restore never change DLSS 5 Master's folder, and restore puts the game back as it was",
+            Diff(beforeDrop, Snapshot(drop)).Length == 0 && diffDrop.Length == 0, diffDrop);
+        File.Copy(peOld, Path.Combine(drop, LecramNr.Addon64));
+        Check("lecram's NR: an older copy unzipped straight into the folder does not hide a newer one in a folder in it",
+            LecramNr.DropCopy() == newerDrop, $"picked {LecramNr.DropCopy()}");
+        // The same version as the newest, complete with its host folder: right in the folder it wins the tie.
+        File.Copy(peNew, Path.Combine(drop, LecramNr.Addon64), true);
+        Directory.CreateDirectory(Path.Combine(drop, LecramNr.HostFolder));
+        File.Copy(peNew, Path.Combine(drop, LecramNr.HostFolder, LecramNr.Addon64));
+        Check("lecram's NR: a complete copy unzipped straight into the folder is a copy too, and wins a tie", LecramNr.DropCopy() == drop,
+            $"picked {LecramNr.DropCopy()}");
+        Directory.Delete(drop, true);
+
         // OptiScaler, offline: a build of its own whose package waits in the download cache. The player picks XeSS in
         // OptiScaler's overlay; then a loader of their own beside the game stops a reinstall part-way, and they retry.
         var binO = Path.Combine(root3, "opti", "bin");

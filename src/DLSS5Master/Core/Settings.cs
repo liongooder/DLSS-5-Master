@@ -10,6 +10,8 @@ public static class AppPaths
         ? test : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DLSS5Master");
     public static string Components => Path.Combine(Root, "components");
     public static string DllLibrary => Path.Combine(Root, "dll-library");
+    /// <summary>Add-ons players bought themselves and keep in DLSS 5 Master's folder; never shipped, and uninstalling keeps them.</summary>
+    public static string YourAddons => Path.Combine(Root, "your-addons");
     public static string SettingsFile => Path.Combine(Root, "settings.json");
     public static string LibraryCache => Path.Combine(Root, "library.json");
     public static string LogFile => Path.Combine(Root, "activity.log");
