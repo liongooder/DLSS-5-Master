@@ -16,15 +16,31 @@ public static class AppPaths
     public static string LibraryCache => Path.Combine(Root, "library.json");
     public static string LogFile => Path.Combine(Root, "activity.log");
 
+    private static readonly object LogGate = new();
+
+    /// <summary>
+    /// Appends a line to the activity log. One writer at a time: a setup logs from a worker thread while the window logs
+    /// too, and a second append while the file is open fails (the file is shared for reading only). A reader holding the
+    /// file for a moment (Settings shows the log) is waited out with a few short retries.
+    /// </summary>
     public static void Log(string line)
     {
-        try
+        // Gregorian whatever the region: a Hijri calendar setting would otherwise date the log in another year.
+        var text = $"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)}  {line}{Environment.NewLine}";
+        lock (LogGate)
         {
-            Directory.CreateDirectory(Root);
-            // Gregorian whatever the region: a Hijri calendar setting would otherwise date the log in another year.
-            File.AppendAllText(LogFile, $"{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture)}  {line}{Environment.NewLine}");
+            for (int attempt = 0; attempt < 4; attempt++)
+            {
+                try
+                {
+                    Directory.CreateDirectory(Root);
+                    File.AppendAllText(LogFile, text);
+                    return;
+                }
+                catch (IOException) when (attempt < 3) { Thread.Sleep(15); }
+                catch { return; }
+            }
         }
-        catch { }
     }
 }
 
@@ -60,6 +76,7 @@ public sealed class GameOverride
 
 public sealed class AppSettings
 {
+
     public List<string> ExtraFolders { get; set; } = new();
     public List<string> ManualExes { get; set; } = new();
     public List<string> HiddenGames { get; set; } = new();

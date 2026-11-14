@@ -59,10 +59,10 @@ if ($Stage -in 'all', 'publish') {
     # Bundled third-party add-on: MFGAdaUnlock-RenoDx (MIT). Pinned URL + SHA-256, same pin as Core/Components.cs.
     $addons = Join-Path $root 'src\DLSS5Master\addons'
     $mfg = Join-Path $addons 'renodx-mfgunlock.addon64'
-    $mfgSha = '8aa42b92508a9a09c010fe291fc4d89fdae43351da0e90ead630efa236a17ac6'
+    $mfgSha = 'dde12538667b2337dbb830fbdd83c6536e4e05658c7eff5dd100f2c9b46ac75f'
     if (-not (Test-Path $mfg) -or (Get-FileHash $mfg -Algorithm SHA256).Hash.ToLower() -ne $mfgSha) {
         New-Item -ItemType Directory -Force $addons | Out-Null
-        Invoke-WebRequest 'https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/1.8.2/renodx-mfgunlock.addon64' -OutFile $mfg -UseBasicParsing
+        Invoke-WebRequest 'https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/1.9.0/renodx-mfgunlock.addon64' -OutFile $mfg -UseBasicParsing
         if ((Get-FileHash $mfg -Algorithm SHA256).Hash.ToLower() -ne $mfgSha) { Remove-Item $mfg; throw 'renodx-mfgunlock.addon64 failed its checksum' }
     }
 
@@ -81,6 +81,7 @@ if ($Stage -in 'all', 'publish') {
     # Bundled runtime payload: copied file by file and verified against the pinned manifest.
     $payload = Join-Path $root 'src\DLSS5Master\payload'
     foreach ($row in Import-Csv (Join-Path $root 'installer\payload-manifest.csv')) {
+        if ($row.dest -like 'neuralmaster\*') { throw 'The retired NeuralMaster finished-picture payload must not be packaged.' }
         if ($row.dest -match $paidAddon -or $row.source -match $paidAddon) { throw "lecram's DLSS5 NR must never be packaged, but payload-manifest.csv lists $($row.dest)." }
         $dest = Join-Path $payload $row.dest
         if ((Test-Path $dest) -and (Get-FileHash $dest -Algorithm SHA256).Hash.ToLower() -eq $row.sha256) { continue }

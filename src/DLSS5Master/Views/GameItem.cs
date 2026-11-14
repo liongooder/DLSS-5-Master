@@ -35,6 +35,7 @@ public sealed class GameItem : INotifyPropertyChanged
                 var route = Scan.Manifest.Route.ToLowerInvariant() switch
                 {
                     "native" => "Native", "multipass" or "renodx" => "Multipass", "feeder" => "Feeder", "optiscaler" => "OptiScaler",
+                    "lecramnr" => AddonIdentity.InstalledName(Entry.Dir, Scan.Manifest),
                     var other => other,
                 };
                 return route + (Scan.Manifest.MfgUnlock is not null ? " + MFG" : "");

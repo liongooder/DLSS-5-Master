@@ -25,7 +25,7 @@
 // Moderator (Authorization: Bearer <ADMIN_TOKEN>) under /v1/admin/... — see admin() below.
 
 const RATINGS = new Set(['works', 'partly', 'broken']);
-const ROUTES = new Set(['native', 'multipass', 'feeder', 'optiscaler']);
+const ROUTES = new Set(['native', 'multipass', 'feeder', 'optiscaler', 'lecramnr']);
 // Rendering API of the reported game ('' on reports sent before 0.8.0). "older" in the games filter means DX10 and below or OpenGL.
 const APIS = new Set(['dx12', 'dx11', 'dx10', 'dx9', 'dx8', 'ddraw', 'vulkan', 'opengl']);
 const OLDER_APIS = ['dx10', 'dx9', 'dx8', 'ddraw', 'opengl'];

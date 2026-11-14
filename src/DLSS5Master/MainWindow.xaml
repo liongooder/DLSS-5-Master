@@ -30,6 +30,7 @@
 
       <SelectorBar x:Name="Tabs" Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" SelectionChanged="Tabs_SelectionChanged">
         <SelectorBarItem x:Name="TabGames" Text="GAMES" IsSelected="True" />
+        <SelectorBarItem x:Name="TabNeuralMaster" Text="NEURALMASTER" Visibility="Collapsed" />
         <SelectorBarItem x:Name="TabCommunity" Text="COMMUNITY" />
         <SelectorBarItem x:Name="TabSettings" Text="SETTINGS" />
         <SelectorBarItem x:Name="TabAbout" Text="ABOUT" />
@@ -54,21 +55,25 @@
       <!-- title, filters and summary for the library -->
       <StackPanel x:Name="GameTools" Spacing="10" Margin="30,6,34,4">
         <Grid ColumnSpacing="8">
-          <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
           <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
             <TextBlock Text="Games" FontSize="22" FontWeight="SemiBold" />
+            <Button x:Name="ManagedUpdatesButton" Content="Update installed" Click="ManagedUpdates_Click" IsEnabled="False" ToolTipService.ToolTip="Preview and reinstall selected managed games with their existing route and settings." />
             <TextBlock x:Name="LibraryCount" Foreground="{StaticResource MutedText}" VerticalAlignment="Bottom" Margin="0,0,0,3" />
           </StackPanel>
-          <Button Grid.Column="1" AutomationProperties.Name="DLSS 5 on any window" ToolTipService.ToolTip="Draw DLSS 5 over a browser, a video or any other open window. Nothing in that program is changed." Click="AnyWindow_Click">
+          <Button x:Name="BulkSetupButton" Grid.Column="1" IsEnabled="False" AutomationProperties.Name="Bulk install" ToolTipService.ToolTip="Choose a route and select games to install it into. Unsupported games and games with anti-cheat are skipped with a reason." Click="BulkSetup_Click">
+            <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE762;" FontSize="13" /><TextBlock Text="Bulk install" /></StackPanel>
+          </Button>
+          <Button Grid.Column="2" AutomationProperties.Name="DLSS 5 on any window" ToolTipService.ToolTip="Draw DLSS 5 over a browser, a video or any other open window. Nothing in that program is changed." Click="AnyWindow_Click">
             <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE7F4;" FontSize="13" /><TextBlock Text="DLSS 5 on any window" /></StackPanel>
           </Button>
-          <Button Grid.Column="2" ToolTipService.ToolTip="Add a game by its .exe" Click="AddGame_Click">
+          <Button Grid.Column="3" ToolTipService.ToolTip="Add a game by its .exe" Click="AddGame_Click">
             <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE710;" FontSize="13" /><TextBlock Text="Add a game" /></StackPanel>
           </Button>
-          <Button Grid.Column="3" ToolTipService.ToolTip="Add a game's folder, or a folder of games" Click="AddFolder_Click">
+          <Button Grid.Column="4" ToolTipService.ToolTip="Add a game's folder, or a folder of games" Click="AddFolder_Click">
             <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8B7;" FontSize="13" /><TextBlock Text="Add a folder" /></StackPanel>
           </Button>
-          <Button Grid.Column="4" Style="{StaticResource AccentButtonStyle}" ToolTipService.ToolTip="Find and scan your games again" Click="Refresh_Click">
+          <Button Grid.Column="5" Style="{StaticResource AccentButtonStyle}" ToolTipService.ToolTip="Find and scan your games again" Click="Refresh_Click">
             <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE72C;" FontSize="13" /><TextBlock Text="Rescan" /></StackPanel>
           </Button>
         </Grid>
@@ -227,6 +232,9 @@
     </Grid>
 
     <!-- ===== Community page (sub-pages are filled in code) ===== -->
+    <ScrollViewer x:Name="NeuralMasterPage" Grid.Row="1" Visibility="Collapsed">
+      <StackPanel x:Name="NeuralMasterPathContent" MaxWidth="1120" HorizontalAlignment="Stretch" Margin="32,24,32,32" Spacing="18" />
+    </ScrollViewer>
     <Grid x:Name="CommunityPage" Grid.Row="1" Visibility="Collapsed" Padding="24,8,24,16" RowSpacing="12">
       <Grid.OpacityTransition><ScalarTransition Duration="0:0:0.2" /></Grid.OpacityTransition>
       <Grid.TranslationTransition><Vector3Transition Duration="0:0:0.25" /></Grid.TranslationTransition>
@@ -429,10 +437,31 @@
     </Grid>
 
     <!-- ===== Settings page ===== -->
-    <ScrollViewer x:Name="SettingsPage" Grid.Row="1" Visibility="Collapsed">
+    <ScrollViewer x:Name="SettingsPage" Grid.Row="1" Opacity="0" IsHitTestVisible="False" IsEnabled="False">
       <ScrollViewer.OpacityTransition><ScalarTransition Duration="0:0:0.2" /></ScrollViewer.OpacityTransition>
       <ScrollViewer.TranslationTransition><Vector3Transition Duration="0:0:0.25" /></ScrollViewer.TranslationTransition>
       <StackPanel MaxWidth="860" Margin="24,8,24,32" Spacing="14">
+        <Border Style="{StaticResource Card}">
+          <StackPanel Spacing="10">
+            <TextBlock Text="COMPONENTS" Style="{StaticResource SectionTitle}" />
+            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
+                       Text="Check the included builds and see which versions new setups use. Repair restores missing or changed included files into DLSS 5 Master's data folder. Your custom folders, locally supplied add-on and installed games keep their files." />
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Button x:Name="VerifyComponentsButton" Content="Verify files" Click="VerifyComponents_Click" />
+              <Button x:Name="RepairComponentsButton" Content="Repair missing or changed" Click="RepairComponents_Click" />
+            </StackPanel>
+            <TextBlock x:Name="ComponentHealthStatus" Text="Not checked yet." FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource MutedText}" />
+            <TextBlock Text="NVIDIA runtime updates" FontWeight="SemiBold" Margin="0,6,0,0" />
+            <TextBlock Text="SR, RR, FG and NR use the DLSS release mirror. Streamline comes from RankFTW/rhi-repo and stays pinned to 2.13.0.0 until 2.14 neural rendering compatibility is tested. Updates are selected for new setups; existing games keep their files until reinstalled." FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource MutedText}" />
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <Button x:Name="CheckRuntimeUpdatesButton" Content="Check runtime updates" Click="CheckRuntimeUpdates_Click" />
+              <Button x:Name="UpdateAllRuntimesButton" Content="Update available runtimes" Click="UpdateAllRuntimes_Click" IsEnabled="False" />
+            </StackPanel>
+            <TextBlock x:Name="RuntimeUpdateStatus" Text="Not checked yet." FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource MutedText}" />
+            <StackPanel x:Name="RuntimeUpdateRows" Spacing="6" />
+            <StackPanel x:Name="ComponentHealthRows" Spacing="6" />
+          </StackPanel>
+        </Border>
         <Border Style="{StaticResource Card}">
           <StackPanel Spacing="10">
             <TextBlock Text="ADD-ON UPDATES" Style="{StaticResource SectionTitle}" />
@@ -477,13 +506,21 @@
         </Border>
         <Border Style="{StaticResource Card}">
           <StackPanel Spacing="10">
-            <TextBlock Text="LECRAM'S DLSS5 NR (YOUR COPY)" Style="{StaticResource SectionTitle}" />
-            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}" Text="lecram's DLSS5 NR is a paid add-on: it is not included with DLSS 5 Master, and DLSS 5 Master never downloads it. Buy it from its author, then unzip your copy into DLSS 5 Master's folder for it (Open folder), or pick the folder where you keep it. Every game then offers it as a route; a game that already has it offers it anyway." />
+            <TextBlock x:Name="LocalAddonTitle" Text="LOCAL ADD-ON" Style="{StaticResource SectionTitle}" />
+            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}" Text="Use your own copy of the supported DLSS5 NR add-on. Choose its folder or ZIP using Browse; ZIP files are extracted automatically into DLSS 5 Master's data folder. The add-on is supplied separately and is not included or downloaded by DLSS 5 Master." />
             <Grid ColumnSpacing="8">
               <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
               <TextBox x:Name="LecramNrBox" PlaceholderText="DLSS 5 Master's folder" IsReadOnly="True" />
               <Button Grid.Column="1" Click="OpenLecramNrFolder_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE838;" FontSize="13" /><TextBlock Text="Open folder" /></StackPanel></Button>
-              <Button Grid.Column="2" Click="PickLecramNr_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8B7;" FontSize="13" /><TextBlock Text="Browse…" /></StackPanel></Button>
+              <Button Grid.Column="2">
+                <Button.Flyout>
+                  <MenuFlyout>
+                    <MenuFlyoutItem Text="Choose folder…" Click="PickLecramNr_Click" />
+                    <MenuFlyoutItem Text="Choose ZIP…" Click="PickOwnAddonZip_Click" />
+                  </MenuFlyout>
+                </Button.Flyout>
+                <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8B7;" FontSize="13" /><TextBlock Text="Browse…" /></StackPanel>
+              </Button>
               <Button Grid.Column="3" Content="Clear" Click="ClearLecramNr_Click" ToolTipService.ToolTip="Forget the folder you picked and use DLSS 5 Master's folder again" />
             </Grid>
             <TextBlock x:Name="LecramNrStatus" FontSize="12" TextWrapping="Wrap" />
@@ -521,6 +558,7 @@
                      FontFamily="Cascadia Mono, Consolas" FontSize="12"
                      ScrollViewer.VerticalScrollBarVisibility="Auto" ScrollViewer.HorizontalScrollBarVisibility="Auto" />
             <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Content="Export support ZIP" Click="Diagnostics_Click" />
               <Button Click="ActivityRefresh_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE72C;" FontSize="13" /><TextBlock Text="Refresh" /></StackPanel></Button>
               <Button Click="ActivityCopy_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8C8;" FontSize="13" /><TextBlock Text="Copy log" /></StackPanel></Button>
               <Button Click="ActivityClear_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE74D;" FontSize="13" /><TextBlock Text="Clear" /></StackPanel></Button>
@@ -561,7 +599,7 @@
         <Border Style="{StaticResource Card}">
           <StackPanel Spacing="8">
             <Image x:Name="AboutLogo" Height="150" HorizontalAlignment="Left" Stretch="Uniform" Margin="0,0,0,6" />
-            <TextBlock Text="DLSS 5 Master 0.9.13" FontSize="20" FontWeight="SemiBold" />
+            <TextBlock x:Name="AboutVersionText" FontSize="20" FontWeight="SemiBold" />
             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
                        Text="One place for ReShade + RenoDX neural rendering routes (Native, Multipass, Feeder), OptiScaler, and per-game DLL swapping. Every change is recorded in _DLSS5Master_Backup inside the game folder, and Restore originals puts the game back exactly as it was." />
           </StackPanel>
@@ -699,7 +737,7 @@
                   </ComboBox>
                 </StackPanel>
                 <StackPanel>
-                  <CheckBox x:Name="MfgBox" Content="MFG unlock — multi frame generation: DLSS 3x/4x on RTX 40, or Intel XeSS 2x–6x on RTX 20–50 (MFGAdaUnlock 1.8.2)" />
+                  <CheckBox x:Name="MfgBox" Content="MFG unlock — multi frame generation: DLSS 3x/4x on RTX 40, or Intel XeSS 2x–6x on RTX 20–50 (MFGAdaUnlock 1.9.0)" />
                   <TextBlock x:Name="MfgNote" Margin="28,0,0,0" FontSize="12" Foreground="{StaticResource MutedText}" TextWrapping="Wrap" />
                 </StackPanel>
                 <!-- Rarely needed: closed unless something in it is on -->

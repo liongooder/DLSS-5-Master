@@ -56,7 +56,25 @@ public static partial class Updates
     /// Downloads and verifies the new installer, then starts it silently. The caller must exit the app right after:
     /// the installer waits for it to close, replaces the files and starts the new version.
     /// </summary>
-    public static async Task InstallAppUpdateAsync(AppRelease rel, IProgress<string>? p, CancellationToken ct = default)
+    public static async Task InstallAppUpdateAsync(AppRelease rel, IProgress<string>? p, CancellationToken ct = default) =>
+        StartAppInstaller(rel, await DownloadAppUpdateAsync(rel, p, ct), p);
+
+    /// <summary>
+    /// Starts the installer <see cref="DownloadAppUpdateAsync"/> returned, silently. The caller must exit the app right after:
+    /// the installer waits for it to close, replaces the files and starts the new version.
+    /// </summary>
+    public static void StartAppInstaller(AppRelease rel, string file, IProgress<string>? p = null)
+    {
+        p?.Report($"Installing DLSS 5 Master {rel.Version}…");
+        AppPaths.Log($"App update: starting installer {rel.Version}");
+        Process.Start(new ProcessStartInfo(file, "/SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS") { UseShellExecute = true });
+    }
+
+    /// <summary>
+    /// Downloads the new installer, or finds it downloaded already, and checks it against the SHA-256 GitHub published; the
+    /// path of the checked installer. Nothing is started: a setup running in a game can finish first.
+    /// </summary>
+    public static async Task<string> DownloadAppUpdateAsync(AppRelease rel, IProgress<string>? p, CancellationToken ct = default)
     {
         var dir = Path.Combine(AppPaths.Root, "app-update");
         Directory.CreateDirectory(dir);
@@ -76,10 +94,7 @@ public static partial class Updates
             }
             File.Move(file + ".part", file, true);
         }
-
-        p?.Report($"Installing DLSS 5 Master {rel.Version}…");
-        AppPaths.Log($"App update: starting installer {rel.Version}");
-        Process.Start(new ProcessStartInfo(file, "/SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS") { UseShellExecute = true });
+        return file;
     }
 
     [GeneratedRegex(@"^DLSS5Master-Setup-([\d.]+)\.exe(\.part)?$", RegexOptions.IgnoreCase)]

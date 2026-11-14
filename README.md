@@ -57,15 +57,18 @@ DLSS 5 Master checks GitHub for newer RenoDX, MFG unlock, Feeder and OptiScaler 
 
 - **Game library**: finds Steam, Epic, GOG, Ubisoft, Xbox and custom-folder games, with cover art, and detects each game's executable, DirectX/Vulkan version, 32/64-bit, and DLSS / FSR / XeSS / Streamline DLLs.
 - **ReShade + RenoDX routes**: *Native* (RenoDX DLSS5 add-on, through the game's own DLSS, DirectX 11 or 12), *Multipass* (RenoDX DLSS Tool) and *DLSS5 Feeder* (for games without DLSS). If ReShade cannot start the add-ons in a game (error 1114 in its log), the game's page offers to have ReShade load them as soon as it starts.
-- **OptiScaler**: OptiScaler NR pre-SR MFG 0.9.81 is included; the NR 0.8.3 RTX 40 MFG build can be picked instead (downloaded when first used). You choose the proxy DLL name (`dxgi`, `winmm`, `version`, …) and the in-game menu key.
+- **OptiScaler**: OptiScaler NR pre-SR MFG 0.9.90 is included; the NR 0.8.3 RTX 40 MFG build can be picked instead (downloaded when first used). You choose the proxy DLL name (`dxgi`, `winmm`, `version`, …) and the in-game menu key.
+- **DLSS 5 Neural Rendering (NR) add-on** - supplied separately. Select its folder or ZIP in Settings; the add-on is not included or downloaded by DLSS 5 Master. The route title uses the supplied add-on's product metadata.
+- **Several games at once**: *Bulk install* on the Games page sets one route up in every shown game it fits. Each game is ticked; untick any you want to leave as it is. Games the route does not fit, and games with anti-cheat, are left as they are and listed with the reason. Games already set up are set up again only if you ask.
 - **MFG unlock**: [MFGAdaUnlock-RenoDx](https://github.com/mavismmg/MFGAdaUnlock-RenoDx) as a tick box on every ReShade route: DLSS multi frame generation (3x/4x) on GeForce RTX 40, or its XeMFG mode (Intel XeSS frame generation, 2x–6x) on RTX 20, 30, 40 and 50.
 - **DLL swapping**: swap any upscaler DLL for another version from your DLL library.
 - **Exact restore**: every file added or replaced is recorded in `_DLSS5Master_Backup` inside the game folder; *Restore originals* puts the game back byte for byte, and also removes the logs and crash dumps the add-ons wrote while the game ran. It can also remove installs made by other DLSS 5 tools, and sets aside the DLSS 5 add-ons they left in a game's folder (ReShade would load them too); Restore puts those back as well.
 - **Community**: every game shows what other players report (works / partly / broken), each report with its route and the PC it ran on (graphics card and driver, processor, memory, Windows). The Community tab has every reported game with filters, a chat, a screenshot gallery (approved before anyone sees it) and a private line to the developer. Pick a nickname; no account needed.
 - **Updates**: the app and its add-ons update themselves from GitHub, checked against GitHub's published SHA-256.
+- **Runtime updates**: Settings → Components checks SR, RR, FG and NR against the DLSS release mirror, and Streamline against RankFTW/rhi-repo releases (pinned to 2.13.0.0 until 2.14 neural rendering compatibility is tested). Each runtime has an Update and Use included control; Update available runtimes selects all newer verified releases. Streamline uses one complete release set. Updates are kept in the app's data folder for new setups; custom runtime folders keep priority and installed games are unchanged until reinstalled.
 - **DLSS 5 on any window**: draws DLSS 5 over a browser, a video or any other open window, for browsing and videos; nothing in that program is changed. Optional frame generation (2x, 3x or 4x), Quality / Balanced / Performance, 1 or 2 neural passes, and HDR on an HDR screen. F9 switches it on and off. A window in exclusive fullscreen hides every overlay: the overlay then waits without using the graphics card and says so. Games use the routes above.
 
-> **Anti-cheat warning:** injecting DLLs into online games can get your account banned, and anti-cheat often refuses to load ReShade's add-on build at all (ReShade says it is for single-player games). DLSS 5 Master names the anti-cheat it finds in a game's folder (Easy Anti-Cheat, BattlEye, EA Javelin, RICOCHET, ACE, GameGuard, XIGNCODE3 and others) and asks you to confirm before a setup. Anti-cheat that lives outside the game folder (Riot Vanguard, FACEIT's client, VAC) cannot be seen.
+> **Anti-cheat warning:** injecting DLLs into online games can get your account banned, and anti-cheat often refuses to load ReShade's add-on build at all (ReShade says it is for single-player games). DLSS 5 Master names the anti-cheat it finds in a game's folder (Easy Anti-Cheat, BattlEye, EA Javelin, RICOCHET, ACE, GameGuard, XIGNCODE3 and others) and asks you to confirm before a setup; *Bulk install* leaves those games out. Anti-cheat that lives outside the game folder (Riot Vanguard, FACEIT's client, VAC) cannot be seen.
 
 ## Requirements
 
@@ -105,10 +108,10 @@ The installer bundles these components, unmodified and checked against the pinne
 
 | Component | Source | Licence |
 |---|---|---|
-| OptiScaler NR pre-SR MFG 0.9.81 (bundled; also contains dlssg_for_sm86, which the overlay uses for frame generation on RTX 20/30) | [ShyVortex/OptiScaler-NR-PreSR-MFG](https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG) (source at tag v0.9.81); [sdli1995/dlssg_for_sm86](https://github.com/sdli1995/dlssg_for_sm86) | GPL-3.0 |
+| OptiScaler NR pre-SR MFG 0.9.90 (bundled; also contains dlssg_for_sm86, which the overlay uses for frame generation on RTX 20/30) | [ShyVortex/OptiScaler-NR-PreSR-MFG](https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG) (source at tag v0.9.90); [sdli1995/dlssg_for_sm86](https://github.com/sdli1995/dlssg_for_sm86) | GPL-3.0 |
 | OptiScaler NR pre-SR multipass 0.8.3 RTX 40 MFG (downloaded when chosen) | [wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) | GPL-3.0 |
 | DLSS5-Feeder | [jlrouzies-fr/DLSS5-Feeder](https://github.com/jlrouzies-fr/DLSS5-Feeder) | MIT |
-| RenoDX DLSS5 add-on | by lecram (as credited by the community), built on [RenoDX](https://github.com/clshortfuse/renodx) (MIT); builds via [RankFTW/rhi-repo](https://github.com/RankFTW/rhi-repo) | No licence published |
+| RenoDX DLSS5 add-on | Built on [RenoDX](https://github.com/clshortfuse/renodx) (MIT); builds via [RankFTW/rhi-repo](https://github.com/RankFTW/rhi-repo) | No licence published |
 | RenoDX DLSS Tool | by ShortFuse; builds via [RankFTW/rhi-repo](https://github.com/RankFTW/rhi-repo) | No licence published |
 | NVIDIA DLSS / Frame Gen / Ray Reconstruction / neural rendering runtimes, Streamline | NVIDIA | NVIDIA licence (included) |
 | MFGAdaUnlock-RenoDx (multi frame generation, DLSS-G and XeMFG) | [mavismmg/MFGAdaUnlock-RenoDx](https://github.com/mavismmg/MFGAdaUnlock-RenoDx) | MIT |
@@ -125,3 +128,11 @@ See [CODE_SIGNING_POLICY.md](CODE_SIGNING_POLICY.md), including its [privacy sec
 ## Licence
 
 [MIT](LICENSE)
+
+### Local workflow tools
+
+Bulk install has a file/version preview with original-backup and rollback-storage estimates before installation. The copy list is conservative: existing newer runtimes can be retained and small configuration files are generated/merged separately. Update installed games previews and reinstalls selected managed games using their recorded route/build/hooks, preserving their in-game tuning and working MFG providers; unsupported/development routes, anti-cheat and other installers are excluded.
+
+In-game settings are saved locally per game/executable, route, architecture and OptiScaler build. Returning to a route restores its profile. Install and restore operations take write-ahead snapshots of changed files; failures restore the previous setup, and interrupted operations can recover on the next install/restore. Recovery snapshots remain if locked files prevent rollback.
+
+Settings → Activity log → Export support ZIP previews the exact allowlisted, redacted text before saving locally. It includes hardware/runtime versions, managed install details and the recent activity log; no DLLs, private add-ons, complete settings or community identity files are exported. Nothing is uploaded. Community compatibility reports can be filtered by route, GPU, driver and reported result; these remain player reports, not verified compatibility certifications. Local add-on titles come from the supplied binary's product metadata, with DLSS5 NR as a fallback.

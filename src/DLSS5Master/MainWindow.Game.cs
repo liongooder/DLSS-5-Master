@@ -67,6 +67,8 @@ public sealed partial class MainWindow
 
     private async void GameGrid_ItemClick(object sender, ItemClickEventArgs e)
     {
+        // Set up several games is reading the games: one game's page would set games up beside it.
+        if (_bulkRunning) return;
         if (e.ClickedItem is GameItem item) await OpenGameAsync(item);
     }
 
@@ -212,9 +214,9 @@ public sealed partial class MainWindow
             OptiOptions.Visibility = opti ? Visibility.Visible : Visibility.Collapsed;
 
             var bits = SelectedExe?.Bitness ?? 0;
-            var routes = Installers.RoutesFor(SelectedApi, bits, _scan.HasNativeDlss, _scan.HasFrameGen, LecramSource is not null);
+            var routes = Installers.RoutesFor(SelectedApi, bits, _scan.HasNativeDlss, _scan.HasFrameGen, LecramSource is not null, AddonIdentity.Read(LecramSource, bits).Name);
             var previous = (RouteBox.SelectedItem as ComboBoxItem)?.Tag as Route?;
-            var reshadeRoutes = routes.Where(r => r.Route != Route.OptiScaler).ToList();
+            var reshadeRoutes = routes.Where(r => r.Route is not (Route.OptiScaler or Route.NeuralMaster)).ToList();
             // Rebuild the list only when the available routes changed. Rebuilding a ComboBox's items while it is
             // handling the user's pick (RouteBox_SelectionChanged) makes WinUI fail fast with "Element not found".
             var signature = string.Join("|", reshadeRoutes.Select(r => $"{r.Route}:{r.Unavailable is null}"));
@@ -418,6 +420,9 @@ public sealed partial class MainWindow
     {
         if (_populating || _scan is null || _game is null || SelectedExe is null) return;
         Scanner.InspectExeDir(_scan, Path.GetDirectoryName(SelectedExe.Path)!);
+        // The scan is the tile's too: its .exe, API and state follow the choice, and so does Set up several games.
+        _scan.Primary = SelectedExe;
+        _game.SetScan(_scan);
         _settings.OverrideFor(_game.Entry).Exe = SelectedExe == _scan.Executables.FirstOrDefault() ? null : SelectedExe.Path;
         _settings.Save();
         _populating = true;

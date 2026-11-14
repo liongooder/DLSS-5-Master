@@ -94,9 +94,35 @@ public sealed partial class MainWindow
                 : s.Counts.Total > s.Reports.Count ? $"REPORTS · NEWEST {s.Reports.Count} OF {s.Counts.Total}"
                 : $"REPORTS ({s.Reports.Count})";
             target.Children.Add(new TextBlock { Text = title, Style = (Style)Application.Current.Resources["SectionTitle"], Margin = new Thickness(0, 6, 0, 0) });
-            var shown = editor ? s.Reports.Take(PanelReports).ToList() : s.Reports;
-            foreach (var r in shown) target.Children.Add(ReportRow(r, s.Mine?.Id == r.Id));
-            if (shown.Count < s.Reports.Count && _game is { } game)
+            target.Children.Add(Muted("Player-reported compatibility; results can differ with game patches and component versions."));
+            var filters = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            ComboBox Filter(string title, IEnumerable<string> values)
+            {
+                var box = new ComboBox { Header = title, MinWidth = 125 };
+                box.Items.Add("All");
+                foreach (var value in values.Where(v => !string.IsNullOrWhiteSpace(v)).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(v => v)) box.Items.Add(value);
+                box.SelectedIndex = 0; filters.Children.Add(box); return box;
+            }
+            var routeFilter = Filter("Route", s.Reports.Where(r => !r.Hidden).Select(r => r.Route));
+            var gpuFilter = Filter("GPU", s.Reports.Where(r => !r.Hidden).Select(r => r.Gpu.Length > 0 ? r.Gpu : r.GpuFamily));
+            var driverFilter = Filter("Driver", s.Reports.Where(r => !r.Hidden).Select(r => r.Driver));
+            var resultFilter = Filter("Result", new[] { "works", "partly", "broken" });
+            target.Children.Add(new ScrollViewer { Content = filters, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled });
+            var filteredPanel = new StackPanel();
+            target.Children.Add(filteredPanel);
+            string? Selected(ComboBox box) => box.SelectedIndex == 0 ? null : box.SelectedItem as string;
+            void ApplyFilters()
+            {
+                filteredPanel.Children.Clear();
+                var matches = CompatibilityReports.Filter(s.Reports, Selected(routeFilter), Selected(gpuFilter), Selected(driverFilter), Selected(resultFilter));
+                filteredPanel.Children.Add(Muted($"{matches.Count} matching reports · {matches.Count(r => r.Rating == "works")} work · {matches.Count(r => r.Rating == "partly")} partly · {matches.Count(r => r.Rating == "broken")} broken"));
+                foreach (var report in (editor ? matches.Take(PanelReports) : matches)) filteredPanel.Children.Add(ReportRow(report, s.Mine?.Id == report.Id));
+            }
+            foreach (var box in new[] { routeFilter, gpuFilter, driverFilter, resultFilter }) box.SelectionChanged += (_, _) => ApplyFilters();
+            ApplyFilters();
+            var shownCount = editor ? Math.Min(PanelReports, s.Reports.Count) : s.Reports.Count;
+
+            if (shownCount < s.Reports.Count && _game is { } game)
             {
                 var all = new HyperlinkButton { Content = $"Show all {s.Reports.Count} reports", Padding = new Thickness(0, 4, 0, 4) };
                 var name = game.Name;
@@ -262,6 +288,7 @@ public sealed partial class MainWindow
         "multipass" => "Multipass",
         "feeder" => "Feeder",
         "optiscaler" => "OptiScaler",
+        "lecramnr" => "DLSS5 NR",
         _ => route,
     };
 

@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -7,7 +7,7 @@ namespace DLSS5Master.Core;
 
 public enum Backend { ReShade, OptiScaler }
 
-public enum Route { Native, Multipass, Feeder, OptiScaler, LecramNr }
+public enum Route { Native, Multipass, Feeder, OptiScaler, NeuralMaster, LecramNr }
 
 public sealed class InstallRequest
 {
@@ -21,6 +21,7 @@ public sealed class InstallRequest
     public string MenuKey { get; init; } = "0x2D";
     public string ReShadeProxy { get; init; } = "dxgi.dll";
     public bool MfgUnlock { get; init; }
+
     /// <summary>Have ReShade load the DLSS 5 add-ons as soon as it starts (ReShade.ini [ADDON] LoadFromDllMain).</summary>
     public bool LoadAddonsEarly { get; init; }
     public bool AntiCheatAcknowledged { get; init; }
@@ -72,6 +73,7 @@ public static partial class Installers
         Route.Native => "native",
         Route.Multipass => "multipass",
         Route.Feeder => "feeder",
+        Route.NeuralMaster => "neuralmaster",
         Route.LecramNr => "lecramnr",
         _ => "optiscaler",
     };
@@ -94,7 +96,8 @@ public static partial class Installers
             "multipass" or "renodx" => "ReShade · RenoDX DLSS Tool (multipass)",
             "feeder" => "ReShade · DLSS5 Feeder",
             "optiscaler" => "OptiScaler",
-            "lecramnr" => "ReShade · lecram's DLSS5 NR (your copy)",
+            "neuralmaster" => "NeuralMaster · retired prototype",
+            "lecramnr" => "ReShade · DLSS5 NR (supplied separately)",
             "swap" => "DLL swap only",
             _ => key,
         };
@@ -120,7 +123,7 @@ public static partial class Installers
             : null;
 
     /// <param name="lecramCopy">The player has a copy of lecram's DLSS5 NR (<see cref="LecramNr.Source"/>): only then is its route offered.</param>
-    public static List<RouteOption> RoutesFor(RenderApi api, int bitness, bool hasNativeDlss, bool hasFrameGen = false, bool lecramCopy = false)
+    public static List<RouteOption> RoutesFor(RenderApi api, int bitness, bool hasNativeDlss, bool hasFrameGen = false, bool lecramCopy = false, string? addonName = null)
     {
         bool x64 = bitness == 64;
         const string need64 = "Needs a 64-bit game.";
@@ -162,13 +165,16 @@ public static partial class Installers
             new(Route.Feeder, "DLSS5 Feeder",
                 "For games without DLSS: shaders compute motion vectors and feed them through ReShade to the neural pass.", feeder),
             new(Route.OptiScaler, "OptiScaler", optiText, opti),
+            new(Route.NeuralMaster, "NeuralMaster",
+                "Native game depth and motion → neural passes → Look/HDR. View development status in the NeuralMaster tab.",
+                NeuralMasterDevelopmentPath.BuildStatus),
         };
         // Its own host runs it in 32-bit, Direct3D 9/10 and OpenGL games. Vulkan needs ReShade's Vulkan layer, installed for
         // the whole PC, which this app does not do.
         if (lecramCopy)
-            options.Add(new(Route.LecramNr, "lecram's DLSS5 NR (your copy)",
-                "Your own copy of lecram's DLSS5 NR (a paid add-on, not included with DLSS 5 Master) with ReShade and NVIDIA's neural runtime. " +
-                "It finds the game's depth and motion itself, with or without the game's DLSS. In game, Home opens its panel and Shift+Home opens ReShade.",
+            options.Add(new(Route.LecramNr, AddonIdentity.SafeName(addonName),
+                "Use your own copy of the supported DLSS5 NR add-on with ReShade and NVIDIA’s neural runtime. Select its folder in Settings. " +
+                "The add-on is supplied separately and is not included or downloaded by DLSS 5 Master.",
                 api switch
                 {
                     RenderApi.DX9 or RenderApi.DX10 or RenderApi.DX11 or RenderApi.DX12 or RenderApi.OpenGL => null,
@@ -204,6 +210,7 @@ public static partial class Installers
         public string? OptiFolder { get; init; }
         public OptiBuild? Build { get; init; }
         public string? MfgFile { get; init; }
+        public NativeMfgProviders? MfgProviders { get; init; }
         /// <summary>The player's copy of lecram's DLSS5 NR, staged (<see cref="LecramNr.Stage"/>).</summary>
         public string? LecramNr { get; init; }
         public required GameScan Scan { get; set; }
@@ -211,11 +218,18 @@ public static partial class Installers
         public void Log(string line) => S.Log(line);
     }
 
-    public static async Task InstallAsync(InstallRequest req, Components components, Action<string> log, IProgress<string>? progress, CancellationToken ct)
+    public static async Task InstallAsync(InstallRequest req, Components components, Action<string> log, IProgress<string>? progress, CancellationToken ct, Action<InstallPreview>? preview = null, bool previewOnly = false)
     {
+        // Reject even stale callers before any folder checks, scans, downloads or writes.
+        if (req.Route == Route.NeuralMaster)
+            throw new InstallException(NeuralMasterDevelopmentPath.BuildStatus);
         var gameDir = Path.GetFullPath(req.GameDir).TrimEnd('\\', '/');
         var exePath = Path.GetFullPath(req.ExePath);
         var exeDir = Path.GetDirectoryName(exePath)!;
+        // The install record's own lines reach the activity log by themselves (Session.Log); these from outside it go there too,
+        // so a setup run without a page to show them (Set up several games) still leaves every line in the log.
+        var gameTag = $"[{Path.GetFileName(gameDir)}] ";
+        void Note(string line) { log(line); AppPaths.Log(gameTag + line); }
 
         // ---- 1. preconditions (nothing downloaded or changed yet)
         if (!Journal.CanWrite(exeDir))
@@ -230,9 +244,15 @@ public static partial class Installers
             throw new InstallException("Another app has an install in this game. Remove it with that app first, then install with DLSS 5 Master.");
         if (LecramNr.SetupInstalled(exeDir)) throw new InstallException(LecramNr.SetupInstalledMessage);
         AssertGameClosed(exePath);
+        if (!previewOnly && InstallTransaction.Pending(gameDir))
+        {
+            InstallTransaction.Recover(gameDir);
+            Note("Recovered the previous setup after an interrupted operation.");
+        }
 
         progress?.Report("Scanning the game…");
         var scan = await Task.Run(() => Scanner.Scan(gameDir, exePath, ct), ct);
+        if (scan.Manifest?.Route == "neuralmaster") throw new InstallException("NeuralMaster development installations are excluded. Nothing was changed.");
         if (scan.AntiCheatName is { } antiCheat && !req.AntiCheatAcknowledged)
             throw new InstallException(AntiCheatWarning(antiCheat) + " Tick the acknowledgement to continue anyway.");
 
@@ -273,7 +293,7 @@ public static partial class Installers
                             ?? throw new InstallException("The Feeder's 64-bit helper needs a 64-bit ReShade with add-on support. Pick a ReShade_Setup_*_Addon.exe in Settings.");
         }
         if (req.Route == Route.OptiScaler && build.NeuralRendering && !scan.HasNativeDlss)
-            log("Warning: this game has no DLSS of its own; DLSS-NR OptiScaler builds may not activate.");
+            Note("Warning: this game has no DLSS of its own; DLSS-NR OptiScaler builds may not activate.");
 
         // ---- 2. fetch everything before touching the game
         string? consumer = null, multipass = null, opti = null, mfg = null;
@@ -294,13 +314,28 @@ public static partial class Installers
                 opti = await components.OptiScalerAsync(build, progress, ct);
                 break;
         }
-        if (wantMfg) mfg = await components.MfgUnlockAsync(progress, ct);
+        if (wantMfg)
+            mfg = NativeMfgProviders.KnownWorkingBackend(exeDir, scan.Upscalers)
+                  ?? await components.MfgUnlockAsync(progress, ct);
+        // Capture before RestoreForReinstall: that restore may put older FG
+        // files back, and RuntimeFiles() may contain only NR/SR, not an FG DLL.
+        using var mfgProviders = wantMfg
+            ? NativeMfgProviders.Stage(gameDir, scan.Upscalers, runtime.GetValueOrDefault(FrameGenDll), mfg!, Note, exeDir)
+            : null;
         ct.ThrowIfCancellationRequested();
         // The player's copy of lecram's DLSS5 NR, put aside before the restore below changes the game folder.
         using var lecram = req.Route == Route.LecramNr
             ? await Task.Run(() => LecramNr.Stage(req.LecramNrSource!, gameDir, exeDir, Journal.ReadManifest(gameDir)), ct)
             : null;
+        // Count destination copies and the originals the journal must back up.
+        await Task.Run(() => AssertRoom(gameDir, exeDir, scan.Manifest,
+            InstallSpaceNeeded(req, scan, runtime, reshade, reshade64, consumer, multipass,
+                feeder, opti, lecram?.Dir, mfgProviders, preview)), ct);
+        if (previewOnly) return;
 
+        using var transaction = InstallTransaction.Begin(gameDir);
+        try
+        {
         // ---- 3. undo an earlier install by this app, keeping the settings the player changed in the game
         var kept = new List<KeptSetting>();
         var old = Journal.ReadManifest(gameDir);
@@ -308,15 +343,25 @@ public static partial class Installers
         {
             // The downloads can take minutes, and ReShade saves its settings while the game runs.
             AssertGameClosed(exePath);
-            log("Restoring the previous install by DLSS 5 Master first…");
+            RouteProfiles.Save(gameDir, old, Note);
+            Note("Restoring the previous install by DLSS 5 Master first…");
             progress?.Report("Restoring the previous install…");
-            kept = await Task.Run(() => KeepSettings(gameDir, old, exeDir, req.Route, req.Bitness, wantMfg, build.Id, log));
-            await Task.Run(() => RestoreForReinstall(gameDir, kept, log));
+            kept = await Task.Run(() => KeepSettings(gameDir, old, exeDir, req.Route, req.Bitness, wantMfg, build.Id, Note));
+            await Task.Run(() => RestoreForReinstall(gameDir, kept, log, Note));
+        }
+
+        if (old is null || old.Route != RouteKey(req.Route))
+        {
+            var profile = RouteProfiles.Load(gameDir, exePath, req.Route, req.Bitness, wantMfg, build.Id);
+            var currentMfg = kept.Where(k => Path.GetFileName(k.Rel).StartsWith("MFGAdaUnlock", StringComparison.OrdinalIgnoreCase)).ToList();
+            kept = profile.Where(k => !currentMfg.Any(m => m.Rel.Equals(k.Rel, StringComparison.OrdinalIgnoreCase))).Concat(currentMfg).ToList();
+            if (profile.Count > 0) Note("Restoring this route's saved in-game settings.");
         }
 
         // ---- 4. install
         progress?.Report("Installing…");
         var session = Session.Begin(gameDir, exePath, RouteKey(req.Route), ApiKey(req.Api), req.Bitness, log);
+        session.Manifest.RenderingApi = req.Api.ToString();
         // Recorded with the route, before any file is written: a setup that stops part-way still tells the next Reinstall
         // which OptiScaler build and which MFG unlock the settings it put back belong to.
         if (req.Route == Route.OptiScaler)
@@ -324,7 +369,18 @@ public static partial class Installers
             session.Manifest.OptiScalerBuild = build.Id;
             session.Manifest.OptiScalerHook = req.OptiHook;
         }
-        if (wantMfg) session.Manifest.MfgUnlock = Updates.InUse(Updates.Sources.First(s => s.Id == "mfgunlock")).Version;
+        if (wantMfg)
+        {
+            // A missing version is still an installed backend with a known hash; keep its settings on reinstall.
+            session.Manifest.MfgUnlock = Pe.GetFileVersion(mfgProviders!.BackendPath) ?? "unknown";
+            session.Manifest.MfgUnlockSha256 = mfgProviders.BackendSha256;
+        }
+        if (req.Route == Route.LecramNr)
+        {
+            var identity = AddonIdentity.Read(lecram?.Dir, req.Bitness);
+            session.Manifest.AddonName = identity.Name;
+            session.Manifest.AddonVersion = identity.Version;
+        }
         session.Save();
         await Task.Run(() =>
         {
@@ -334,7 +390,7 @@ public static partial class Installers
             {
                 Req = req, S = session, ExeDir = exeDir, Runtime = runtime,
                 ReShade = reshade, ReShade64 = reshade64, Consumer = consumer, Multipass = multipass,
-                Feeder = feeder, OptiFolder = opti, Build = build, MfgFile = mfg, LecramNr = lecram?.Dir,
+                Feeder = feeder, OptiFolder = opti, Build = build, MfgFile = mfgProviders?.BackendPath ?? mfg, MfgProviders = mfgProviders, LecramNr = lecram?.Dir,
                 // Fresh look at the folder now that any earlier install is gone.
                 Scan = Scanner.Scan(gameDir, exePath),
             };
@@ -352,6 +408,14 @@ public static partial class Installers
             session.Save();
         });
         session.Log($"Done: {RouteLabel(RouteKey(req.Route))} installed. Restore originals undoes every change.");
+        transaction.Commit();
+        }
+        catch (Exception failure)
+        {
+            try { transaction.Rollback(); Note("Install failed. The setup from before this operation was restored automatically."); }
+            catch (Exception recovery) { throw new InstallException($"{failure.Message} Rollback could not finish: {recovery.Message}. Snapshots are retained; close the game and retry to recover them."); }
+            throw;
+        }
     }
 
     // ------------------------------------------------------------------ in-game settings kept across a reinstall
@@ -369,7 +433,7 @@ public static partial class Installers
         var kept = new List<KeptSetting>();
         var root = Path.GetFullPath(gameDir).TrimEnd('\\', '/');
         var dir = Path.GetFullPath(exeDir).TrimEnd('\\', '/');
-        bool routeBefore = old.Route is "native" or "multipass" or "feeder" or "optiscaler" or "lecramnr";
+        bool routeBefore = old.Route is "native" or "multipass" or "feeder" or "optiscaler" or "neuralmaster" or "lecramnr";
         string? dirBefore = null;
         try { if (!string.IsNullOrEmpty(old.Exe)) dirBefore = Path.GetDirectoryName(Journal.SafePath(root, old.Exe)); }
         catch (InstallException) { }
@@ -430,8 +494,25 @@ public static partial class Installers
     /// record stays and still covers every file <see cref="KeepSettings"/> read: the kept settings go back where they were
     /// before the error is passed on, so the next try keeps them again and Restore originals still undoes them.
     /// </summary>
-    private static void RestoreForReinstall(string gameDir, IReadOnlyList<KeptSetting> kept, Action<string> log)
+    /// <param name="log">For the restore, whose record logs to the activity log itself.</param>
+    /// <param name="note">For this method's own lines, which go to the activity log as well.</param>
+    private static void RestoreForReinstall(string gameDir, IReadOnlyList<KeptSetting> kept, Action<string> log, Action<string> note)
     {
+        // Keep this outside the rollback catch: a changed/deleted user file is
+        // not our restore's mutation and must never receive the stale snapshot.
+        foreach (var setting in kept)
+        {
+            var file = Journal.SafePath(gameDir, setting.Rel);
+            try
+            {
+                if (!File.Exists(file) || !File.ReadAllBytes(file).AsSpan().SequenceEqual(setting.Bytes))
+                    throw new InstallException($"Your settings changed during preparation ({setting.Rel}). This reinstall's restore was not started. Your current files were kept; review them before retrying.");
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                throw new InstallException($"Could not recheck current settings ({setting.Rel}): {e.Message}. This reinstall's restore was not started.");
+            }
+        }
         try { Session.Restore(gameDir, log); }
         catch
         {
@@ -450,9 +531,9 @@ public static partial class Installers
                         File.WriteAllBytes(file, k.Bytes);
                         putBack.Add(k.Rel);
                     }
-                    catch (Exception e) when (e is IOException or UnauthorizedAccessException) { log($"Could not put back {k.Rel}: {e.Message}"); }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException) { note($"Could not put back {k.Rel}: {e.Message}"); }
                 }
-                if (putBack.Count > 0) log($"Put back your in-game settings: {string.Join(", ", putBack)}.");
+                if (putBack.Count > 0) note($"Put back your in-game settings: {string.Join(", ", putBack)}.");
             }
             throw;
         }
@@ -483,7 +564,7 @@ public static partial class Installers
 
     // ------------------------------------------------------------------ shared steps
 
-    private static string ReShadeHookFor(InstallRequest req) => req.Api switch
+    internal static string ReShadeHookFor(InstallRequest req) => req.Api switch
     {
         RenderApi.OpenGL => "opengl32.dll",
         RenderApi.DX9 => "d3d9.dll",
@@ -566,7 +647,7 @@ public static partial class Installers
     /// The DLSS 5 add-ons, this app's and other DLSS 5 tools'. ReShade loads every add-on in its folder, so one that another
     /// install left behind (an older MFG unlock, a second neural add-on, a Feeder) would run alongside this one.
     /// </summary>
-    private static readonly string[] DlssAddonPatterns = { "renodx-dlss*.addon64", "renodx-mfgunlock.addon*", "dlss5-feed*.addon*" };
+    private static readonly string[] DlssAddonPatterns = { "renodx-dlss*.addon64", "renodx-mfgunlock.addon*", "dlss5-feed*.addon*", "Neuralmaster-nvngx.dll.addon64", "NeuralMaster.addon64" };
 
     /// <summary>
     /// Neural rendering add-ons that this app does not install but players add themselves. Next to this app's add-ons they
@@ -655,7 +736,7 @@ public static partial class Installers
     /// </summary>
     public static List<string> AddonsToLoadEarly(string gameDir, Manifest? manifest)
     {
-        if (manifest is null || manifest.Route is not ("native" or "multipass" or "feeder" or "lecramnr") || string.IsNullOrEmpty(manifest.Exe)) return new();
+        if (manifest is null || manifest.Route is not ("native" or "multipass" or "feeder" or "neuralmaster" or "lecramnr") || string.IsNullOrEmpty(manifest.Exe)) return new();
         string? dir;
         try { dir = Path.GetDirectoryName(Journal.SafePath(Path.GetFullPath(gameDir).TrimEnd('\\', '/'), manifest.Exe)); }
         catch (InstallException) { return new(); }
@@ -837,7 +918,7 @@ public static partial class Installers
 
         PlaceReShade(job, feederMode: false);
         var reshade = Scanner.InspectReShade(job.ExeDir);
-        if (reshade.Installed && Scanner.IsVersion(reshade.Version) && Scanner.CompareVersions(reshade.Version, "6.8") < 0)
+        if (reshade.Installed && BulkSetup.OlderThanLecramNeeds(reshade.Version))
             job.Log($"lecram's DLSS5 NR needs ReShade 6.8 or newer, and this game keeps ReShade {reshade.Version}. Remove that ReShade, then reinstall.");
         EnableAddon(job, job.ExeDir, bits == 64 ? LecramNr.Addon64 : LecramNr.Addon32);
         RemoveFeedTechnique(job);
@@ -1149,7 +1230,7 @@ public static partial class Installers
 
     // ------------------------------------------------------------------ OptiScaler
 
-    private static readonly HashSet<string> OptiConflictStems = new(StringComparer.OrdinalIgnoreCase)
+    internal static readonly HashSet<string> OptiConflictStems = new(StringComparer.OrdinalIgnoreCase)
     { "dxgi", "winmm", "version", "dbghelp", "dbgcore", "d3d12", "d3d11", "wininet", "winhttp", "OptiScaler" };
 
     private static void RunOptiScaler(Job job)
@@ -1281,7 +1362,8 @@ public static partial class Installers
 
         var fresh = Scanner.Scan(job.S.GameDir, job.Req.ExePath);
         var frameGen = fresh.Upscalers.Where(u => u.Kind == UpscalerKind.DlssFG && u.Bitness == 64).ToList();
-        if (job.Runtime.TryGetValue(FrameGenDll, out var fgSrc))
+        if (job.MfgProviders is not null) job.MfgProviders.Place(job.S);
+        else if (job.Runtime.TryGetValue(FrameGenDll, out var fgSrc))
             foreach (var f in frameGen) PlaceRuntime(job, fgSrc, f.Path, 64);
         foreach (var f in frameGen)
         {
@@ -1290,7 +1372,8 @@ public static partial class Installers
                 job.Log($"Warning: {f.Rel} is {v}; the MFG unlock wants DLSS Frame Generation 310.x. Use the Swap button to update it.");
         }
         EnableAddon(job, job.ExeDir, Components.MfgAddon);
-        job.Log("Turn on DLSS Frame Generation in the game and pick 3x or 4x, or set it in the ReShade Add-ons tab.");
+        job.Log($"MFG backend disk identity: version={Pe.GetFileVersion(job.MfgFile!)}; SHA256={NativeMfgProviders.Hash(job.MfgFile!)}. Existing game-controlled settings are preserved.");
+        job.Log("Native menu capacity, requested generated-frame count, API acceptance and distinct presented output require separate live evidence. Installation is not proof of 4x/6x, Dynamic MFG support, or pre-query hook readiness.");
     }
 
     // ------------------------------------------------------------------ other operations
@@ -1299,7 +1382,16 @@ public static partial class Installers
     {
         if (!string.IsNullOrWhiteSpace(exePath)) AssertGameClosed(exePath);
         if (LecramSetupAfterUs(gameDir)) throw new InstallException(LecramNr.SetupAfterUsMessage);
-        if (!Session.Restore(gameDir, log)) log("Nothing to restore: DLSS 5 Master has no install record in this game.");
+        if (Journal.ReadManifest(gameDir)?.Route == "neuralmaster") throw new InstallException("NeuralMaster development installations are excluded.");
+        if (InstallTransaction.Pending(gameDir)) InstallTransaction.Recover(gameDir);
+        using var transaction = InstallTransaction.Begin(gameDir);
+        try
+        {
+            if (Journal.ReadManifest(gameDir) is { } old) RouteProfiles.Save(gameDir, old, log);
+            if (!Session.Restore(gameDir, log)) log("Nothing to restore: DLSS 5 Master has no install record in this game.");
+            transaction.Commit();
+        }
+        catch { transaction.Rollback(); throw; }
     });
 
     /// <summary>
@@ -1318,6 +1410,56 @@ public static partial class Installers
         }
         catch (InstallException) { return false; }
     }
+
+    /// <summary>The size of <paramref name="files"/> and of every file in <paramref name="trees"/>, each counted once; missing ones count 0.</summary>
+    internal static long SpaceNeeded(IEnumerable<string?> files, IEnumerable<string?> trees)
+    {
+        long total = 0;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Add(string file)
+        {
+            try { if (seen.Add(Path.GetFullPath(file))) total += new FileInfo(file).Length; }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { }
+        }
+        foreach (var f in files) if (f is not null) Add(f);
+        foreach (var d in trees)
+        {
+            if (d is null || !Directory.Exists(d)) continue;
+            try { foreach (var f in Directory.EnumerateFiles(d, "*", SearchOption.AllDirectories)) Add(f); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
+        return total;
+    }
+
+    /// <summary>
+    /// Refuses a setup the game's drive has no room for, before anything in the game changes. What an earlier setup added
+    /// counts as room: the restore that starts a reinstall takes it out first. Skipped when the free space cannot be read.
+    /// </summary>
+    internal static void AssertRoom(string gameDir, string exeDir, Manifest? old, long needed)
+    {
+        if (!GetDiskFreeSpaceEx(Path.GetFullPath(exeDir), out var free, out _, out _)) return;
+        long freed = 0;
+        foreach (var rel in old?.Added ?? new List<string>())
+        {
+            try
+            {
+                var file = Journal.SafePath(gameDir, rel);
+                if (File.Exists(file)) freed += new FileInfo(file).Length;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InstallException) { }
+        }
+        const long margin = 64L << 20;
+        long room = (long)Math.Min(free, (ulong)(long.MaxValue / 2)) + freed;
+        if (room >= needed + margin) return;
+        static string Mb(long bytes) => (Math.Max(bytes, 0) / 1048576).ToString(System.Globalization.CultureInfo.InvariantCulture) + " MB";
+        var drive = Path.GetPathRoot(Path.GetFullPath(exeDir))?.TrimEnd('\\') ?? exeDir;
+        throw new InstallException($"Not enough free space on {drive}: {Mb((long)Math.Min(free, (ulong)long.MaxValue))} free, and this setup needs about " +
+                                   $"{Mb(needed + margin - freed)}. Free some space, then try again. Nothing in the game was changed.");
+    }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool GetDiskFreeSpaceEx(string directory, out ulong freeForCaller, out ulong total, out ulong totalFree);
 
     public static void AssertGameClosed(string exePath)
     {

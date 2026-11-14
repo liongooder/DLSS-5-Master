@@ -99,6 +99,9 @@ public sealed partial class MainWindow
         bool active = FiltersActive;
         LibraryCount.Text = _all.Count == 0 ? "" : active ? $"{_visible.Count} of {_all.Count} shown" : $"{_all.Count} games";
         ClearFiltersButton.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+        // Set up several games works on the games shown, once they are all scanned.
+        ManagedUpdatesButton.IsEnabled = _libraryScanned && !_busy && !_bulkRunning && !_appUpdating && _visible.Count > 0;
+        BulkSetupButton.IsEnabled = _libraryScanned && !_busy && !_bulkRunning && !_appUpdating && _visible.Count > 0;
 
         SummaryChips.Children.Clear();
         if (_all.Count > 0)

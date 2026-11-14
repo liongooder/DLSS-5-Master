@@ -5,7 +5,9 @@
 #endif
 #define AppName "DLSS 5 Master"
 #define AppExe "DLSS5Master.exe"
-#define PublishDir "..\publish"
+#ifndef PublishDir
+  #define PublishDir "..\publish"
+#endif
 
 [Setup]
 AppId={{6F1C2A9E-5D3B-4C8E-9A1F-D55A5E0C7B21}
@@ -52,12 +54,14 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
-Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#PublishDir}\*"; DestDir: "{app}"; Excludes: "payload\neuralmaster\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 Source: "licenses\*"; DestDir: "{app}\licenses"; Flags: ignoreversion
 
 [InstallDelete]
+; Remove the retired renderer from an older app installation, never from games.
+Type: files; Name: "{app}\payload\neuralmaster\NeuralMaster.addon64"
 ; Shortcuts from versions named "DLSS5 Master" (without the space).
 Type: files; Name: "{autoprograms}\DLSS5 Master.lnk"
 Type: files; Name: "{autodesktop}\DLSS5 Master.lnk"
@@ -73,6 +77,10 @@ Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_9_72-shyvortex.zip"
 Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_9_80-shyvortex.zip"
 ; 0.9.12 bundles OptiScaler NR 0.9.85; remove the 0.9.81 zip it replaces.
 Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_9_81-shyvortex.zip"
+; Remove superseded OptiScaler NR archives when updating the public add-on bundle.
+Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_9_85-shyvortex.zip"
+; Updated public add-on bundle replaces the 0.9.86 archive.
+Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_9_86-shyvortex.zip"
 
 [UninstallDelete]
 ; The large caches in the app's data folder (about 1.2 GB on a used install): downloaded add-ons and OptiScaler builds,

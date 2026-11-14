@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="ReinstallSettingsRaceTests.cs" />
     <Compile Include="..\..\src\DLSS5Master\Core\*.cs" LinkBase="Core" />
   </ItemGroup>
   <ItemGroup>

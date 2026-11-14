@@ -19,9 +19,9 @@ public sealed class Components
 
     public static readonly OptiBuild[] OptiBuilds =
     {
-        new("0.9.85-shyvortex", "OptiScaler NR 0.9.85 (recommended)",
-            "https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/releases/download/v0.9.85/OptiScaler-NR-v0.9.85.zip",
-            "1f0d5a58a56bdc065f1407adf688f6677d13430b878b2430c5c8a9d816bf9acf", null, null, false, true, WholeBackend: true),
+        new("0.9.90-shyvortex", "OptiScaler NR 0.9.90 (recommended)",
+            "https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/releases/download/v0.9.90/OptiScaler-NR-v0.9.90.zip",
+            "f3dbfe36f0de4ff646499642c2eda53c80b56b5e7def34f5bf7b9f88efb86ee0", null, null, false, true, WholeBackend: true),
         new("0.8.3-rtx40-mfg", "OptiScaler NR 0.8.3 · RTX 40 MFG (older)",
             "https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/releases/download/v0.8.3/OptiScaler-NR-v0.8.3-rtx40-mfg.zip",
             "aac7ea64d80604a5b79f686043ba28fbefefaf98818e861a377b78122cb24448", null, null, false, true),
@@ -29,16 +29,16 @@ public sealed class Components
 
     public static readonly Dictionary<string, string> FeederHashes = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["dlss5-feed.addon32"] = "34c767bd53a99f51a6cb5d87b267734e04314d16bf495a6c69ab98acd62d0874",
-        ["dlss5-feed.addon64"] = "2b8c905012fd464ddf0554c6b178cba55030ec10eb917acdcee0e7a2376fe4dd",
-        ["dlss5-feed-host64.exe"] = "79e427430c5c0102f6c7a557155b706ad51b0c40933f6e245fce922bf5b1401e",
-        ["DLSS5_Feed.fx"] = "c4ba1610df8e1593faa7c203d6d0517058d3a8ecf2dfda18ca67849844391456",
+        ["dlss5-feed.addon32"] = "7ec337e0023652655fbf0f40f815bc1b4cd95eec43e1216a681a9ac0bcef2793",
+        ["dlss5-feed.addon64"] = "d2b940c7617f8bc418ee0b02d3aed28cfd58e44e6095f0f862b6ff96a4388ffa",
+        ["dlss5-feed-host64.exe"] = "7d360bf6d7b21d2d180346a40d74eafea45581802374225e6d30737fb97bc48f",
+        ["DLSS5_Feed.fx"] = "72f537693374f5d2f63900cccb1cf48dd067dde3ef982c94086c8801448d5f6d",
     };
 
     public const string MfgAddon = "renodx-mfgunlock.addon64";
-    public const string MfgVersion = "1.8.2";
-    public const string MfgUrl = "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/1.8.2/renodx-mfgunlock.addon64";
-    public const string MfgSha256 = "8aa42b92508a9a09c010fe291fc4d89fdae43351da0e90ead630efa236a17ac6";
+    public const string MfgVersion = "1.9.0";
+    public const string MfgUrl = "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/1.9.0/renodx-mfgunlock.addon64";
+    public const string MfgSha256 = "dde12538667b2337dbb830fbdd83c6536e4e05658c7eff5dd100f2c9b46ac75f";
 
     public static readonly string[] OptiLibraries =
     {
@@ -58,9 +58,9 @@ public sealed class Components
          "9851d9fb959076d94f9877d34dc7cee82ce6591ce0df9a54f9d2a92ccaaa6b9a",
          "renodx-dlss.addon64", "dd5ed7ba6773a6168390f3a53e757f09b563ecdf1a9f4fcdec6dd3129d93bace", "renodx-dlss-SF-26.1025.0009");
 
-    private const string FeederUrl = "https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v1.19.0/DLSS5-Feeder-1.19.0.zip";
-    private const string FeederSha = "9cc19e28f8fb4e216ea61621fdf6443e207e338ec639979ab335503c75f48f36";
-    private const string FeederFolder = "DLSS5-Feeder-1.19.0";
+    private const string FeederUrl = "https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v2.0.0/DLSS5-Feeder-2.0.0.zip";
+    private const string FeederSha = "fa41fe2c5d3da803688775b802dc373a922daab0e721c8154a17066fcdd62584";
+    private const string FeederFolder = "DLSS5-Feeder-2.0.0";
 
     private static readonly HttpClient Http = CreateClient();
 
@@ -84,7 +84,7 @@ public sealed class Components
     {
         get
         {
-            var candidates = new[] { _settings.RuntimeFolder, Path.Combine(BundledPayload, "runtime"), Path.Combine(AppPaths.Components, "runtime") };
+            var candidates = new[] { _settings.RuntimeFolder, ComponentHealth.IncludedDirectory("runtime", "payload/runtime"), Path.Combine(AppPaths.Components, "runtime") };
             foreach (var dir in candidates)
             {
                 if (string.IsNullOrWhiteSpace(dir)) continue;
@@ -102,12 +102,16 @@ public sealed class Components
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var dir = RuntimeDir;
-        if (dir is null) return map;
         try
         {
-            foreach (var f in Directory.EnumerateFiles(dir, "*.dll")) map[Path.GetFileName(f)] = f;
+            if (dir is not null)
+                foreach (var f in Directory.EnumerateFiles(dir, "*.dll")) map[Path.GetFileName(f)] = f;
         }
         catch { }
+        // An explicitly selected, usable runtime folder keeps control of its files.
+        bool custom = !string.IsNullOrWhiteSpace(_settings.RuntimeFolder) && Directory.Exists(_settings.RuntimeFolder) && dir is not null &&
+            string.Equals(Path.GetFullPath(_settings.RuntimeFolder).TrimEnd('\\', '/'), dir.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
+        if (!custom) RuntimeUpdates.ApplySelections(map);
         return map;
     }
 
@@ -127,7 +131,7 @@ public sealed class Components
             if (File.Exists(src) && src.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && Usable(ExtractFromReShadeSetup(src, name)) is { } fromSetup)
                 return fromSetup;
         }
-        if (Usable(Path.Combine(BundledPayload, "reshade", name)) is { } bundled) return bundled;
+        if (Usable(ComponentHealth.IncludedFile("payload/reshade/" + name)) is { } bundled) return bundled;
         try
         {
             var cache = Path.Combine(AppPaths.Components, "reshade");
@@ -193,7 +197,7 @@ public sealed class Components
     public async Task<string> MfgUnlockAsync(IProgress<string>? p, CancellationToken ct)
     {
         if (Updates.ActivePath("mfgunlock") is { } updated) return updated;
-        var bundled = Path.Combine(AppContext.BaseDirectory, "addons", MfgAddon);
+        var bundled = ComponentHealth.IncludedFile("addons/" + MfgAddon);
         if (File.Exists(bundled) && HashMatches(bundled, MfgSha256)) return bundled;
         var target = Path.Combine(AppPaths.Components, $"MFGAdaUnlock-{MfgVersion}", MfgAddon);
         await DownloadVerifiedAsync(MfgUrl, MfgSha256, target, p, ct);
@@ -201,10 +205,10 @@ public sealed class Components
     }
 
     public Task<string> RenoDxConsumerAsync(IProgress<string>? p, CancellationToken ct) =>
-        Updates.ActivePath("renodx-dlss5") is { } updated ? Task.FromResult(updated) : RenoDxAddonAsync(ConsumerPin, Path.Combine(BundledPayload, "renodx", "renodx-dlss5.addon64"), p, ct);
+        Updates.ActivePath("renodx-dlss5") is { } updated ? Task.FromResult(updated) : RenoDxAddonAsync(ConsumerPin, ComponentHealth.IncludedFile("payload/renodx/renodx-dlss5.addon64"), p, ct);
 
     public Task<string> MultipassAddonAsync(IProgress<string>? p, CancellationToken ct) =>
-        Updates.ActivePath("renodx-dlss") is { } updated ? Task.FromResult(updated) : RenoDxAddonAsync(MultipassPin, Path.Combine(BundledPayload, "renodx", "renodx-dlss.addon64"), p, ct);
+        Updates.ActivePath("renodx-dlss") is { } updated ? Task.FromResult(updated) : RenoDxAddonAsync(MultipassPin, ComponentHealth.IncludedFile("payload/renodx/renodx-dlss.addon64"), p, ct);
 
     private static async Task<string> RenoDxAddonAsync((string Url, string ZipSha, string Inner, string InnerSha, string Cache) pin,
                                                        string localCopy, IProgress<string>? p, CancellationToken ct)
@@ -238,7 +242,7 @@ public sealed class Components
     public async Task<FeederPayload> FeederAsync(IProgress<string>? p, CancellationToken ct)
     {
         if (Updates.ActivePath("feeder") is { } updated && FindFeederAny(updated) is { } fromUpdate) return fromUpdate;
-        if (FindFeeder(Path.Combine(BundledPayload, "feeder"), out _) is { } local) return local;
+        if (FindFeeder(ComponentHealth.IncludedDirectory("feeder", "payload/feeder"), out _) is { } local) return local;
         var dir = Path.Combine(AppPaths.Components, FeederFolder);
         if (FindFeeder(dir, out _) is { } cached) return cached;
 
@@ -291,7 +295,7 @@ public sealed class Components
 
         // The recommended build ships in payload\optiscaler; the others are downloaded. The bundled name has no dots
         // besides ".zip", because the build's resource indexer reads dotted name parts as qualifiers ("…v0.8.3…").
-        var zip = Path.Combine(BundledPayload, "optiscaler", BundledOptiZipName(build));
+        var zip = ComponentHealth.IncludedFile("payload/optiscaler/" + BundledOptiZipName(build));
         if (!File.Exists(zip) || !HashMatches(zip, build.Sha256))
         {
             zip = Path.Combine(AppPaths.Components, $"OptiScaler-{build.Id}.zip");

@@ -23,11 +23,21 @@
     <Copyright>Copyright (c) 2026 Liongooder</Copyright>
     <ApplicationIcon>Assets\DLSS5Master.ico</ApplicationIcon>
   </PropertyGroup>
+  <!-- The .NET runtime the app ships with (self-contained): 10.0.14 fixes the Brotli decoder flaw in 10.0.12
+       (GHSA-p3jp-9v83-76w9). The app is not Native AOT, so only the runtime pack moves; without this pin a
+       10.0.401 SDK would bundle 10.0.12. -->
+  <PropertyGroup>
+    <ShippedNetVersion>10.0.14</ShippedNetVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Update="Microsoft.NETCore.App" RuntimeFrameworkVersion="$(ShippedNetVersion)" />
+  </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260921001" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.13" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="..\..\installer\payload-manifest.csv" LogicalName="DLSS5Master.ComponentManifest" />
     <Content Include="Assets\DLSS5Master.ico" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\TitleBar.ico" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\DLSS5Master.png" CopyToOutputDirectory="PreserveNewest" />
@@ -39,7 +49,7 @@
     <!-- The overlay helper (src\Overlay) and its Visual C++ runtime, built and staged by build-installer.ps1. -->
     <Content Include="overlay\*" CopyToOutputDirectory="PreserveNewest" />
     <!-- Bundled runtimes (NVIDIA, ReShade, RenoDX, DLSS5-Feeder), staged by build-installer.ps1 from installer\payload-manifest.csv. -->
-    <Content Include="payload\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="payload\**\*" Exclude="payload\neuralmaster\**\*" CopyToOutputDirectory="PreserveNewest" />
     <!-- Our own list of what the Feeder folder contains. -->
     <Content Include="..\..\installer\feeder-sources.txt" Link="payload\feeder\licenses\THIRD-PARTY-SOURCES.txt" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

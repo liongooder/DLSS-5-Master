@@ -18,13 +18,13 @@ reshade\ReShade32.dll,reshade-vulkan\ReShade32.dll,da430e0a9c6eecefa0d1b27d05e16
 reshade\ReShade64.dll,reshade-vulkan\ReShade64.dll,0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7
 renodx\renodx-dlss5.addon64,https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss5-10.8.0/renodx-dlss5_10.8.0.zip,79871879324053d49931a9f8c1865fcb83e8146df4a56b146d7a8a14cc7e70fe
 renodx\renodx-dlss.addon64,https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss-SF-26.1025.0009/renodx-dlss_SF_26.1025.0009.zip,dd5ed7ba6773a6168390f3a53e757f09b563ecdf1a9f4fcdec6dd3129d93bace
-feeder\dlss5-feed-host64.exe,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v1.19.0/DLSS5-Feeder-1.19.0.zip,79e427430c5c0102f6c7a557155b706ad51b0c40933f6e245fce922bf5b1401e
-feeder\dlss5-feed.addon32,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v1.19.0/DLSS5-Feeder-1.19.0.zip,34c767bd53a99f51a6cb5d87b267734e04314d16bf495a6c69ab98acd62d0874
-feeder\dlss5-feed.addon64,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v1.19.0/DLSS5-Feeder-1.19.0.zip,2b8c905012fd464ddf0554c6b178cba55030ec10eb917acdcee0e7a2376fe4dd
-feeder\Verify-DLSS5Feeder.ps1,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v1.19.0/DLSS5-Feeder-1.19.0.zip,c84b672c8b92241fcd03018ce731eab1cb7f09f68f64cf41014c7bf7d76b5c2b
+feeder\dlss5-feed-host64.exe,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v2.0.0/DLSS5-Feeder-2.0.0.zip,7d360bf6d7b21d2d180346a40d74eafea45581802374225e6d30737fb97bc48f
+feeder\dlss5-feed.addon32,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v2.0.0/DLSS5-Feeder-2.0.0.zip,7ec337e0023652655fbf0f40f815bc1b4cd95eec43e1216a681a9ac0bcef2793
+feeder\dlss5-feed.addon64,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v2.0.0/DLSS5-Feeder-2.0.0.zip,d2b940c7617f8bc418ee0b02d3aed28cfd58e44e6095f0f862b6ff96a4388ffa
+feeder\Verify-DLSS5Feeder.ps1,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v2.0.0/DLSS5-Feeder-2.0.0.zip,a3b1a4aea238508fb8971d07cb40ece0b37ec512d89b49421a2a0ae3e31f948c
 feeder\licenses\DLSS5-Feeder-LICENSE.txt,feeder\licenses\DLSS5-Feeder-LICENSE.txt,6562d5a5e3d7534711e34f4b34335f23f067acc839ae5274c1250bf5f4654b8b
 feeder\licenses\VORT-LICENSE.txt,feeder\licenses\VORT-LICENSE.txt,800bacb0f9db4df8203f0dad1f99947109a44f4097380807e0483bd62dee0d41
-feeder\reshade-shaders\Shaders\DLSS5_Feed.fx,feeder\reshade-shaders\Shaders\DLSS5_Feed.fx,c4ba1610df8e1593faa7c203d6d0517058d3a8ecf2dfda18ca67849844391456
+feeder\reshade-shaders\Shaders\DLSS5_Feed.fx,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v2.0.0/DLSS5-Feeder-2.0.0.zip,72f537693374f5d2f63900cccb1cf48dd067dde3ef982c94086c8801448d5f6d
 feeder\reshade-shaders\Shaders\ReShade.fxh,feeder\reshade-shaders\Shaders\ReShade.fxh,6dabfbbaf968c3871905d2ea17f96572ff7b1cec01310b5d0e5252b66b30174f
 feeder\reshade-shaders\Shaders\ReShadeUI.fxh,feeder\reshade-shaders\Shaders\ReShadeUI.fxh,78adf672df47460297eb9fe6dd238d2aafa24510b52b84feb1a745dff70eb901
 feeder\reshade-shaders\Shaders\vort_Motion.fx,feeder\reshade-shaders\Shaders\vort_Motion.fx,71ef3086ccf86792f5a333346eebb7b857434583712d3a51b9998db99e562edc
@@ -48,4 +48,4 @@ feeder\reshade-shaders\Shaders\Includes\vort_TAA.fxh,feeder\reshade-shaders\Shad
 feeder\reshade-shaders\Shaders\Includes\vort_Tonemap.fxh,feeder\reshade-shaders\Shaders\Includes\vort_Tonemap.fxh,9413eef6190303e920356310bc3aa2a270c052a1bcfde44f024f0a8986095f30
 feeder\reshade-shaders\Textures\vort_BlueNoise.png,feeder\reshade-shaders\Textures\vort_BlueNoise.png,050d26db9283fbaece3b6883e300d22403631d83a12a5f2f79dc8b789b860305
 feeder\reshade-shaders\Textures\vort_MLUT.png,feeder\reshade-shaders\Textures\vort_MLUT.png,acb25ed926e7e847aeb0ef521745287d4ddda3c7f22e472ee42d61bb3064bbd7
-optiscaler\OptiScaler-0_9_85-shyvortex.zip,https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/releases/download/v0.9.85/OptiScaler-NR-v0.9.85.zip,1f0d5a58a56bdc065f1407adf688f6677d13430b878b2430c5c8a9d816bf9acf
+optiscaler\OptiScaler-0_9_90-shyvortex.zip,https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/releases/download/v0.9.90/OptiScaler-NR-v0.9.90.zip,f3dbfe36f0de4ff646499642c2eda53c80b56b5e7def34f5bf7b9f88efb86ee0

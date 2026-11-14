@@ -21,11 +21,15 @@ public sealed class Manifest
     public string Route { get; set; } = "";
     public string Exe { get; set; } = "";
     public string Api { get; set; } = "";
+    public string? RenderingApi { get; set; }
     public int Bitness { get; set; }
+    public string? AddonName { get; set; }
+    public string? AddonVersion { get; set; }
     public string? ReShadeHook { get; set; }
     public string? OptiScalerBuild { get; set; }
     public string? OptiScalerHook { get; set; }
     public string? MfgUnlock { get; set; }
+    public string? MfgUnlockSha256 { get; set; }
     public List<Replacement> Replaced { get; set; } = new();
     public List<string> Added { get; set; } = new();
     public List<string> AddedDirs { get; set; } = new();
@@ -229,6 +233,7 @@ public sealed class Session
     {
         var rel = Rel(target);
         var full = Journal.SafePath(GameDir, rel);
+        InstallTransaction.Capture(full);
         if (WasAdded(rel)) return rel;
 
         var known = FindReplaced(rel);
@@ -245,6 +250,7 @@ public sealed class Session
         if (File.Exists(full))
         {
             var backup = BackupFile(rel);
+            InstallTransaction.Capture(backup);
             Directory.CreateDirectory(Path.GetDirectoryName(backup)!);
             // File.Copy keeps the attributes, so Restore brings back a read-only flag too.
             File.Copy(full, backup, true);
@@ -326,6 +332,8 @@ public sealed class Session
         var root = Journal.BackupRoot(GameDir);
         Directory.CreateDirectory(root);
         var path = Path.Combine(root, Journal.ManifestName);
+        InstallTransaction.Capture(path);
+        InstallTransaction.Capture(path + ".tmp");
         var tmp = path + ".tmp";
         File.WriteAllText(tmp, JsonSerializer.Serialize(Manifest, Journal.JsonOptions));
         File.Move(tmp, path, true);
@@ -354,6 +362,7 @@ public sealed class Session
 
         foreach (var (backup, target, rel) in plan)
         {
+            InstallTransaction.Capture(target);
             Directory.CreateDirectory(Path.GetDirectoryName(target)!);
             Journal.ClearReadOnly(target);
             File.Copy(backup, target, true);
@@ -362,6 +371,7 @@ public sealed class Session
         foreach (var (rel, full) in added)
         {
             if (!File.Exists(full)) continue;
+            InstallTransaction.Capture(full);
             Journal.ClearReadOnly(full);
             File.Delete(full);
             s.Log($"Removed {rel}");
@@ -372,6 +382,7 @@ public sealed class Session
             var rel = Path.GetRelativePath(s.GameDir, full);
             try
             {
+                InstallTransaction.Capture(full);
                 Journal.ClearReadOnly(full);
                 File.Delete(full);
                 s.Log($"Removed {rel} (written by an add-on while the game ran)");
@@ -393,13 +404,15 @@ public sealed class Session
 
         var manifestPath = Journal.ManifestPath(s.GameDir);
         var done = $"{manifestPath}.done-{DateTime.UtcNow.ToString("yyyyMMddHHmmss", CultureInfo.InvariantCulture)}";
+        InstallTransaction.Capture(manifestPath);
+        InstallTransaction.Capture(done);
         File.Move(manifestPath, done, true);
         s.Log($"Install record closed ({Path.GetFileName(done)}).");
         try
         {
             if (Directory.Exists(originals))
             {
-                foreach (var f in Directory.EnumerateFiles(originals, "*", SearchOption.AllDirectories)) Journal.ClearReadOnly(f);
+                foreach (var f in Directory.EnumerateFiles(originals, "*", SearchOption.AllDirectories)) { InstallTransaction.Capture(f); Journal.ClearReadOnly(f); }
                 Directory.Delete(originals, true);
             }
             // Drop the now-empty "originals" parent as well.

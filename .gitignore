@@ -29,3 +29,16 @@ community/.dev.vars
 # promotion drafts (private)
 promo/
 src/DLSS5Master/overlay/
+
+# Original NeuralMaster: fetched official SDKs and native build outputs
+src/Neuralmaster/external/
+src/Neuralmaster/build/
+
+src/Neuralmaster/build-*/
+
+# NeuralMaster stays private (own repo in src/Neuralmaster: source, tests, docs); the public app keeps the route hidden
+src/Neuralmaster/
+src/DLSS5Master/neuralmaster/
+Neuralmaster-original-source.zip
+docs/neuralmaster-*.md
+docs/master-neural-*.md

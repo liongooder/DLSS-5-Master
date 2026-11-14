@@ -49,16 +49,18 @@ public sealed partial class MainWindow : Window
         AppUpdateButton.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => UpdateTitleBarRegions());
         Tabs.LayoutUpdated += (_, _) => { if (Tabs.ActualOffset != _tabsOffset) { _tabsOffset = Tabs.ActualOffset; UpdateTitleBarRegions(); } };
         GameOverlay.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => UpdateTitleBarRegions());
+        AboutVersionText.Text = $"DLSS 5 Master {Updates.CurrentAppVersion}";
         NoticesText.Text = Notices;
         AboutCoffeeHost.Content = CoffeeButton();
         // Back on the window (from Explorer after Open folder, say): a copy of lecram's NR may have been unzipped meanwhile.
         Activated += (_, e) =>
         {
-            if (e.WindowActivationState != WindowActivationState.Deactivated && SettingsPage.Visibility == Visibility.Visible)
+            if (e.WindowActivationState != WindowActivationState.Deactivated && Tabs.SelectedItem == TabSettings)
                 _ = RefreshLecramNrStatusAsync(force: false);
         };
         InitGamePanel();
         InitOverlay();
+        InitNeuralMasterPath();
         Root.Loaded += async (_, _) =>
         {
             var assets = Path.Combine(AppContext.BaseDirectory, "Assets");
@@ -68,6 +70,7 @@ public sealed partial class MainWindow : Window
             AboutLogo.Source = await LoadImageAsync(logo, 600);
             CoffeeQr.Source = await LoadImageAsync(Path.Combine(assets, "BmcQr.png"), 400);
             UpdateTitleBarRegions();
+            if (Environment.GetCommandLineArgs().Contains("--neuralmaster-route")) Tabs.SelectedItem = TabNeuralMaster;
             _ = AutoCheckUpdatesAsync();
             await LoadLibraryAsync();
         };
@@ -186,6 +189,7 @@ public sealed partial class MainWindow : Window
         _scanCts?.Cancel();
         _scanCts = new CancellationTokenSource();
         var ct = _scanCts.Token;
+        _libraryScanned = false;
         LoadingPanel.Visibility = Visibility.Visible;
         LoadingText.Text = "Finding your games…";
         EmptyPanel.Visibility = Visibility.Collapsed;
@@ -194,6 +198,8 @@ public sealed partial class MainWindow : Window
         List<GameEntry> games;
         try { games = await Task.Run(() => Library.Discover(_settings)); }
         catch (Exception e) { LoadingText.Text = "Could not read the game library: " + e.Message; return; }
+        // A newer read began meanwhile (Rescan pressed twice, a folder added): it lists the games, not this one.
+        if (ct.IsCancellationRequested) return;
         // A game that moved to another folder keeps the choices made on its page; tiles, artwork and scans below use them.
         if (MovedGames.Follow(_settings, _lastLibrary, games, AppPaths.Log))
         {
@@ -320,6 +326,9 @@ public sealed partial class MainWindow : Window
             }
         });
         try { await Task.WhenAll(tasks); } catch (OperationCanceledException) { return; }
+        // Scans that were already running finish even when a newer read of the library has begun: this one is over then.
+        if (ct.IsCancellationRequested) return;
+        _libraryScanned = true;
         AppPaths.Log($"Library: scanned {items.Count} games: {items.Count(i => i.Api == RenderApi.DX12)} on DirectX 12, {items.Count(i => i.HasDlss)} with DLSS, " +
                      $"{items.Count(i => i.IsReady)} ready for DLSS 5, {items.Count(i => i.IsInstalled)} set up with DLSS 5 Master.");
         // Filters by API, DLSS and state only work once games are scanned: apply them again with the results.
@@ -346,13 +355,17 @@ public sealed partial class MainWindow : Window
         if (games) Reveal(GamesPage); else GamesPage.Opacity = 0;
         PageVeil.Opacity = games ? 0 : 1;
         CommunityPage.Visibility = tab == TabCommunity ? Visibility.Visible : Visibility.Collapsed;
+        NeuralMasterPage.Visibility = tab == TabNeuralMaster ? Visibility.Visible : Visibility.Collapsed;
         if (tab == TabCommunity) _ = EnterCommunityAsync(); else LeaveCommunity();
-        SettingsPage.Visibility = tab == TabSettings ? Visibility.Visible : Visibility.Collapsed;
+        bool settings = tab == TabSettings;
+        SettingsPage.IsHitTestVisible = SettingsPage.IsEnabled = settings;
+        if (!settings) SettingsPage.Opacity = 0;
         AboutPage.Visibility = tab == TabAbout ? Visibility.Visible : Visibility.Collapsed;
         if (tab == TabCommunity) Reveal(CommunityPage);
         else if (tab == TabSettings) Reveal(SettingsPage);
         else if (tab == TabAbout) Reveal(AboutPage);
-        if (tab == TabSettings) { RefreshUpdatesPanel(); _ = RefreshSettingsPage(); _ = LoadActivityLogAsync(); }
+        if (tab == TabSettings) _ = EnterSettingsAsync();
+        else _settingsEntry?.Cancel();
     }
 
     // ------------------------------------------------------------------ settings page
@@ -360,6 +373,7 @@ public sealed partial class MainWindow : Window
     /// <summary>Fills the Settings page. File checks (versions, ReShade add-on support) run off the UI thread.</summary>
     private async Task RefreshSettingsPage()
     {
+        int read = ++_settingsRead;
         RuntimeFolderBox.Text = _settings.RuntimeFolder;
         CommunityBox.IsChecked = _settings.ShowCommunity;
         ReShadeSourceBox.Text = _settings.ReShadeSource;
@@ -382,12 +396,16 @@ public sealed partial class MainWindow : Window
             return (rt, runtimeText, rs, reshadeText, libCount);
         });
 
+        if (read != _settingsRead) return;
         RuntimeStatus.Text = runtimeText;
         RuntimeStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[rt is null ? "WarnText" : "AccentText"];
         ReShadeStatus.Text = reshadeText;
         ReShadeStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[rs is null ? "WarnText" : "AccentText"];
         DllLibraryStatus.Text = $"{libCount} DLL build(s) in {AppPaths.DllLibrary}";
         await RefreshLecramNrStatusAsync(force: true);
+        if (read != _settingsRead) return;
+        await RefreshComponentsAsync();
+        if (read == _settingsRead) _settingsReady = true;
     }
 
     /// <summary>The last line computed for lecram's DLSS5 NR, so a refresh on returning to the window changes it only when the copies did.</summary>
@@ -401,10 +419,18 @@ public sealed partial class MainWindow : Window
     private async Task RefreshLecramNrStatusAsync(bool force)
     {
         var picked = _settings.LecramNrFolder;
-        var (text, brush) = await Task.Run(() => LecramNrStatusText(picked));
+        var (status, title) = await Task.Run(() =>
+        {
+            var status = LecramNrStatusText(picked);
+            var title = AddonIdentity.Read(LecramNr.IsCopy(picked) ? picked : LecramNr.DropCopy()).Name.ToUpperInvariant();
+            return (status, title);
+        });
+        if (picked != _settings.LecramNrFolder) return;
+        var (text, brush) = status;
         if (!force && text == _lecramNrStatus) return;
         _lecramNrStatus = text;
         LecramNrStatus.Text = text;
+        LocalAddonTitle.Text = title;
         LecramNrStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[brush];
     }
 
@@ -417,13 +443,13 @@ public sealed partial class MainWindow : Window
         if (picked.Length > 0 && LecramNr.IsCopy(picked))
         {
             var version = LecramNr.Version(picked);
-            return ($"Using your copy from the folder you picked: lecram's DLSS5 NR {version}".TrimEnd() + NoHost(picked) + "." +
+            return ($"Using your copy from the folder you picked: {AddonIdentity.Read(picked).Name} {AddonIdentity.Read(picked).Version ?? version}".TrimEnd() + NoHost(picked) + "." +
                     (dropVersion is not null && Scanner.CompareVersions(dropVersion, version) > 0
                         ? $"\nDLSS 5 Master's folder has {dropVersion}: choose Clear to use it." : ""), "AccentText");
         }
         var stale = picked.Length > 0 ? $"The folder you picked no longer holds {LecramNr.Addon64}. " : "";
         if (dropped is not null)
-            return (stale + $"Using your copy in DLSS 5 Master's folder: lecram's DLSS5 NR {dropVersion}".TrimEnd() + NoHost(dropped) + "." +
+            return (stale + $"Using your copy in DLSS 5 Master's folder: {AddonIdentity.Read(dropped).Name} {AddonIdentity.Read(dropped).Version ?? dropVersion}".TrimEnd() + NoHost(dropped) + "." +
                     (stale.Length > 0 ? " Choose Clear to forget the old folder." : ""), stale.Length > 0 ? "WarnText" : "AccentText");
         if (stale.Length > 0)
             return (stale + "Pick your copy again, or unzip it into DLSS 5 Master's folder (Open folder) and choose Clear.", "WarnText");
@@ -481,15 +507,31 @@ public sealed partial class MainWindow : Window
     {
         var dir = await PickFolderAsync();
         if (dir is null) return;
-        if (LecramNr.ResolveFolder(dir) is not { } copy)
+        await ImportOwnAddonAsync(dir);
+    }
+
+    private async void PickOwnAddonZip_Click(object sender, RoutedEventArgs e)
+    {
+        var file = await PickFileAsync(".zip");
+        if (file is null) return;
+        await ImportOwnAddonAsync(file);
+    }
+
+    private async Task ImportOwnAddonAsync(string source)
+    {
+        LecramNrStatus.Text = "Reading local add-on metadata…";
+        try
         {
-            LecramNrStatus.Text = "No dlss5-nr.addon64 in that folder. Pick the unzipped DLSS5 NR add-on folder.";
-            LecramNrStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["WarnText"];
-            return;
+            var copy = await Task.Run(() => OwnAddonImport.Prepare(source));
+            _settings.LecramNrFolder = copy;
+            _settings.Save();
+            await RefreshSettingsPage();
         }
-        _settings.LecramNrFolder = copy;
-        _settings.Save();
-        _ = RefreshSettingsPage();
+        catch (Exception ex)
+        {
+            LecramNrStatus.Text = "Could not use this add-on: " + ex.Message;
+            LecramNrStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["WarnText"];
+        }
     }
 
     private void ClearLecramNr_Click(object sender, RoutedEventArgs e) { _settings.LecramNrFolder = ""; _settings.Save(); _ = RefreshSettingsPage(); }
@@ -567,8 +609,12 @@ public sealed partial class MainWindow : Window
     private const int ActivityLines = 400;
 
     /// <summary>Shows the end of activity.log, newest line at the bottom.</summary>
-    private async Task LoadActivityLogAsync()
+    private (long Length, DateTime Modified)? _activityStamp;
+
+    private async Task LoadActivityLogAsync(bool onlyIfChanged = false)
     {
+        var stamp = await Task.Run(() => File.Exists(AppPaths.LogFile) ? (new FileInfo(AppPaths.LogFile).Length, File.GetLastWriteTimeUtc(AppPaths.LogFile)) : (0L, DateTime.MinValue));
+        if (onlyIfChanged && _activityStamp == stamp) return;
         var (text, total) = await Task.Run(() =>
         {
             if (!File.Exists(AppPaths.LogFile)) return ("", 0);
@@ -585,6 +631,7 @@ public sealed partial class MainWindow : Window
             }
             return (string.Join("\n", lines), count);
         });
+        _activityStamp = stamp;
         ActivityLogBox.Text = text;
         ActivityLogBox.SelectionStart = text.Length;   // scrolls to the newest line
         ActivityStatus.Text = total == 0 ? "Nothing logged yet."
@@ -619,22 +666,22 @@ public sealed partial class MainWindow : Window
 
     private const string Notices =
         "Included with DLSS 5 Master (SHA-256 pinned; licence texts in the install folder):\n" +
-        "• NVIDIA DLSS, Frame Generation, Ray Reconstruction, neural rendering runtimes and Streamline — © NVIDIA Corporation, NVIDIA license\n" +
-        "• ReShade 6.8 with add-on support — reshade.me, © Patrick Mours (BSD-3-Clause)\n" +
-        "• RenoDX DLSS5 add-on — by lecram (as credited by the community), built on RenoDX (github.com/clshortfuse/renodx, MIT); no licence published for the add-on\n" +
-        "• RenoDX DLSS Tool — by ShortFuse; no licence published\n" +
-        "• DLSS5-Feeder — github.com/jlrouzies-fr/DLSS5-Feeder (MIT)\n" +
+        "• NVIDIA DLSS Super Resolution, Frame Generation, Ray Reconstruction and neural rendering runtimes 310.9.16, plus Streamline 2.13.0.0 — © NVIDIA Corporation, NVIDIA license; release packages mirrored at github.com/RankFTW/rhi-repo\n" +
+        "• ReShade 6.8.0 with add-on support — reshade.me, © Patrick Mours (BSD-3-Clause)\n" +
+        "• RenoDX DLSS5 add-on 10.8.0 — built on RenoDX (github.com/clshortfuse/renodx, MIT); no licence published for the add-on\n" +
+        "• RenoDX DLSS Tool SF 26.1025.0009 — by ShortFuse; no licence published for the add-on\n" +
+        "• DLSS5-Feeder 2.0.0 — github.com/jlrouzies-fr/DLSS5-Feeder (MIT)\n" +
         "• vort_Shaders — github.com/vortigern11/vort_Shaders (MIT)\n" +
-        "• MFGAdaUnlock-RenoDx 1.8.2 — github.com/mavismmg/MFGAdaUnlock-RenoDx (MIT)\n" +
-        "• OptiScaler NR pre-SR MFG 0.9.85 — github.com/ShyVortex/OptiScaler-NR-PreSR-MFG (GPL-3.0; source code at tag v0.9.85)\n" +
+        "• MFGAdaUnlock-RenoDx 1.9.0 — github.com/mavismmg/MFGAdaUnlock-RenoDx (MIT)\n" +
+        "• OptiScaler NR pre-SR MFG 0.9.90 — github.com/ShyVortex/OptiScaler-NR-PreSR-MFG (GPL-3.0; source code at tag v0.9.90)\n" +
         "• The overlay helper (dlss5-overlay.exe) is built with the NVIDIA NGX SDK (github.com/NVIDIA/DLSS, NVIDIA RTX SDKs license) " +
         "and the NVIDIA Optical Flow SDK interface (BSD-3-Clause); its DLSS set-up follows DLSS5-Feeder's 64-bit helper (MIT). " +
         "It ships with the Microsoft Visual C++ runtime (msvcp140, vcruntime140), redistributed under the Visual Studio license\n" +
         "• dlssg_for_sm86 0.4.1 — github.com/sdli1995/dlssg_for_sm86, inside the OptiScaler package above; the overlay unpacks it on " +
-        "RTX 20/30 cards for frame generation (terms in its THIRD_PARTY_NOTICES.txt; its kernel images and the NVIDIA runtime are NVIDIA's)\n\n" +
+        "RTX 20/30 cards for frame generation (terms in its THIRD_PARTY_NOTICES.txt; its kernel images and the NVIDIA runtime are NVIDIA's)\n" +
+        "• Microsoft .NET runtime and Windows App SDK — © Microsoft Corporation, redistributed under their respective licences\n\n" +
         "Downloaded when first used, from their authors' release pages and verified by SHA-256:\n" +
         "• OptiScaler NR pre-SR multipass 0.8.3 RTX 40 MFG — github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass (GPL-3.0)\n\n" +
-        "Not included and never downloaded:\n" +
-        "• lecram's DLSS5 NR (version 11 and later), a paid add-on — its route installs only a player's own copy: the one they bought " +
-        "from its author and put in DLSS 5 Master's folder for it or picked in Settings, or the one a game already has, reinstalled in that game";
+        "Optional add-on:\n" +
+        "• DLSS 5 Neural Rendering (NR) add-on - supplied separately. Select its folder or ZIP in Settings; the add-on is not included or downloaded by DLSS 5 Master.";
 }

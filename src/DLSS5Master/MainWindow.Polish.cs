@@ -18,6 +18,7 @@ public sealed partial class MainWindow
         element.Translation = new Vector3(0, 14, 0);
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
+            if (ReferenceEquals(element, SettingsPage) && Tabs.SelectedItem != TabSettings) return;
             element.Opacity = 1;
             element.Translation = Vector3.Zero;
         });

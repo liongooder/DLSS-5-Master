@@ -1,6 +1,7 @@
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using DLSS5Master.Core;
 
@@ -19,7 +20,8 @@ public sealed partial class MainWindow
         Route.Native => ("", "Native", "RenoDX DLSS5 add-on in ReShade"),
         Route.Multipass => ("", "Multipass", "RenoDX DLSS Tool, several neural passes"),
         Route.Feeder => ("", "Feeder", "For games without their own DLSS"),
-        Route.LecramNr => ("", "lecram's NR", "Your copy of lecram's DLSS5 NR"),
+        Route.NeuralMaster => ("\uE713", "NeuralMaster", "View the latest native-input path"),
+        Route.LecramNr => ("", "DLSS5 NR", "Your locally supplied add-on, loaded through ReShade."),
         _ => ("", "OptiScaler", "DLSS-NR through OptiScaler, no ReShade"),
     };
 
@@ -34,7 +36,7 @@ public sealed partial class MainWindow
         {
             "native" => Route.Native, "multipass" => Route.Multipass, "feeder" => Route.Feeder, "optiscaler" => Route.OptiScaler, "lecramnr" => Route.LecramNr, _ => null,
         };
-        var signature = string.Join("|", routes.Select(r => $"{r.Route}:{r.Unavailable is null}")) + $"|{recommended}|{installed}";
+        var signature = string.Join("|", routes.Select(r => $"{r.Route}:{r.Label}:{r.Unavailable is null}")) + $"|{recommended}|{installed}";
         if (!Equals(RouteCards.Tag, signature))
         {
             RouteCards.Children.Clear();
@@ -66,7 +68,8 @@ public sealed partial class MainWindow
     private FrameworkElement BuildRouteCard(RouteOption option, bool recommended, bool installed)
     {
         var (glyph, title, line) = CardText(option.Route);
-        bool available = option.Unavailable is null;
+        if (option.Route == Route.LecramNr) title = option.Label;
+        bool available = option.Route == Route.NeuralMaster || option.Unavailable is null;
 
         var content = new StackPanel { Spacing = 6 };
         var head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -77,6 +80,7 @@ public sealed partial class MainWindow
 
         var badges = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 2, 0, 0) };
         if (installed) badges.Children.Add(Pill("Installed", "AccentText"));
+        if (option.Route == Route.NeuralMaster) badges.Children.Add(Pill("In development", "MutedText"));
         if (recommended) badges.Children.Add(Pill("Recommended", "AccentText"));
         if (!available) badges.Children.Add(Pill("Not for this game", "WarnText"));
         if (badges.Children.Count > 0) content.Children.Add(badges);
@@ -91,18 +95,23 @@ public sealed partial class MainWindow
         };
         AutomationName(button, $"{title} route{(available ? "" : ", not available")}");
         // Picking happens after the click finishes: the pick rebuilds route state, which must not run inside the click.
-        button.Click += (_, _) => DispatcherQueue.TryEnqueue(() => PickRoute(option.Route));
+        button.Click += (_, _) => DispatcherQueue.TryEnqueue(() =>
+        {
+            if (option.Route == Route.NeuralMaster) ShowNeuralMasterPath();
+            else PickRoute(option.Route);
+        });
         _routeCards[option.Route] = button;
 
         // A disabled button shows no tooltip, so the reason sits on a wrapper.
         var wrapper = new Border { Child = button, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
-        ToolTipService.SetToolTip(wrapper, available ? option.Description : option.Unavailable);
+        ToolTipService.SetToolTip(wrapper, available ? option.Route == Route.NeuralMaster ? "View the latest NeuralMaster path and build status" : option.Description : option.Unavailable);
         return wrapper;
     }
 
     private void PickRoute(Route route)
     {
         if (_scan is null || _busy) return;
+        if (route == Route.NeuralMaster) { ShowNeuralMasterPath(); return; }
         if (route == Route.OptiScaler) { BackendBox.SelectedIndex = 1; return; }
         if (BackendBox.SelectedIndex != 0) BackendBox.SelectedIndex = 0;
         var item = RouteBox.Items.OfType<ComboBoxItem>().FirstOrDefault(i => i.Tag is Route r && r == route && i.IsEnabled);

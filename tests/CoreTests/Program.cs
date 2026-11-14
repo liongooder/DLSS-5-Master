@@ -1,4 +1,4 @@
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using DLSS5Master.Core;
@@ -20,6 +20,24 @@ void Throws<T>(string name, Action a) where T : Exception
     catch (Exception e) { Check(name, false, e.GetType().Name + ": " + e.Message); }
 }
 string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
+ReinstallSettingsRaceTests.Run(Check);
+
+// ====================================================================== Native MFG disk-selection policy (no DLL loading)
+{
+    var old = new MfgProviderImage("old.dll", "310.5.2.0", 64, "old");
+    var current = new MfgProviderImage("current.dll", "310.9.16.0", 64, "working");
+    var changed = current with { Path = "same-version-other.dll", Sha256 = "different" };
+    var log = new List<string>();
+    Check("mfg runtime: preserve current if configured runtime has no FG", NativeMfgProviders.Select(current, null, log.Add) == current);
+    Check("mfg runtime: select explicitly supplied newer provider", NativeMfgProviders.Select(old, current, log.Add) == current);
+    Check("mfg runtime: never select lower configured provider", NativeMfgProviders.Select(current, old, log.Add) == current);
+    Check("mfg runtime: equal version different hash keeps current", NativeMfgProviders.Select(current, changed, log.Add) == current);
+    Check("mfg runtime: hash ambiguity explained", log.Count == 1 && log[0].Contains("differ in SHA256"));
+    Check("mfg runtime: identical bytes preserve current source", NativeMfgProviders.Select(current, changed with { Sha256 = current.Sha256 }, log.Add) == current);
+    Throws<InstallException>("mfg runtime: wrong source bitness rejected", () => NativeMfgProviders.Select(old, current with { Bitness = 32 }, log.Add));
+    Throws<InstallException>("mfg runtime: wrong destination bitness rejected", () => NativeMfgProviders.Select(old with { Bitness = 32 }, current, log.Add));
+    Throws<InstallException>("mfg runtime: missing version is explicit, not guessed", () => NativeMfgProviders.Select(old, current with { Version = null }, log.Add));
+}
 
 // ====================================================================== Ini
 {
@@ -328,6 +346,8 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
         $"09:34:27:169 [29068] | ERROR | Failed to load add-on from '{bin}\\renodx-dlss5.addon64' with error code 1114!",
         $"09:34:27:170 [29068] | ERROR | Failed to load add-on from '{bin}\\ShaderToggler.addon64' with error code 1114!",
         $"09:34:27:171 [29068] | ERROR | Failed to load add-on from '{bin}\\renodx-dlss.addon64' with error code 126!"));
+    // NTFS timestamp resolution and wall-clock rounding must not decide this parser test.
+    File.SetLastWriteTimeUtc(reshadeLog, Record().Date.AddSeconds(1));
     var failing = Installers.AddonsToLoadEarly(game, Record());
     Check("error 1114 in ReShade.log names the DLSS 5 add-ons to load early",
         failing.SequenceEqual(new[] { "renodx-dlss5.addon64", "renodx-mfgunlock.addon64" }), string.Join(", ", failing));
@@ -606,7 +626,8 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
         File.Copy(pe64, neural, true);
         Check("end to end: a reinstall that stops after putting the settings back leaves them in place", refused is not null && Holds(mfgIni3, xemfg),
             refused is null ? "no error" : Show(Ini.ReadText(mfgIni3)));
-        Check("end to end: the record of that reinstall names the MFG unlock it was setting up", Journal.ReadManifest(game3)?.MfgUnlock == "test",
+        Check("end to end: the record of that reinstall names the MFG unlock it was setting up", Journal.ReadManifest(game3)?.MfgUnlock == "unknown"
+            && Journal.ReadManifest(game3)?.MfgUnlockSha256 == NativeMfgProviders.Hash(Path.Combine(ad, "renodx-mfgunlock.addon64")),
             Journal.ReadManifest(game3)?.MfgUnlock ?? "none");
         await Install(early: false);
         Check("end to end: the retry without loading early keeps the settings, the MFG unlock's too, and the player's other early add-on",
@@ -1033,10 +1054,24 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
 // ====================================================================== Installers
 {
     var r = Installers.RoutesFor(RenderApi.DX12, 64, true);
-    Check("routes order", r.Select(o => o.Route).SequenceEqual(new[] { Route.Native, Route.Multipass, Route.Feeder, Route.OptiScaler }));
-    Check("routes dx12 x64 all", r.All(o => o.Unavailable is null));
+    Check("routes order", r.Select(o => o.Route).SequenceEqual(new[] { Route.Native, Route.Multipass, Route.Feeder, Route.OptiScaler, Route.NeuralMaster }));
+    Check("released routes dx12 x64", r.Where(o => o.Route != Route.NeuralMaster).All(o => o.Unavailable is null));
     Check("routes labels", r[0].Label == "Native DLSS-NR (RenoDX DLSS5)" && r[1].Label == "RenoDX DLSS Tool (multipass)" && r[2].Label == "DLSS5 Feeder" && r[3].Label == "OptiScaler");
     Check("routes descriptions", r.All(o => o.Description.Length > 0));
+    Check("NeuralMaster is not installable before native integration", r.Single(o => o.Route == Route.NeuralMaster).Unavailable == NeuralMasterDevelopmentPath.BuildStatus);
+    Check("NeuralMaster rejects x86", Installers.RoutesFor(RenderApi.DX12, 32, false).Single(o => o.Route == Route.NeuralMaster).Unavailable is not null);
+    Check("NeuralMaster rejects DX11", Installers.RoutesFor(RenderApi.DX11, 64, false).Single(o => o.Route == Route.NeuralMaster).Unavailable is not null);
+    Check("NeuralMaster route identity", Installers.RouteKey(Route.NeuralMaster) == "neuralmaster" && Installers.RouteLabel("neuralmaster").Contains("NeuralMaster"));
+    Check("NeuralMaster texts spelled one way", Installers.RoutesFor(RenderApi.DX11, 64, false).Single(o => o.Route == Route.NeuralMaster) is var nm
+        && !(nm.Label + nm.Description + nm.Unavailable).Contains("Neuralmaster"));
+    // Even stale callers are rejected before looking at or creating a game folder.
+    var retiredGame = Path.Combine(testData, "retired-route-must-not-exist");
+    Throws<InstallException>("retired renderer rejects direct installation", () => Installers.InstallAsync(new InstallRequest
+    {
+        GameDir = retiredGame, ExePath = Path.Combine(retiredGame, "game.exe"),
+        Api = RenderApi.DX12, Bitness = 64, Route = Route.NeuralMaster,
+    }, null!, _ => throw new Exception("must not log installation"), null, default).GetAwaiter().GetResult());
+    Check("retired renderer touches no game folder", !Directory.Exists(retiredGame));
     r = Installers.RoutesFor(RenderApi.DX11, 64, false);
     Check("routes dx11", r[0].Unavailable is not null && r[1].Unavailable is null && r[2].Unavailable is null && r[3].Unavailable is null);
     Check("opti desc mentions own DLSS", r[3].Description.Contains("DLSS"));
@@ -1078,7 +1113,7 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Check("lecram's NR: Direct3D 9 to 12 and OpenGL, 32-bit too", new[] { RenderApi.DX9, RenderApi.DX10, RenderApi.DX11, RenderApi.DX12, RenderApi.OpenGL }
         .All(api => Lecram(api, 64) is { Unavailable: null } && Lecram(api, 32) is { Unavailable: null }));
     Check("lecram's NR: not on Vulkan", Lecram(RenderApi.Vulkan, 64)?.Unavailable?.Contains("Vulkan layer") == true);
-    Check("lecram's NR: route identity", Installers.RouteKey(Route.LecramNr) == "lecramnr" && Installers.RouteLabel("lecramnr").Contains("lecram's DLSS5 NR"));
+    Check("lecram's NR: route identity", Installers.RouteKey(Route.LecramNr) == "lecramnr" && Installers.RouteLabel("lecramnr").Contains("DLSS5 NR"));
     Check("lecram's NR: never recommended", Installers.RecommendedRoute(RenderApi.OpenGL, 64, false) != Route.LecramNr);
 
     // lecram's own setup over a game (Like a Dragon: Ishin!): it backed up the game's dxgi.dll and renodx-dlss5, moved NVIDIA's
@@ -1151,8 +1186,8 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     Check("routekey", Installers.RouteKey(Route.Feeder) == "feeder" && Installers.RouteKey(Route.OptiScaler) == "optiscaler");
     Check("apikey", Installers.ApiKey(RenderApi.DX12) == "dxgi" && Installers.ApiKey(RenderApi.DX11) == "dxgi" && Installers.ApiKey(RenderApi.Unknown) == "unknown" && Installers.ApiKey(RenderApi.OpenGL) == "opengl");
     Check("menukeys", Installers.MenuKeys.Length == 21 && Installers.MenuKeys[0] == ("Insert", "0x2D") && Installers.MenuKeys[17] == ("F12", "0x7B") && Installers.MenuKeys[^1] == ("Scroll Lock", "0x91"));
-    Check("opti builds", Components.OptiBuilds.Length == 2 && Components.OptiBuilds[0].Id == "0.9.85-shyvortex" && Components.OptiBuilds.All(b => b.Url is not null && b.Sha256 is { Length: 64 }));
-    Check("opti 0.9.85 whole backend", Components.OptiBuilds.Single(b => b.Id == "0.9.85-shyvortex") is { WholeBackend: true, NeuralRendering: true, Forwarded: false, Sha256.Length: 64 });
+    Check("opti builds", Components.OptiBuilds.Length == 2 && Components.OptiBuilds[0].Id == "0.9.90-shyvortex" && Components.OptiBuilds.All(b => b.Url is not null && b.Sha256 is { Length: 64 }));
+    Check("opti 0.9.90 whole backend", Components.OptiBuilds.Single(b => b.Id == "0.9.90-shyvortex") is { WholeBackend: true, NeuralRendering: true, Forwarded: false, Sha256.Length: 64 });
 
     // Feeder helpers
     Check("searchpaths merge", Installers.MergeSearchPaths(@".\reshade-shaders\Shaders\, D:\My\Shaders\**\**,./reshade-shaders/Shaders/**", @".\reshade-shaders\Shaders\**")
@@ -1743,6 +1778,375 @@ string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
     const string empty = "09:38:14.951  DLSS 5 on, 0 captured fps, 1 shown fps, 2572x1446, GPU 3.3 ms a frame + 0.5 ms per in-between frame\n";
     File.WriteAllText(Overlay.LogFile, on + off + on + off + empty + on + off);
     Check("overlay fullscreen: readings without frames do not clear it", Overlay.ExclusiveFullscreen() == Overlay.FullscreenState.Was);
+}
+
+// ====================================================================== Set up several games: the plan
+{
+    var exeDir = @"C:\games\Plan\bin";
+    var ctx = new BulkContext(NeuralRuntime: true, DlssRuntime: true, ReShade64: true, ReShade32: true, LecramCopy: null, SavedMenuKey: "0x24");
+    var nr = Components.OptiBuilds[0];
+    GameScan PlanScan(int bits = 64, RenderApi api = RenderApi.DX12, bool dlss = true, bool fg = false, string? antiCheat = null, Manifest? manifest = null)
+    {
+        var exe = new ExeInfo(Path.Combine(exeDir, "Plan.exe"), @"bin\Plan.exe", bits, api, 1 << 20, 0);
+        var scan = new GameScan { Dir = @"C:\games\Plan", Primary = exe, AntiCheatName = antiCheat, Manifest = manifest };
+        scan.Executables.Add(exe);
+        if (dlss) scan.Upscalers.Add(new UpscalerFile(Path.Combine(exeDir, "nvngx_dlss.dll"), @"bin\nvngx_dlss.dll", "nvngx_dlss.dll", UpscalerKind.DlssSR, "310.4.0", 64));
+        if (fg) scan.Upscalers.Add(new UpscalerFile(Path.Combine(exeDir, "nvngx_dlssg.dll"), @"bin\nvngx_dlssg.dll", "nvngx_dlssg.dll", UpscalerKind.DlssFG, "310.4.0", 64));
+        return scan;
+    }
+    BulkGame PlanGame(GameScan? scan, string? api = null, string? lecramAddon = null, bool lecramInGame = false, string? menuKey = null,
+                      bool runtimeHere = false, bool lecramSetup = false, bool afterUs = false, LoaderFile? loader = null) => new()
+    {
+        Entry = new GameEntry { Launcher = "Steam", Name = "Plan", Dir = @"C:\games\Plan" }, Scan = scan,
+        Choices = api is null ? null : new GameOverride { Api = api }, LecramAddon = lecramAddon, LecramInGame = lecramInGame,
+        OptiMenuKey = menuKey, NeuralRuntimeHere = runtimeHere, LecramSetup = lecramSetup, LecramSetupAfterUs = afterUs,
+        Loaders = loader is null ? Array.Empty<LoaderFile>() : new[] { loader },
+    };
+    BulkRow P(BulkGame g, Route route, bool mfg = true, bool again = false, BulkContext? c = null) =>
+        BulkSetup.Plan(g, new BulkOptions(route, nr, mfg, again), c ?? ctx);
+
+    Check("several games: the routes offered are the five a game's page offers",
+        BulkSetup.Routes.SequenceEqual(new[] { Route.Native, Route.Multipass, Route.Feeder, Route.OptiScaler, Route.LecramNr }));
+
+    var fresh = P(PlanGame(PlanScan(fg: true)), Route.Native);
+    var req = fresh.Request;
+    Check("several games: Native fits a 64-bit DirectX 12 game with its own DLSS", req is not null && fresh.Skip is null, fresh.Skip);
+    Check("several games: the page's defaults (dxgi.dll proxy, the saved menu key, the build picked)",
+        req is { ReShadeProxy: "dxgi.dll", MenuKey: "0x24", OptiHook: "dxgi.dll", Api: RenderApi.DX12, Bitness: 64 } && req.OptiBuild == nr,
+        $"{req?.ReShadeProxy} {req?.MenuKey} {req?.OptiHook}");
+    Check("several games: anti-cheat is never acknowledged, so the setup still refuses it if it shows up later", req is { AntiCheatAcknowledged: false });
+    Check("several games: the MFG unlock where the game has frame generation", req is { MfgUnlock: true } && fresh.Note.Contains("MFG"), fresh.Note);
+    Check("several games: no MFG unlock without frame generation", P(PlanGame(PlanScan()), Route.Native).Request is { MfgUnlock: false });
+    Check("several games: no MFG unlock when the batch leaves it off", P(PlanGame(PlanScan(fg: true)), Route.Native, mfg: false).Request is { MfgUnlock: false });
+    var dx11 = P(PlanGame(PlanScan(fg: true), api: "DX11"), Route.Native).Request;
+    Check("several games: the Rendering API chosen on the game's page wins, and MFG needs DirectX 12", dx11 is { Api: RenderApi.DX11, MfgUnlock: false });
+    Check("several games: an unknown saved API name falls back to the detected one", BulkSetup.EffectiveApi(PlanScan().Primary, "Glide") == RenderApi.DX12);
+
+    var ac = P(PlanGame(PlanScan(antiCheat: "Easy Anti-Cheat")), Route.Native);
+    Check("several games: a game with anti-cheat is left as it is, named", ac is { Request: null, AntiCheat: true } && ac.Skip!.Contains("Easy Anti-Cheat"), ac.Skip);
+    var other = PlanScan();
+    other.OtherAppBackup = true;
+    Check("several games: another app's install is left as it is", P(PlanGame(other), Route.Native).Skip?.Contains("Another app") == true);
+    Check("several games: lecram's own setup is left as it is", P(PlanGame(PlanScan(), lecramSetup: true), Route.Native).Skip?.Contains("lecram's own setup has NR") == true);
+    Check("several games: lecram's setup after DLSS 5 Master says so", P(PlanGame(PlanScan(), lecramSetup: true, afterUs: true), Route.Native).Skip?.Contains("after DLSS 5 Master") == true);
+    Check("several games: an unknown renderer is left for its page", P(PlanGame(PlanScan(api: RenderApi.Unknown)), Route.Feeder).Skip?.Contains("Rendering API") == true);
+    Check("several games: an unknown renderer chosen by hand on its page is set up", P(PlanGame(PlanScan(api: RenderApi.Unknown), api: "DX11"), Route.Feeder).Request is { Api: RenderApi.DX11 });
+    Check("several games: an exe of unknown bitness is left as it is", P(PlanGame(PlanScan(bits: 0), api: "DX11"), Route.Feeder).Skip?.Contains("32- or 64-bit") == true);
+    Check("several games: no scan, no exe or a folder gone is left as it is",
+        P(PlanGame(null), Route.Native).Skip is not null && P(PlanGame(new GameScan { Dir = @"C:\games\Plan" }), Route.Native).Skip?.Contains(".exe") == true
+        && BulkSetup.Plan(new BulkGame { Entry = new GameEntry { Dir = @"C:\gone" }, FolderGone = true }, new BulkOptions(Route.Native, nr, true, false), ctx).Skip?.Contains("gone") == true);
+
+    Check("several games: a route the game cannot take gives the route's own reason", P(PlanGame(PlanScan(bits: 32, api: RenderApi.DX11)), Route.Native).Skip == "Needs a 64-bit game.");
+    Check("several games: the Feeder is left out where it would stand aside (DirectX 12 with its own DLSS)",
+        P(PlanGame(PlanScan()), Route.Feeder).Skip == Installers.FeederStandsAside(RenderApi.DX12, true));
+    Check("several games: the Feeder fits a DirectX 12 game without DLSS", P(PlanGame(PlanScan(dlss: false)), Route.Feeder).Request is not null);
+    Check("several games: a 32-bit Feeder game needs the 64-bit ReShade for its helper",
+        P(PlanGame(PlanScan(bits: 32, api: RenderApi.DX11, dlss: false)), Route.Feeder, c: ctx with { ReShade64 = false }).Skip?.Contains("64-bit helper") == true
+        && P(PlanGame(PlanScan(bits: 32, api: RenderApi.DX11, dlss: false)), Route.Feeder).Request is { Bitness: 32 });
+    Check("several games: a 32-bit game needs a 32-bit ReShade",
+        P(PlanGame(PlanScan(bits: 32, api: RenderApi.DX11, dlss: false)), Route.Feeder, c: ctx with { ReShade32 = false }).Skip?.Contains("32-bit ReShade") == true);
+    Check("several games: no neural runtime stops every ReShade route, said once above the list",
+        P(PlanGame(PlanScan()), Route.Multipass, c: ctx with { NeuralRuntime = false }).Skip == BulkSetup.NoNeuralRuntime
+        && BulkSetup.Blocker(new BulkOptions(Route.Multipass, nr, true, false), ctx with { NeuralRuntime = false }) == BulkSetup.NoNeuralRuntime
+        && BulkSetup.Blocker(new BulkOptions(Route.OptiScaler, nr, true, false), ctx with { NeuralRuntime = false }) is null
+        && BulkSetup.Blocker(new BulkOptions(Route.Feeder, nr, true, false), ctx with { DlssRuntime = false }) == BulkSetup.NoDlssRuntime);
+
+    Check("several games: DLSS-NR OptiScaler builds are left out of games without DLSS", P(PlanGame(PlanScan(dlss: false)), Route.OptiScaler).Skip?.Contains("ships its own DLSS") == true);
+    var vk = P(PlanGame(PlanScan(api: RenderApi.Vulkan)), Route.OptiScaler).Request;
+    Check("several games: OptiScaler in a Vulkan game loads as winmm.dll", vk is { OptiHook: "winmm.dll", MfgUnlock: false }, vk?.OptiHook);
+    Check("several games: OptiScaler.ini's menu key wins over the saved one", P(PlanGame(PlanScan(), menuKey: "0x70"), Route.OptiScaler).Request?.MenuKey == "0x70");
+    Check("several games: a menu key it does not know becomes Insert", P(PlanGame(PlanScan(), menuKey: "0x99"), Route.OptiScaler).Request?.MenuKey == "0x2D");
+    Check("several games: OptiScaler with the neural runtime beside the exe needs no runtime folder",
+        P(PlanGame(PlanScan(), runtimeHere: true), Route.OptiScaler, c: ctx with { NeuralRuntime = false }).Request is not null
+        && P(PlanGame(PlanScan()), Route.OptiScaler, c: ctx with { NeuralRuntime = false }).Skip?.Contains("neural runtime") == true);
+
+    Check("several games: lecram's NR without a copy is left out", P(PlanGame(PlanScan()), Route.LecramNr).Skip?.Contains("no copy") == true);
+    Check("several games: lecram's NR takes the copy from Settings or DLSS 5 Master's folder",
+        P(PlanGame(PlanScan(), lecramInGame: true), Route.LecramNr, c: ctx with { LecramCopy = @"C:\copy" }).Request?.LecramNrSource == @"C:\copy");
+    Check("several games: lecram's NR takes the game's own copy when there is no other",
+        P(PlanGame(PlanScan(), lecramInGame: true), Route.LecramNr).Request?.LecramNrSource == exeDir);
+    var setAside = P(PlanGame(PlanScan(), lecramAddon: "12.9.8"), Route.Native);
+    Check("several games: lecram's add-on in the game is never set aside unseen", setAside.Request is null && setAside.Skip!.Contains("12.9.8"), setAside.Skip);
+    Check("several games: lecram's add-on in the game goes with lecram's route and with OptiScaler",
+        P(PlanGame(PlanScan(), lecramAddon: "", lecramInGame: true), Route.LecramNr).Request is not null
+        && P(PlanGame(PlanScan(), lecramAddon: ""), Route.OptiScaler).Request is not null);
+
+    var record = new Manifest { Route = "native", Exe = @"bin\Plan.exe", MfgUnlock = "1.8.2", ReShadeHook = "d3d11.dll" };
+    var waits = P(PlanGame(PlanScan(fg: true, manifest: record)), Route.Native, mfg: false);
+    Check("several games: a game set up already waits for \"Also set up again\"", waits is { Request: null, NeedsAgain: true, Reinstall: true }, waits.Skip);
+    var again = P(PlanGame(PlanScan(fg: true, manifest: record)), Route.Native, mfg: false, again: true);
+    Check("several games: set up again keeps its MFG unlock and its ReShade proxy", again.Request is { MfgUnlock: true, ReShadeProxy: "d3d11.dll" } && again.Reinstall);
+    Check("several games: set up again with the same route keeps the in-game settings", again.Note.Contains("are kept"), again.Note);
+    Check("several games: Native to lecram's NR keeps them too (one family)",
+        P(PlanGame(PlanScan(manifest: record), lecramInGame: true), Route.LecramNr, again: true).Note.Contains("are kept"));
+    var switched = P(PlanGame(PlanScan(manifest: record)), Route.Multipass, again: true);
+    Check("several games: switching routes says the in-game settings start fresh", switched.Note.StartsWith("Switches from") && switched.Note.Contains("start fresh"), switched.Note);
+    var moved = P(PlanGame(PlanScan(manifest: new Manifest { Route = "native", Exe = @"old\Plan.exe" })), Route.Native, again: true);
+    Check("several games: an exe in another folder starts fresh", moved.Note.Contains("another folder"), moved.Note);
+    var optiRecord = new Manifest { Route = "optiscaler", Exe = @"bin\Plan.exe", OptiScalerBuild = "0.9.85-shyvortex", OptiScalerHook = "version.dll" };
+    var optiAgain = P(PlanGame(PlanScan(manifest: optiRecord)), Route.OptiScaler, again: true);
+    Check("several games: OptiScaler set up again keeps its DLL name, and another build starts fresh",
+        optiAgain.Request?.OptiHook == "version.dll" && optiAgain.Note.Contains("another OptiScaler build"), optiAgain.Note);
+
+    var foreign = P(PlanGame(PlanScan(), loader: new LoaderFile("dxgi.dll", false, false, false)), Route.Native);
+    Check("several games: another mod's dxgi.dll is checked before the setup starts", foreign.Skip?.Contains("another mod") == true, foreign.Skip);
+    Check("several games: in a DirectX 12 game the page cannot get past it either, so it is not offered",
+        foreign.Skip?.Contains("page") == false, foreign.Skip);
+    var foreign11 = P(PlanGame(PlanScan(api: RenderApi.DX11), loader: new LoaderFile("dxgi.dll", false, false, false)), Route.Native).Skip;
+    Check("several games: in a DirectX 11 game ReShade can load as d3d11.dll instead, on the game's page",
+        foreign11?.Contains("have ReShade load as d3d11.dll on the game's page") == true, foreign11);
+    var optiLeft = P(PlanGame(PlanScan(api: RenderApi.DX11), loader: new LoaderFile("d3d11.dll", false, true, false)), Route.Native).Skip;
+    Check("several games: OptiScaler in a ReShade slot is never something the page gets past", optiLeft?.Contains("page") == false, optiLeft);
+    var swap = P(PlanGame(PlanScan(manifest: new Manifest { Route = "swap", Exe = @"bin\Plan.exe" })), Route.Native, again: true);
+    Check("several games: a game with only a DLL swap says the swap is undone first", swap.Request is not null && swap.Note.Contains("swapped DLLs go back"), swap.Note);
+    Check("several games: ReShade's own dxgi.dll is not in the way of a ReShade route",
+        P(PlanGame(PlanScan(), loader: new LoaderFile("dxgi.dll", true, false, false)), Route.Native).Request is not null);
+    Check("several games: OptiScaler under any of ReShade's names is in the way of a ReShade route",
+        P(PlanGame(PlanScan(), loader: new LoaderFile("d3d12.dll", false, true, false)), Route.Native).Skip?.Contains("another mod") == true);
+    Check("several games: ReShade under OptiScaler's DLL name is in the way of OptiScaler",
+        P(PlanGame(PlanScan(), loader: new LoaderFile("dxgi.dll", true, false, false)), Route.OptiScaler).Skip?.Contains("is ReShade") == true
+        && P(PlanGame(PlanScan(), loader: new LoaderFile("d3d11.dll", true, false, false)), Route.OptiScaler).Request is not null);
+    Check("several games: Windows' own dbghelp.dll is not in OptiScaler's way, another one is",
+        P(PlanGame(PlanScan(), loader: new LoaderFile("dbghelp.dll", false, false, true)), Route.OptiScaler).Request is not null
+        && P(PlanGame(PlanScan(), loader: new LoaderFile("dbghelp.dll", false, false, false)), Route.OptiScaler).Skip?.Contains("loader") == true);
+    var asi = PlanScan(dlss: false);
+    asi.ReShade = new ReShadeState(true, @"scripts\ReShade.asi", "6.5.1", false, true);
+    Check("several games: an ASI ReShade without add-on support is in the way", P(PlanGame(asi), Route.Multipass).Skip?.Contains("ASI") == true);
+    var asiAddon = PlanScan(dlss: false);
+    asiAddon.ReShade = new ReShadeState(true, @"scripts\ReShade.asi", "6.5.1", true, true);
+    Check("several games: an add-on ASI ReShade stays for a ReShade route, not for the Feeder",
+        P(PlanGame(asiAddon), Route.Multipass).Request is not null && P(PlanGame(asiAddon), Route.Feeder).Skip?.Contains("Feeder needs its own ReShade") == true);
+
+    // Every file in the way counts before the game's page is offered as a way round.
+    BulkGame WithLoaders(GameScan scan, params LoaderFile[] loaders) => new()
+    {
+        Entry = new GameEntry { Launcher = "Steam", Name = "Plan", Dir = @"C:\games\Plan" }, Scan = scan, Loaders = loaders,
+    };
+    var dxvk = P(WithLoaders(PlanScan(api: RenderApi.DX11), new LoaderFile("d3d11.dll", false, false, false), new LoaderFile("dxgi.dll", false, false, false)), Route.Multipass).Skip;
+    Check("several games: with both of ReShade's DirectX 11 names taken, the page is not offered", dxvk?.Contains("another mod") == true && dxvk.Contains("page") == false, dxvk);
+    var optiAndLoader = P(WithLoaders(PlanScan(), new LoaderFile("dxgi.dll", true, false, false), new LoaderFile("winmm.dll", false, false, false)), Route.OptiScaler).Skip;
+    Check("several games: a loader no OptiScaler name gets past is named before ReShade's name clash",
+        optiAndLoader?.Contains("winmm.dll") == true && optiAndLoader.Contains("page") == false, optiAndLoader);
+    var optiInSlot = P(WithLoaders(PlanScan(api: RenderApi.DX11), new LoaderFile("dxgi.dll", false, false, false), new LoaderFile("d3d12.dll", false, true, false)), Route.Native).Skip;
+    Check("several games: OptiScaler in another of ReShade's names takes the page's way round away", optiInSlot?.Contains("page") == false, optiInSlot);
+
+    // The ReShade the setup finds once a reinstall's restore has run decides, not the one beside the exe now.
+    var hiddenAsi = new BulkGame
+    {
+        Entry = new GameEntry { Name = "Plan", Dir = @"C:\games\Plan" }, Scan = PlanScan(dlss: false, manifest: new Manifest { Route = "native", Exe = @"bin\Plan.exe" }),
+        ReShadeAfterRestore = new ReShadeState(true, "ReShade.asi", "6.5.1.0", false, true), ReShadeAfterRestoreBits = 64,
+    };
+    Check("several games: an ASI ReShade the restore leaves stops a reinstall before it starts", P(hiddenAsi, Route.Multipass, again: true).Skip?.Contains("ASI") == true);
+
+    // lecram's NR where it would not start is left as it is: RunLecramNr only logs that.
+    var noHost = ctx with { LecramCopy = @"C:\copy", LecramCopyHasHost = false };
+    Check("several games: a lecram copy without its host folder is left out of 32-bit games",
+        P(PlanGame(PlanScan(bits: 32, api: RenderApi.DX11, dlss: false)), Route.LecramNr, c: noHost).Skip?.Contains("dlss5-nr-host") == true);
+    Check("several games: ... and of Direct3D 9 games, not of 64-bit DirectX 12 ones",
+        P(PlanGame(PlanScan(api: RenderApi.DX9, dlss: false)), Route.LecramNr, c: noHost).Skip?.Contains("dlss5-nr-host") == true
+        && P(PlanGame(PlanScan()), Route.LecramNr, c: noHost).Request is not null);
+    Check("several games: the game's own lecram copy needs its host folder too",
+        P(PlanGame(PlanScan(bits: 32, api: RenderApi.DX11, dlss: false), lecramInGame: true), Route.LecramNr).Skip?.Contains("dlss5-nr-host") == true);
+    var oldReShade = ctx with { LecramCopy = @"C:\copy", ReShade64Version = "6.6.0.0" };
+    Check("several games: lecram's NR with an older ReShade picked in Settings is said above the list and on each game",
+        P(PlanGame(PlanScan()), Route.LecramNr, c: oldReShade).Skip?.Contains("6.6.0.0") == true
+        && BulkSetup.Blocker(new BulkOptions(Route.LecramNr, nr, true, false), oldReShade)?.Contains("6.8") == true
+        && BulkSetup.Blocker(new BulkOptions(Route.LecramNr, nr, true, false), ctx with { ReShade64Version = "6.8.0.2155" }) is null);
+    var keepsOld = new BulkGame
+    {
+        Entry = new GameEntry { Name = "Plan", Dir = @"C:\games\Plan" }, Scan = PlanScan(),
+        ReShadeAfterRestore = new ReShadeState(true, "dxgi.dll", "6.6.1.0", true, false), ReShadeAfterRestoreBits = 64,
+    };
+    Check("several games: lecram's NR in a game that keeps its own older ReShade is left out",
+        P(keepsOld, Route.LecramNr, c: ctx with { LecramCopy = @"C:\copy" }).Skip?.Contains("would keep its ReShade 6.6.1.0") == true);
+    var keepsOld32 = new BulkGame
+    {
+        Entry = keepsOld.Entry, Scan = PlanScan(bits: 32, api: RenderApi.DX11, dlss: false),
+        ReShadeAfterRestore = keepsOld.ReShadeAfterRestore, ReShadeAfterRestoreBits = 64,
+    };
+    Check("several games: a ReShade of the other bitness is replaced, so its version does not count",
+        P(keepsOld32, Route.LecramNr, c: ctx with { LecramCopy = @"C:\copy" }).Request is not null);
+
+    var early = new BulkGame { Entry = new GameEntry { Name = "Plan", Dir = @"C:\games\Plan" }, Scan = PlanScan(), Choices = new GameOverride { LoadAddonsEarly = true } };
+    Check("several games: the game's Load add-ons early choice goes with it", P(early, Route.Native).Request is { LoadAddonsEarly: true });
+    Check("lecram's NR needs ReShade 6.8: older versions are found, newer and unreadable ones are not",
+        BulkSetup.OlderThanLecramNeeds("6.6.0.0") && BulkSetup.OlderThanLecramNeeds("6.7.3") && !BulkSetup.OlderThanLecramNeeds("6.8.0.2155")
+        && !BulkSetup.OlderThanLecramNeeds("7.0.0") && !BulkSetup.OlderThanLecramNeeds(null) && !BulkSetup.OlderThanLecramNeeds("6.8"));
+}
+
+// ---------------------------------------------------------------- Set up several games: what a folder holds, and setups end to end
+{
+    var root = Path.Combine(Path.GetTempPath(), "dlss5cr-bulk-" + Guid.NewGuid().ToString("N"));
+    var gameA = Path.Combine(root, "A");
+    var binA = Path.Combine(gameA, "bin");
+    var gameB = Path.Combine(root, "B");
+    var rt = Path.Combine(root, "runtime");
+    var rs = Path.Combine(root, "reshade");
+    var ad = Path.Combine(root, "addons");
+    foreach (var d in new[] { binA, gameB, rt, rs, ad }) Directory.CreateDirectory(d);
+    var pe64 = Path.Combine(Environment.SystemDirectory, "version.dll");
+    // Names of their own: AssertGameClosed matches running processes by name.
+    var exeA = Path.Combine(binA, "BulkGame" + Guid.NewGuid().ToString("N")[..6] + ".exe");
+    var exeB = Path.Combine(gameB, "BulkGame" + Guid.NewGuid().ToString("N")[..6] + ".exe");
+    File.Copy(Path.Combine(Environment.SystemDirectory, "notepad.exe"), exeA);
+    File.Copy(Path.Combine(Environment.SystemDirectory, "notepad.exe"), exeB);
+    File.WriteAllText(Path.Combine(binA, "nvngx_dlss.dll"), "not a pe");   // the game's own DLSS
+    File.WriteAllText(Path.Combine(gameB, "nvngx_dlss.dll"), "not a pe");
+    Directory.CreateDirectory(Path.Combine(gameB, "_DLSS5_Backup"));
+    File.WriteAllText(Path.Combine(gameB, "_DLSS5_Backup", "manifest.json"), "{}");   // another app's install
+    foreach (var n in new[] { "nvngx_dlss.dll", "nvngx_dlssnr.dll" }) File.Copy(pe64, Path.Combine(rt, n));
+    File.WriteAllText(Path.Combine(rs, "ReShade64.dll"), "fake ReShade: Searching for add-ons");
+    File.WriteAllBytes(Path.Combine(ad, "renodx-dlss5.addon64"), RandomNumberGenerator.GetBytes(1024));
+    var savedRecords = ForeignInstalls.OtherAppRecordsDir;
+    ForeignInstalls.OtherAppRecordsDir = Path.Combine(root, "no-records");
+    Updates.State.Active["renodx-dlss5"] = new ActiveUpdate { Version = "test", Published = DateTime.UtcNow, Path = Path.Combine(ad, "renodx-dlss5.addon64") };
+    try
+    {
+        // What Read finds beside the exe: the menu key, lecram's add-on, the runtime, and the loaders this app did not add.
+        var probe = Path.Combine(root, "probe");
+        var probeBin = Path.Combine(probe, "bin");
+        Directory.CreateDirectory(probeBin);
+        File.WriteAllText(Path.Combine(probeBin, "OptiScaler.ini"), "[Menu]\r\nShortcutKey=0x70\r\n");
+        File.WriteAllBytes(Path.Combine(probeBin, LecramNr.Addon64), RandomNumberGenerator.GetBytes(256));
+        File.Copy(pe64, Path.Combine(probeBin, "nvngx_dlssnr.dll"));
+        File.Copy(pe64, Path.Combine(probeBin, "dxgi.dll"));
+        File.Copy(pe64, Path.Combine(probeBin, "winmm.dll"));
+        var probeScan = new GameScan
+        {
+            Dir = probe, Primary = new ExeInfo(Path.Combine(probeBin, "Probe.exe"), @"bin\Probe.exe", 64, RenderApi.DX12, 1 << 20, 0),
+            Manifest = new Manifest { Route = "native", Exe = @"bin\Probe.exe", Added = { @"bin\winmm.dll" } },
+        };
+        var facts = BulkSetup.Read(new GameEntry { Name = "Probe", Dir = probe }, probeScan, null);
+        Check("several games: Read finds OptiScaler.ini's menu key", facts.OptiMenuKey == "0x70", facts.OptiMenuKey);
+        Check("several games: Read finds lecram's add-on beside the exe, and that the game holds a copy", facts.LecramAddon == "" && facts.LecramInGame);
+        Check("several games: Read finds the neural runtime beside the exe", facts.NeuralRuntimeHere);
+        Check("several games: Read lists a loader DLL, but not one this app added",
+            facts.Loaders.Any(l => l.Name == "dxgi.dll" && !l.ReShade && !l.OptiScaler) && !facts.Loaders.Any(l => l.Name == "winmm.dll"),
+            string.Join(",", facts.Loaders.Select(l => l.Name)));
+        File.WriteAllText(Path.Combine(probeBin, "OptiScaler.ini"), "[Menu]\r\nShortcutKey=auto\r\n");
+        Check("several games: an \"auto\" menu key means the saved one", BulkSetup.Read(new GameEntry { Dir = probe }, probeScan, null).OptiMenuKey is null);
+        Check("several games: Read says when the folder is gone", BulkSetup.Read(new GameEntry { Dir = Path.Combine(root, "gone") }, probeScan, null).FolderGone);
+
+        // OptiScaler set up as dbghelp.dll over Windows' own: the restore puts Microsoft's file back, so it is not in the way.
+        // winhttp.dll was set aside by the earlier setup: it comes back with the restore, so it counts although it is gone now.
+        var record = new Manifest
+        {
+            Route = "optiscaler", Exe = @"bin\Probe.exe", BackupPrefix = "originals/bulk",
+            Replaced = { new Replacement { Rel = @"bin\dbghelp.dll" }, new Replacement { Rel = @"bin\winhttp.dll" } },
+        };
+        var originals = Journal.OriginalsDir(probe, record);
+        Directory.CreateDirectory(Path.Combine(originals, "bin"));
+        File.Copy(Path.Combine(Environment.SystemDirectory, "dbghelp.dll"), Path.Combine(originals, "bin", "dbghelp.dll"));
+        File.WriteAllBytes(Path.Combine(originals, "bin", "winhttp.dll"), RandomNumberGenerator.GetBytes(256));
+        File.WriteAllBytes(Path.Combine(probeBin, "dbghelp.dll"), RandomNumberGenerator.GetBytes(256));   // not Microsoft's: the setup's
+        var replacedScan = new GameScan { Dir = probe, Primary = probeScan.Primary, Manifest = record };
+        var judged = BulkSetup.Read(new GameEntry { Dir = probe }, replacedScan, null).Loaders;
+        Check("several games: a file the restore puts back is judged by its backup", judged.Any(l => l.Name == "dbghelp.dll" && l.Microsoft),
+            string.Join(",", judged.Select(l => $"{l.Name}:{l.Microsoft}")));
+        Check("several games: a file set aside by the earlier setup counts, as the restore brings it back", judged.Any(l => l.Name == "winhttp.dll" && !l.Microsoft));
+
+        // This app's own dxgi.dll hides an ASI ReShade beside it until the restore takes it out.
+        var realReShade = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, @"..\..\..\..\..\src\DLSS5Master\payload\reshade\ReShade64.dll"));
+        if (File.Exists(realReShade))
+        {
+            var asiGame = Path.Combine(root, "asi");
+            var asiBin = Path.Combine(asiGame, "bin");
+            Directory.CreateDirectory(asiBin);
+            File.Copy(realReShade, Path.Combine(asiBin, "dxgi.dll"));
+            File.Copy(realReShade, Path.Combine(asiBin, "ReShade.asi"));
+            var asiScan = new GameScan
+            {
+                Dir = asiGame, Primary = new ExeInfo(Path.Combine(asiBin, "Asi.exe"), @"bin\Asi.exe", 64, RenderApi.DX11, 1 << 20, 0),
+                Manifest = new Manifest { Route = "native", Exe = @"bin\Asi.exe", Added = { @"bin\dxgi.dll" } },
+                ReShade = Scanner.InspectReShade(asiBin),
+            };
+            var asiFacts = BulkSetup.Read(new GameEntry { Name = "Asi", Dir = asiGame }, asiScan, null);
+            Check("several games: the ReShade beside the exe now is this app's dxgi.dll", asiScan.ReShade is { File: "dxgi.dll", IsAsi: false });
+            Check("several games: once the restore has run it is the ASI ReShade, of its own bitness",
+                asiFacts.ReShadeAfterRestore is { File: "ReShade.asi", IsAsi: true, AddonSupport: true } && asiFacts.ReShadeAfterRestoreBits == 64,
+                $"{asiFacts.ReShadeAfterRestore} {asiFacts.ReShadeAfterRestoreBits}");
+            Check("several games: so the Feeder, which needs its own ReShade, leaves that game as it is",
+                BulkSetup.Plan(asiFacts, new BulkOptions(Route.Feeder, Components.OptiBuilds[0], false, true), new BulkContext(true, true, true, true, null, "0x2D"))
+                    .Skip?.Contains("Feeder needs its own ReShade") == true);
+        }
+        else Check("several games: payload ReShade64.dll present for the restore check", false, realReShade);
+
+        // Two games, as the dialog runs them: read, plan, then the setup itself; one is left as it is.
+        var settings = new AppSettings { RuntimeFolder = rt, ReShadeSource = rs, OptiScalerMenuKey = "0x2D" };
+        var components = new Components(settings);
+        var context = BulkContext.Read(settings, components);
+        Check("several games: the batch finds the runtime and the 64-bit ReShade", context is { NeuralRuntime: true, DlssRuntime: true, ReShade64: true, ReShade32: false });
+        var options = new BulkOptions(Route.Native, Components.OptiBuilds[0], Mfg: true, Again: false);
+        var choices = new GameOverride { Api = "DX12" };
+        BulkRow PlanOf(string dir, string exe, BulkOptions o) =>
+            BulkSetup.Plan(BulkSetup.Read(new GameEntry { Name = Path.GetFileName(dir), Dir = dir, Exe = exe }, Scanner.Scan(dir, exe), choices), o, context);
+        var planA = PlanOf(gameA, exeA, options);
+        var planB = PlanOf(gameB, exeB, options);
+        Check("several games end to end: the game that fits is planned", planA.Request is { Route: Route.Native, Api: RenderApi.DX12, Bitness: 64 }, planA.Skip);
+        Check("several games end to end: another app's game is left as it is", planB.Request is null && planB.Skip!.Contains("Another app"), planB.Skip);
+        var logsA = new List<string>();
+        await Installers.InstallAsync(planA.Request!, components, logsA.Add, null, CancellationToken.None);
+        Check("several games end to end: the planned setup installs", Journal.ReadManifest(gameA)?.Route == "native");
+        var againA = PlanOf(gameA, exeA, options);
+        Check("several games end to end: once set up, it waits for \"Also set up again\"", againA is { NeedsAgain: true, Request: null }, againA.Skip);
+        var redo = PlanOf(gameA, exeA, options with { Again = true });
+        Check("several games end to end: the files it added are not in its own way when set up again", redo.Request is not null, redo.Skip);
+        await Installers.InstallAsync(redo.Request!, components, logsA.Add, null, CancellationToken.None);
+        var activity = File.ReadAllLines(AppPaths.LogFile);
+        Check("several games end to end: the lines a setup sends only to its page reach the activity log too",
+            activity.Count(l => l.EndsWith("[A] Restoring the previous install by DLSS 5 Master first…")) == 1);
+        Check("several games end to end: the install record's own lines are in the activity log once each",
+            activity.Count(l => l.Contains("[A] Done: ReShade · Native DLSS-NR installed.")) == 2
+            && activity.Count(l => l.Contains("[A] Install record closed")) == 1,
+            string.Join(" | ", activity.Where(l => l.Contains("[A] ")).Select(l => l[21..])));
+        await Installers.RestoreAsync(gameA, exeA, logsA.Add);
+        Check("several games end to end: restore originals takes it out again", Journal.ReadManifest(gameA) is null);
+    }
+    catch (Exception e) { Check("several games end to end: read, plan and set up run", false, e.GetType().Name + ": " + e.Message); }
+    finally
+    {
+        // Process-wide: the later checks must not see them.
+        Updates.State.Active.Remove("renodx-dlss5");
+        ForeignInstalls.OtherAppRecordsDir = savedRecords;
+        try { Directory.Delete(root, true); } catch { }
+    }
+}
+
+// ====================================================================== Room on the game's drive before a setup changes anything
+{
+    var dir = Path.Combine(Path.GetTempPath(), "dlss5cr-room-" + Guid.NewGuid().ToString("N"));
+    var sub = Path.Combine(dir, "tree", "deeper");
+    Directory.CreateDirectory(sub);
+    File.WriteAllBytes(Path.Combine(dir, "a.bin"), new byte[1000]);
+    File.WriteAllBytes(Path.Combine(dir, "tree", "b.bin"), new byte[200]);
+    File.WriteAllBytes(Path.Combine(sub, "c.bin"), new byte[30]);
+    try
+    {
+        var need = Installers.SpaceNeeded(new[] { Path.Combine(dir, "a.bin"), Path.Combine(dir, "a.bin"), null, Path.Combine(dir, "missing.bin") },
+                                          new[] { Path.Combine(dir, "tree"), null, Path.Combine(dir, "no-such-folder") });
+        Check("room: every file once, folders whole, missing ones nothing", need == 1230, need.ToString());
+        Check("room: a file that is also in a folder counted counts once",
+            Installers.SpaceNeeded(new[] { Path.Combine(sub, "c.bin") }, new[] { Path.Combine(dir, "tree") }) == 230);
+        Throws<InstallException>("room: a setup bigger than the free space is refused before anything changes",
+            () => Installers.AssertRoom(dir, dir, null, long.MaxValue / 4));
+        try { Installers.AssertRoom(dir, dir, null, 0); Check("room: a small setup goes ahead", true); }
+        catch (Exception e) { Check("room: a small setup goes ahead", false, e.Message); }
+        try { Installers.AssertRoom(dir, dir, null, long.MaxValue / 4); }
+        catch (InstallException e)
+        {
+            Check("room: the refusal names the drive and says the game was not changed",
+                e.Message.Contains(Path.GetPathRoot(dir)!.TrimEnd('\\')) && e.Message.Contains("Nothing in the game was changed"), e.Message);
+        }
+    }
+    finally { Directory.Delete(dir, true); }
+}
+
+// ====================================================================== The activity log takes lines from several threads at once
+{
+    var tag = "log-burst-" + Guid.NewGuid().ToString("N")[..8];
+    Parallel.For(0, 200, new ParallelOptions { MaxDegreeOfParallelism = 8 }, n => AppPaths.Log($"{tag} {n}"));
+    var got = File.ReadAllLines(AppPaths.LogFile).Count(l => l.Contains(tag));
+    Check("log: 200 lines from 8 threads at once, none lost", got == 200, got.ToString());
 }
 
 try { Directory.Delete(testData, true); } catch { }

@@ -11,6 +11,7 @@ namespace DLSS5Master;
 public sealed partial class MainWindow
 {
     private bool _updating;
+    private string? _updatesViewStamp;
 
     /// <summary>Runs the daily check in the background when it is due; marks the Settings tab when updates exist.</summary>
     private async Task AutoCheckUpdatesAsync()
@@ -26,25 +27,34 @@ public sealed partial class MainWindow
             catch (Exception e) { AppPaths.Log("App update check failed: " + e.Message); }
             ShowAppUpdateBar();
         }
-        if (!Updates.CheckDue) return;
+        if (!Updates.CheckDue && !RuntimeUpdates.CheckDue) return;
         _updating = true;
-        if (SettingsPage.Visibility == Visibility.Visible) UpdateStatus.Text = "Checking for updates…";
+        if (Tabs.SelectedItem == TabSettings) UpdateStatus.Text = "Checking for updates…";
         string? failure = null;
-        try { using var limit = new CancellationTokenSource(Updates.CheckLimit); await Updates.CheckAsync(limit.Token); }
+        try
+        {
+            using var limit = new CancellationTokenSource(Updates.CheckLimit);
+            await Task.WhenAll(Updates.CheckDue ? Updates.CheckAsync(limit.Token) : Task.CompletedTask,
+                RuntimeUpdates.CheckDue ? RuntimeUpdates.CheckAsync(limit.Token) : Task.CompletedTask);
+        }
         catch (Exception e) { AppPaths.Log("Update check failed: " + e.Message); failure = Updates.CheckFailure(e); }
         finally { _updating = false; }
         MarkSettingsTab();
-        if (SettingsPage.Visibility == Visibility.Visible)
+        if (Tabs.SelectedItem == TabSettings)
         {
             RefreshUpdatesPanel();
+            await RefreshRuntimeUpdatesAsync();
             if (failure is not null) UpdateStatus.Text = failure;
         }
     }
 
-    private void MarkSettingsTab() => TabSettings.Text = Updates.AvailableCount > 0 ? "SETTINGS ●" : "SETTINGS";
+    private void MarkSettingsTab() => TabSettings.Text = Updates.AvailableCount > 0 || RuntimeUpdates.Sources.Any(s => RuntimeUpdates.Available(s) is not null) ? "SETTINGS ●" : "SETTINGS";
 
     private void RefreshUpdatesPanel()
     {
+        var stamp = System.Text.Json.JsonSerializer.Serialize(new { Updates.State, _updating, _componentWorking });
+        if (_updatesViewStamp == stamp) return;
+        _updatesViewStamp = stamp;
         AutoCheckBox.IsChecked = Updates.State.AutoCheck;
         PreReleaseBox.IsChecked = Updates.State.IncludePrereleases;
         UpdateRows.Children.Clear();
@@ -84,10 +94,12 @@ public sealed partial class MainWindow
                 ToolTipService.SetToolTip(undo, $"Go back to {src.BundledVersion}, the version included with DLSS 5 Master");
                 undo.Click += (_, _) =>
                 {
+                    if (_busy || _bulkRunning || _appUpdating || _componentWorking) return;
                     Updates.Revert(src);
                     RefreshOptiBuildList();
                     MarkSettingsTab();
                     RefreshUpdatesPanel();
+                    _ = RefreshComponentsAsync();
                 };
                 Grid.SetColumn(undo, 2);
                 grid.Children.Add(undo);
@@ -108,8 +120,9 @@ public sealed partial class MainWindow
         try
         {
             using var limit = new CancellationTokenSource(Updates.CheckLimit);
-            await Task.WhenAll(Updates.CheckAsync(limit.Token), Updates.CheckAppAsync(limit.Token));
+            await Task.WhenAll(Updates.CheckAsync(limit.Token), Updates.CheckAppAsync(limit.Token), RuntimeUpdates.CheckAsync(limit.Token));
             RefreshUpdatesPanel();
+            await RefreshRuntimeUpdatesAsync();
             ShowAppUpdateBar();
         }
         catch (Exception ex) { AppPaths.Log("Update check failed: " + ex.Message); UpdateStatus.Text = Updates.CheckFailure(ex); }
@@ -157,7 +170,9 @@ public sealed partial class MainWindow
         });
         if (Uri.TryCreate(rel.Page, UriKind.Absolute, out var page))
             body.Children.Add(new HyperlinkButton { Content = "What's new in " + rel.Version, NavigateUri = page, Padding = new Thickness(0) });
-        if (_busy)
+        // An install on a game's page, or Set up several games (reading the games or setting them up).
+        bool setupRunning = _busy || _bulkRunning;
+        if (setupRunning)
             body.Children.Add(new TextBlock { Text = "An install is running in a game. Wait for it to finish first.", Foreground = Res("WarnText"), TextWrapping = TextWrapping.Wrap });
         var dialog = new ContentDialog
         {
@@ -165,7 +180,7 @@ public sealed partial class MainWindow
             Title = $"Update to DLSS 5 Master {rel.Version}?",
             Content = body,
             PrimaryButtonText = "Update now",
-            IsPrimaryButtonEnabled = !_busy,
+            IsPrimaryButtonEnabled = !setupRunning,
             CloseButtonText = "Later",
             DefaultButton = ContentDialogButton.Primary,
         };
@@ -174,8 +189,9 @@ public sealed partial class MainWindow
 
     private async Task InstallAppUpdateAsync(AppRelease rel)
     {
-        if (_appUpdating || _busy) return;
+        if (_appUpdating || _busy || _bulkRunning) return;
         _appUpdating = true;
+        RefreshLibrarySummary();   // Set up several games waits until the new version runs
         AppUpdateButton.IsEnabled = false;
         AppUpdateText.Text = "Updating…";
         var progress = new Progress<string>(t =>
@@ -186,7 +202,14 @@ public sealed partial class MainWindow
         });
         try
         {
-            await Updates.InstallAppUpdateAsync(rel, progress);
+            var installer = await Updates.DownloadAppUpdateAsync(rel, progress);
+            // The installer closes the app: a setup that started while the update downloaded finishes first.
+            while (_busy || _bulkRunning)
+            {
+                AppUpdateText.Text = "Waiting for the setup…";
+                await Task.Delay(500);
+            }
+            Updates.StartAppInstaller(rel, installer, progress);
             AppUpdateText.Text = "Restarting…";
             await Task.Delay(1500);
             Application.Current.Exit();
@@ -194,6 +217,7 @@ public sealed partial class MainWindow
         catch (Exception ex)
         {
             _appUpdating = false;
+            RefreshLibrarySummary();
             AppUpdateButton.IsEnabled = true;
             AppUpdateText.Text = "Retry update";
             ToolTipService.SetToolTip(AppUpdateButton, "The update did not complete: " + ex.Message);
@@ -208,7 +232,7 @@ public sealed partial class MainWindow
 
     private async Task ApplyUpdateAsync(UpdateSource src)
     {
-        if (_updating) return;
+        if (_updating || _busy || _bulkRunning || _appUpdating || _componentWorking) return;
         _updating = true;
         CheckUpdatesButton.IsEnabled = false;
         var progress = new Progress<string>(t => UpdateStatus.Text = t);
@@ -218,6 +242,7 @@ public sealed partial class MainWindow
             await Updates.ApplyAsync(src, progress);
             RefreshOptiBuildList();
             RefreshUpdatesPanel();
+            await RefreshComponentsAsync();
             UpdateStatus.Text = $"{src.Name} updated to {Updates.InUse(src).Version}. Reinstall a game to give it the new version.";
         }
         catch (Exception ex) { UpdateStatus.Text = $"✖ {src.Name}: {ex.Message}"; }
