@@ -52,11 +52,11 @@ public sealed partial class MainWindow : Window
         AboutVersionText.Text = $"DLSS 5 Master {Updates.CurrentAppVersion}";
         NoticesText.Text = Notices;
         AboutCoffeeHost.Content = CoffeeButton();
-        // Back on the window (from Explorer after Open folder, say): a copy of lecram's NR may have been unzipped meanwhile.
+        // Back on the window (from Explorer after Open folder, say): a copy of DLSS5 NR may have been unzipped meanwhile.
         Activated += (_, e) =>
         {
             if (e.WindowActivationState != WindowActivationState.Deactivated && Tabs.SelectedItem == TabSettings)
-                _ = RefreshLecramNrStatusAsync(force: false);
+                _ = RefreshNrAddonStatusAsync(force: false);
         };
         InitGamePanel();
         InitOverlay();
@@ -250,8 +250,8 @@ public sealed partial class MainWindow : Window
         {
             if (ct.IsCancellationRequested) return;
             var path = PosterPath(item);
-            if (path is null) { missing.Add(item); continue; }
             item.Poster = await LoadImageAsync(path, 380);
+            if (item.Poster is null) missing.Add(item);
         }
         // Games with no artwork yet: fetch from Steam in the background, a few at a time.
         using var gate = new SemaphoreSlim(4);
@@ -289,10 +289,9 @@ public sealed partial class MainWindow : Window
     private async void RefreshArtwork_Click(object sender, RoutedEventArgs e)
     {
         if (ItemOf(sender) is not { } item) return;
-        Artwork.ClearCached(item.Entry);
         var path = await Artwork.FetchAsync(item.Entry);
         var custom = _settings.OverrideOf(item.Entry)?.Poster;
-        item.Poster = await LoadImageAsync(custom is not null && File.Exists(custom) ? custom : path ?? item.Entry.Poster, 380);
+        item.Poster = await LoadImageAsync(custom is not null && File.Exists(custom) ? custom : path ?? PosterPath(item), 380);
     }
 
     private async void DefaultArtwork_Click(object sender, RoutedEventArgs e)
@@ -377,7 +376,7 @@ public sealed partial class MainWindow : Window
         RuntimeFolderBox.Text = _settings.RuntimeFolder;
         CommunityBox.IsChecked = _settings.ShowCommunity;
         ReShadeSourceBox.Text = _settings.ReShadeSource;
-        LecramNrBox.Text = _settings.LecramNrFolder;
+        NrAddonBox.Text = _settings.NrFolder;
         FolderList.ItemsSource = _settings.ExtraFolders.ToList();
         static string Where(string path) =>
             path.StartsWith(Components.BundledPayload, StringComparison.OrdinalIgnoreCase) ? "the copies included with DLSS 5 Master" : path;
@@ -402,58 +401,58 @@ public sealed partial class MainWindow : Window
         ReShadeStatus.Text = reshadeText;
         ReShadeStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[rs is null ? "WarnText" : "AccentText"];
         DllLibraryStatus.Text = $"{libCount} DLL build(s) in {AppPaths.DllLibrary}";
-        await RefreshLecramNrStatusAsync(force: true);
+        await RefreshNrAddonStatusAsync(force: true);
         if (read != _settingsRead) return;
         await RefreshComponentsAsync();
         if (read == _settingsRead) _settingsReady = true;
     }
 
-    /// <summary>The last line computed for lecram's DLSS5 NR, so a refresh on returning to the window changes it only when the copies did.</summary>
-    private string? _lecramNrStatus;
+    /// <summary>The last line computed for DLSS5 NR, so a refresh on returning to the window changes it only when the copies did.</summary>
+    private string? _nrNrStatus;
 
     /// <summary>
-    /// The Settings line for lecram's DLSS5 NR: which copy its route installs, in <see cref="LecramNr.Source"/>'s order. Also
+    /// The Settings line for DLSS5 NR: which copy its route installs, in <see cref="NrAddon.Source"/>'s order. Also
     /// run when the window is activated on the Settings page (back from Explorer after Open folder); then only a change in the
     /// copies replaces the line, so a message from Browse… stays until it is out of date.
     /// </summary>
-    private async Task RefreshLecramNrStatusAsync(bool force)
+    private async Task RefreshNrAddonStatusAsync(bool force)
     {
-        var picked = _settings.LecramNrFolder;
+        var picked = _settings.NrFolder;
         var (status, title) = await Task.Run(() =>
         {
-            var status = LecramNrStatusText(picked);
-            var title = AddonIdentity.Read(LecramNr.IsCopy(picked) ? picked : LecramNr.DropCopy()).Name.ToUpperInvariant();
+            var status = NrAddonStatusText(picked);
+            var title = AddonIdentity.Read(NrAddon.IsCopy(picked) ? picked : NrAddon.DropCopy()).Name.ToUpperInvariant();
             return (status, title);
         });
-        if (picked != _settings.LecramNrFolder) return;
+        if (picked != _settings.NrFolder) return;
         var (text, brush) = status;
-        if (!force && text == _lecramNrStatus) return;
-        _lecramNrStatus = text;
-        LecramNrStatus.Text = text;
+        if (!force && text == _nrNrStatus) return;
+        _nrNrStatus = text;
+        NrAddonStatus.Text = text;
         LocalAddonTitle.Text = title;
-        LecramNrStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[brush];
+        NrAddonStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[brush];
     }
 
-    private static (string Text, string Brush) LecramNrStatusText(string picked)
+    private static (string Text, string Brush) NrAddonStatusText(string picked)
     {
-        static string NoHost(string copy) => Directory.Exists(Path.Combine(copy, LecramNr.HostFolder))
-            ? "" : $" (no {LecramNr.HostFolder} folder: 32-bit, Direct3D 9/10 and OpenGL games need it)";
-        var dropped = LecramNr.DropCopy();
-        var dropVersion = dropped is null ? null : LecramNr.Version(dropped);
-        if (picked.Length > 0 && LecramNr.IsCopy(picked))
+        static string NoHost(string copy) => Directory.Exists(Path.Combine(copy, NrAddon.HostFolder))
+            ? "" : $" (no {NrAddon.HostFolder} folder: 32-bit, Direct3D 9/10 and OpenGL games need it)";
+        var dropped = NrAddon.DropCopy();
+        var dropVersion = dropped is null ? null : NrAddon.Version(dropped);
+        if (picked.Length > 0 && NrAddon.IsCopy(picked))
         {
-            var version = LecramNr.Version(picked);
+            var version = NrAddon.Version(picked);
             return ($"Using your copy from the folder you picked: {AddonIdentity.Read(picked).Name} {AddonIdentity.Read(picked).Version ?? version}".TrimEnd() + NoHost(picked) + "." +
                     (dropVersion is not null && Scanner.CompareVersions(dropVersion, version) > 0
                         ? $"\nDLSS 5 Master's folder has {dropVersion}: choose Clear to use it." : ""), "AccentText");
         }
-        var stale = picked.Length > 0 ? $"The folder you picked no longer holds {LecramNr.Addon64}. " : "";
+        var stale = picked.Length > 0 ? $"The folder you picked no longer holds {NrAddon.Addon64}. " : "";
         if (dropped is not null)
             return (stale + $"Using your copy in DLSS 5 Master's folder: {AddonIdentity.Read(dropped).Name} {AddonIdentity.Read(dropped).Version ?? dropVersion}".TrimEnd() + NoHost(dropped) + "." +
                     (stale.Length > 0 ? " Choose Clear to forget the old folder." : ""), stale.Length > 0 ? "WarnText" : "AccentText");
         if (stale.Length > 0)
             return (stale + "Pick your copy again, or unzip it into DLSS 5 Master's folder (Open folder) and choose Clear.", "WarnText");
-        return LecramNr.DropHint() is { } hint ? (hint, "WarnText")
+        return NrAddon.DropHint() is { } hint ? (hint, "WarnText")
             : ("No copy yet: unzip the DLSS5 NR add-on you bought into DLSS 5 Master's folder (Open folder). " +
                "Until then, only games that already have it offer its route.", "MutedText");
     }
@@ -503,7 +502,7 @@ public sealed partial class MainWindow : Window
 
     private void ClearReShade_Click(object sender, RoutedEventArgs e) { _settings.ReShadeSource = ""; _settings.Save(); _ = RefreshSettingsPage(); }
 
-    private async void PickLecramNr_Click(object sender, RoutedEventArgs e)
+    private async void PickNrAddon_Click(object sender, RoutedEventArgs e)
     {
         var dir = await PickFolderAsync();
         if (dir is null) return;
@@ -519,35 +518,35 @@ public sealed partial class MainWindow : Window
 
     private async Task ImportOwnAddonAsync(string source)
     {
-        LecramNrStatus.Text = "Reading local add-on metadata…";
+        NrAddonStatus.Text = "Reading local add-on metadata…";
         try
         {
             var copy = await Task.Run(() => OwnAddonImport.Prepare(source));
-            _settings.LecramNrFolder = copy;
+            _settings.NrFolder = copy;
             _settings.Save();
             await RefreshSettingsPage();
         }
         catch (Exception ex)
         {
-            LecramNrStatus.Text = "Could not use this add-on: " + ex.Message;
-            LecramNrStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["WarnText"];
+            NrAddonStatus.Text = "Could not use this add-on: " + ex.Message;
+            NrAddonStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["WarnText"];
         }
     }
 
-    private void ClearLecramNr_Click(object sender, RoutedEventArgs e) { _settings.LecramNrFolder = ""; _settings.Save(); _ = RefreshSettingsPage(); }
+    private void ClearNrAddon_Click(object sender, RoutedEventArgs e) { _settings.NrFolder = ""; _settings.Save(); _ = RefreshSettingsPage(); }
 
-    /// <summary>Opens DLSS 5 Master's folder for the player's copy of lecram's DLSS5 NR, made when it is not there yet.</summary>
-    private void OpenLecramNrFolder_Click(object sender, RoutedEventArgs e)
+    /// <summary>Opens DLSS 5 Master's folder for the player's copy of DLSS5 NR, made when it is not there yet.</summary>
+    private void OpenNrFolder_Click(object sender, RoutedEventArgs e)
     {
         try
         {
-            Directory.CreateDirectory(LecramNr.DropFolder);
-            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{LecramNr.DropFolder}\"") { UseShellExecute = true });
+            Directory.CreateDirectory(NrAddon.DropFolder);
+            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{NrAddon.DropFolder}\"") { UseShellExecute = true });
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
-            LecramNrStatus.Text = $"Could not open {LecramNr.DropFolder}: {ex.Message}";
-            LecramNrStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["WarnText"];
+            NrAddonStatus.Text = $"Could not open {NrAddon.DropFolder}: {ex.Message}";
+            NrAddonStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["WarnText"];
             return;
         }
         _ = RefreshSettingsPage();
@@ -671,13 +670,14 @@ public sealed partial class MainWindow : Window
         "• RenoDX DLSS5 add-on 10.8.0 — built on RenoDX (github.com/clshortfuse/renodx, MIT); no licence published for the add-on\n" +
         "• RenoDX DLSS Tool SF 26.1025.0009 — by ShortFuse; no licence published for the add-on\n" +
         "• DLSS5-Feeder 2.0.0 — github.com/jlrouzies-fr/DLSS5-Feeder (MIT)\n" +
+        "• GITC Uplift " + Components.UpliftVersion + " by ghostinthecamera (MIT) — github.com/ghostinthecamera/GITC-Uplift\n" +
         "• vort_Shaders — github.com/vortigern11/vort_Shaders (MIT)\n" +
-        "• MFGAdaUnlock-RenoDx 1.9.0 — github.com/mavismmg/MFGAdaUnlock-RenoDx (MIT)\n" +
-        "• OptiScaler NR pre-SR MFG 0.9.90 — github.com/ShyVortex/OptiScaler-NR-PreSR-MFG (GPL-3.0; source code at tag v0.9.90)\n" +
+        "• MFGAdaUnlock-RenoDx " + Components.MfgVersion + " — github.com/mavismmg/MFGAdaUnlock-RenoDx (MIT)\n" +
+        "• OptiScaler NR pre-SR MFG 0.9.95 — github.com/ShyVortex/OptiScaler-NR-PreSR-MFG (GPL-3.0; source code at tag v0.9.95)\n" +
         "• The overlay helper (dlss5-overlay.exe) is built with the NVIDIA NGX SDK (github.com/NVIDIA/DLSS, NVIDIA RTX SDKs license) " +
         "and the NVIDIA Optical Flow SDK interface (BSD-3-Clause); its DLSS set-up follows DLSS5-Feeder's 64-bit helper (MIT). " +
         "It ships with the Microsoft Visual C++ runtime (msvcp140, vcruntime140), redistributed under the Visual Studio license\n" +
-        "• dlssg_for_sm86 0.4.1 — github.com/sdli1995/dlssg_for_sm86, inside the OptiScaler package above; the overlay unpacks it on " +
+        "• dlssg_for_sm86 — github.com/sdli1995/dlssg_for_sm86, inside the OptiScaler package above; the overlay unpacks it on " +
         "RTX 20/30 cards for frame generation (terms in its THIRD_PARTY_NOTICES.txt; its kernel images and the NVIDIA runtime are NVIDIA's)\n" +
         "• Microsoft .NET runtime and Windows App SDK — © Microsoft Corporation, redistributed under their respective licences\n\n" +
         "Downloaded when first used, from their authors' release pages and verified by SHA-256:\n" +

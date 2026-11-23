@@ -70,6 +70,7 @@ public static class Journal
         m.Notes ??= new();
         m.BackupPrefix ??= "";
         m.Route ??= "";
+        if (m.Route == "lecramnr") m.Route = "nraddon";
         m.Exe ??= "";
         m.Api ??= "";
         m.Replaced.RemoveAll(r => r is null);
@@ -133,7 +134,10 @@ public static class Journal
             {
                 // A junction or link (a planted host64, say) leads out of the game folder, and Restore never deletes outside it.
                 if ((File.GetAttributes(dir) & FileAttributes.ReparsePoint) != 0) continue;
-                foreach (var pattern in RuntimeFiles)
+                // MFG-only does not own logs produced by an independent NR add-on.
+                foreach (var pattern in m.Route == "mfgonly"
+                    ? RuntimeFiles.Where(p => p.StartsWith("MFGAdaUnlock", StringComparison.OrdinalIgnoreCase))
+                    : RuntimeFiles)
                     foreach (var f in Directory.EnumerateFiles(dir, pattern))
                         if (File.GetCreationTimeUtc(f) >= since && !recorded.Contains(Path.GetRelativePath(root, f))
                             && !found.Contains(f, StringComparer.OrdinalIgnoreCase))

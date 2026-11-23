@@ -1,6 +1,7 @@
-﻿using System.IO.Compression;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using DLSS5Master.Core;
 
 // Keep the real %LOCALAPPDATA%\DLSS5Master (log, settings, install ID) out of the tests.
@@ -21,6 +22,32 @@ void Throws<T>(string name, Action a) where T : Exception
 }
 string Show(string s) => s.Replace("\r", "\\r").Replace("\n", "\\n");
 ReinstallSettingsRaceTests.Run(Check);
+
+// =============================================================== Steam cover lookup
+{
+    using var catalog = JsonDocument.Parse("""
+        {"response":{"store_items":[
+          {"appid":99,"assets":{"library_capsule":"other/library_capsule.jpg"}},
+          {"appid":4080220,"assets":{
+            "library_capsule":"cover/library_capsule.jpg",
+            "library_capsule_2x":"cover2/library_capsule_2x.jpg",
+            "last_modified":1793610006}},
+          {"appid":100,"assets":{
+            "library_capsule":"../99/library_capsule.jpg",
+            "library_capsule_2x":"https://other.example/poster.jpg"}}
+        ]}}
+        """);
+    const string cdn = "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/4080220/";
+    Check("Steam cover metadata resolves the exact app's larger portrait first",
+        Artwork.PublishedPosterUrls(4080220, catalog.RootElement).SequenceEqual(new[]
+        {
+            cdn + "cover2/library_capsule_2x.jpg?t=1793610006",
+            cdn + "cover/library_capsule.jpg?t=1793610006",
+        }));
+    Check("Steam cover metadata rejects URLs and path traversal and skips unlisted apps",
+        Artwork.PublishedPosterUrls(100, catalog.RootElement).Length == 0 &&
+        Artwork.PublishedPosterUrls(101, catalog.RootElement).Length == 0);
+}
 
 // ====================================================================== Native MFG disk-selection policy (no DLL loading)
 {
@@ -293,7 +320,7 @@ ReinstallSettingsRaceTests.Run(Check);
     var exe = Path.Combine(game, "Game.exe");
     File.WriteAllBytes(exe, RandomNumberGenerator.GetBytes(4096));
     // Left by another tool (as in House Party: an older MFG unlock), next to unrelated add-ons the player put there.
-    // ...and neural add-ons players add themselves: lecram's v11+, GITC Uplift (both builds), Deep Fried Chicken.
+    // ...and neural add-ons players add themselves: nrDir's v11+, GITC Uplift (both builds), Deep Fried Chicken.
     var others = new[] { "renodx-mfgunlock.addon64", "renodx-dlss.addon64", "dlss5-feed-helper.addon64", "dlss5-feed.addon32",
                          "dlss5-nr.addon64", "gitc-uplift.addon64", "gitc-uplift.addon32", "deep-fried-chicken.addon64" };
     // Their other files are not add-ons, so ReShade does not load them: they stay.
@@ -312,7 +339,7 @@ ReinstallSettingsRaceTests.Run(Check);
         File.Exists(Path.Combine(game, "renodx-dlss5.addon64")) && unrelated.All(n => File.Exists(Path.Combine(game, n))));
     Check("each one set aside is logged", logs.Count(l => l.StartsWith("Set aside ")) == others.Length);
     Check("another neural add-on is named in the log", logs.Any(l => l.StartsWith("Set aside gitc-uplift.addon64 (GITC Uplift,"))
-        && logs.Any(l => l.Contains("(Deep Fried Chicken,")) && logs.Any(l => l.Contains("(lecram's DLSS5 NR add-on,")), string.Join(" | ", logs));
+        && logs.Any(l => l.Contains("(Deep Fried Chicken,")) && logs.Any(l => l.Contains("(DLSS5 NR add-on,")), string.Join(" | ", logs));
     var bin = Path.Combine(game, "bin");
     Directory.CreateDirectory(bin);
     File.WriteAllBytes(Path.Combine(bin, "renodx-mfgunlock.addon64"), RandomNumberGenerator.GetBytes(512));
@@ -553,8 +580,8 @@ ReinstallSettingsRaceTests.Run(Check);
         Installers.KeepSettings(game4, helperRecord, bin4, Route.Feeder, 64, mfg: false, optiBuild: null, logs.Add).Count == 0);
     var notPreset = Installers.KeepSettings(game4, Record("native", "ReShade.ini", "dxgi.dll"), bin4, Route.Native, 64, mfg: false, optiBuild: null, logs.Add);
     Check("a PresetPath that names no preset brings nothing back", Rels(notPreset) == @"bin\ReShade.ini", Rels(notPreset));
-    var toLecram = Installers.KeepSettings(game4, Record("native", "ReShade.ini", "dxgi.dll"), bin4, Route.LecramNr, 64, mfg: false, optiBuild: null, logs.Add);
-    Check("Native to lecram's NR keeps ReShade.ini: both keep NR's settings in [RenoDX.DLSS5]", Rels(toLecram) == @"bin\ReShade.ini", Rels(toLecram));
+    var toNr = Installers.KeepSettings(game4, Record("native", "ReShade.ini", "dxgi.dll"), bin4, Route.NrAddon, 64, mfg: false, optiBuild: null, logs.Add);
+    Check("Native to DLSS5 NR keeps ReShade.ini: both keep NR's settings in [RenoDX.DLSS5]", Rels(toNr) == @"bin\ReShade.ini", Rels(toNr));
     Directory.Delete(game4, true);
 
     // End to end and offline: a Native setup with the MFG unlock, a game run, Reinstall with and without loading the
@@ -576,6 +603,13 @@ ReinstallSettingsRaceTests.Run(Check);
     foreach (var n in new[] { "nvngx_dlss.dll", "nvngx_dlssnr.dll", "nvngx_dlssg.dll" }) File.Copy(pe64, Path.Combine(rt, n));
     File.WriteAllText(Path.Combine(rs, "ReShade64.dll"), "fake ReShade: Searching for add-ons");
     foreach (var n in new[] { "renodx-dlss5.addon64", "renodx-mfgunlock.addon64" }) File.WriteAllBytes(Path.Combine(ad, n), RandomNumberGenerator.GetBytes(1024));
+    // A selected update must replace differing old backend copies instead of
+    // failing the legacy-backend consistency check before staging the update.
+    var mirror3 = Path.Combine(bin3, "_storage_");
+    Directory.CreateDirectory(mirror3);
+    File.Copy(pe64, Path.Combine(mirror3, "nvngx_dlssg.dll"));
+    File.WriteAllText(Path.Combine(bin3, Components.MfgAddon), "old backend A");
+    File.WriteAllText(Path.Combine(mirror3, Components.MfgAddon), "old backend B");
     var before3 = Snapshot(game3);
     var savedRecords = ForeignInstalls.OtherAppRecordsDir;
     ForeignInstalls.OtherAppRecordsDir = Path.Combine(root3, "no-records");
@@ -593,7 +627,25 @@ ReinstallSettingsRaceTests.Run(Check);
         string Early() => Ini.Get(Ini.ReadText(ini3), "ADDON", "LoadFromDllMain") ?? "";
 
         await Install(early: true);
+        Check("end to end: selected MFG update replaces differing old backend mirrors",
+            Holds(Path.Combine(bin3, Components.MfgAddon), File.ReadAllBytes(Path.Combine(ad, Components.MfgAddon)))
+            && Holds(Path.Combine(mirror3, Components.MfgAddon), File.ReadAllBytes(Path.Combine(ad, Components.MfgAddon)))
+            && Journal.ReadManifest(game3)?.MfgUnlockSha256 == NativeMfgProviders.Hash(Path.Combine(ad, Components.MfgAddon)));
         Check("end to end: the first setup loads the DLSS 5 add-ons early", Early() == "renodx-dlss5.addon64,renodx-mfgunlock.addon64", Early());
+        var nativeBeforeMfg = Snapshot(game3);
+        var newerMfg = RandomNumberGenerator.GetBytes(1536);
+        File.WriteAllBytes(Path.Combine(ad, Components.MfgAddon), newerMfg);
+        await Installers.InstallAsync(new InstallRequest
+        {
+            GameDir = game3, ExePath = exe3, Api = RenderApi.DX12, Bitness = 64, Route = Route.MfgOnly,
+        }, components, logs.Add, null, CancellationToken.None);
+        var nativeAfterMfg = Snapshot(game3);
+        Check("standalone MFG update keeps the installed Native route and other files",
+            Journal.ReadManifest(game3)?.Route == "native"
+            && Diff(nativeBeforeMfg.Where(x => !x.Key.EndsWith(Components.MfgAddon, StringComparison.OrdinalIgnoreCase)).ToDictionary(),
+                nativeAfterMfg.Where(x => !x.Key.EndsWith(Components.MfgAddon, StringComparison.OrdinalIgnoreCase)).ToDictionary()).Length == 0
+            && Holds(Path.Combine(bin3, Components.MfgAddon), newerMfg)
+            && Holds(Path.Combine(mirror3, Components.MfgAddon), newerMfg));
         // The game runs: ReShade saves the player's settings (with the DLSS 5 add-ons switched off in its overlay), the MFG
         // unlock its own.
         Thread.Sleep(50);
@@ -636,67 +688,111 @@ ReinstallSettingsRaceTests.Run(Check);
         var diff3 = Diff(before3, Snapshot(game3));
         Check("end to end: restore originals after the reinstalls leaves the folder as it was before the first setup", diff3.Length == 0, diff3);
 
-        // lecram's DLSS5 NR, the player's own copy. The game already has one, and a RenoDX DLSS5 add-on in a mirror folder
-        // (Onimusha's _storage_). Native sets the game's copy aside; lecram's route then takes it from the backup, then the
-        // copy picked in Settings replaces it; Restore originals puts everything back.
-        var copyL = Path.Combine(root3, "lecram", "DLSS5 NR Add-on");
-        Directory.CreateDirectory(Path.Combine(copyL, LecramNr.HostFolder));
-        var copy64 = RandomNumberGenerator.GetBytes(700);
-        File.WriteAllBytes(Path.Combine(copyL, LecramNr.Addon64), copy64);
-        File.WriteAllBytes(Path.Combine(copyL, LecramNr.Addon32), RandomNumberGenerator.GetBytes(300));
-        File.WriteAllBytes(Path.Combine(copyL, LecramNr.HostFolder, "nr-host64.exe"), RandomNumberGenerator.GetBytes(400));
-        File.WriteAllBytes(Path.Combine(copyL, LecramNr.HostFolder, LecramNr.Addon64), copy64);
-        Check("lecram's NR: the picked folder, its host folder or the folder around it find the copy",
-            LecramNr.ResolveFolder(copyL) == copyL && LecramNr.ResolveFolder(Path.Combine(copyL, LecramNr.HostFolder)) == copyL
-            && LecramNr.ResolveFolder(Path.GetDirectoryName(copyL)!) == copyL && LecramNr.ResolveFolder(rt) is null);
+        // MFG alone needs no NR/SR model or neural consumer, and must not remove
+        // an independently supplied NR add-on. Existing backend mirrors still update.
+        var fgOnly = Path.Combine(root3, "fg-only");
+        Directory.CreateDirectory(fgOnly);
+        File.Copy(pe64, Path.Combine(fgOnly, "nvngx_dlssg.dll"));
+        var independentNr = Path.Combine(bin3, NrAddon.Addon64);
+        File.WriteAllText(independentNr, "independent NR must stay untouched");
+        var beforeMfgOnly = Snapshot(game3);
+        var mfgComponents = new Components(new AppSettings { RuntimeFolder = fgOnly, ReShadeSource = rs });
+        Task InstallMfgOnly() => Installers.InstallAsync(new InstallRequest
+        {
+            GameDir = game3, ExePath = exe3, Api = RenderApi.DX12, Bitness = 64,
+            Route = Route.MfgOnly, MfgUnlock = false,
+        }, mfgComponents, logs.Add, null, CancellationToken.None);
+        InstallPreview? mfgPreview = null;
+        await Installers.InstallAsync(new InstallRequest
+        {
+            GameDir = game3, ExePath = exe3, Api = RenderApi.DX12, Bitness = 64, Route = Route.MfgOnly,
+        }, mfgComponents, logs.Add, null, CancellationToken.None, p => mfgPreview = p, previewOnly: true);
+        Check("MFG-only preview has no NR, SR, consumer or Streamline files",
+            mfgPreview is not null && !mfgPreview.Copies.Any(c => Path.GetFileName(c.RelativePath) is "nvngx_dlssnr.dll" or "nvngx_dlss.dll" or "renodx-dlss5.addon64"
+                || Path.GetFileName(c.RelativePath).StartsWith("sl.", StringComparison.OrdinalIgnoreCase)));
+        Check("MFG-only preview leaves game untouched", Diff(beforeMfgOnly, Snapshot(game3)).Length == 0);
+        await InstallMfgOnly();
+        Check("MFG-only forces unlock on without neural runtime", Journal.ReadManifest(game3) is { Route: "mfgonly", MfgUnlockSha256: not null }
+            && File.Exists(Path.Combine(bin3, "dxgi.dll")) && !File.Exists(Path.Combine(bin3, "nvngx_dlssnr.dll"))
+            && !File.Exists(Path.Combine(bin3, "renodx-dlss5.addon64")));
+        Check("MFG-only keeps independent NR add-on", File.ReadAllText(independentNr) == "independent NR must stay untouched");
+        File.WriteAllBytes(mfgIni3, xemfg);
+        await InstallMfgOnly();
+        Check("MFG-only reinstall preserves tuning", Holds(mfgIni3, xemfg));
+        var independentLog = Path.Combine(bin3, "RenoDX-DLSS5-crash.log");
+        File.WriteAllText(independentLog, "independent NR log");
+        Check("MFG-only route supports managed updates", RouteProfiles.Allowed("mfgonly"));
+        Check("MFG-only rejects missing FG and unsupported API/bitness",
+            Installers.RoutesFor(RenderApi.DX12, 64, false, false).Single(r => r.Route == Route.MfgOnly).Unavailable is not null
+            && Installers.RoutesFor(RenderApi.DX11, 64, true, true).Single(r => r.Route == Route.MfgOnly).Unavailable is not null
+            && Installers.RoutesFor(RenderApi.DX12, 32, true, true).Single(r => r.Route == Route.MfgOnly).Unavailable is not null);
+        await Installers.RestoreAsync(game3, exe3, logs.Add);
+        Check("MFG-only restore leaves independent NR logs alone", File.Exists(independentLog));
+        File.Delete(independentLog);
+        Check("MFG-only restore returns all original files", Diff(beforeMfgOnly, Snapshot(game3)).Length == 0, Diff(beforeMfgOnly, Snapshot(game3)));
+        File.Delete(independentNr);
 
-        var binL = Path.Combine(root3, "lecram-game", "bin");
-        var storageL = Path.Combine(root3, "lecram-game", "_storage_");
+        // DLSS5 NR, the player's own copy. The game already has one, and a RenoDX DLSS5 add-on in a mirror folder
+        // (Onimusha's _storage_). Native sets the game's copy aside; the NR route then takes it from the backup, then the
+        // copy picked in Settings replaces it; Restore originals puts everything back.
+        var copyL = Path.Combine(root3, "nrDir", "DLSS5 NR Add-on");
+        Directory.CreateDirectory(Path.Combine(copyL, NrAddon.HostFolder));
+        var copy64 = RandomNumberGenerator.GetBytes(700);
+        File.WriteAllBytes(Path.Combine(copyL, NrAddon.Addon64), copy64);
+        File.WriteAllBytes(Path.Combine(copyL, NrAddon.Addon32), RandomNumberGenerator.GetBytes(300));
+        File.WriteAllBytes(Path.Combine(copyL, NrAddon.HostFolder, "nr-host64.exe"), RandomNumberGenerator.GetBytes(400));
+        File.WriteAllBytes(Path.Combine(copyL, NrAddon.HostFolder, NrAddon.Addon64), copy64);
+        Check("DLSS5 NR: the picked folder, its host folder or the folder around it find the copy",
+            NrAddon.ResolveFolder(copyL) == copyL && NrAddon.ResolveFolder(Path.Combine(copyL, NrAddon.HostFolder)) == copyL
+            && NrAddon.ResolveFolder(Path.GetDirectoryName(copyL)!) == copyL && NrAddon.ResolveFolder(rt) is null);
+
+        var binL = Path.Combine(root3, "nrDir-game", "bin");
+        var storageL = Path.Combine(root3, "nrDir-game", "_storage_");
         foreach (var d in new[] { binL, storageL }) Directory.CreateDirectory(d);
         var gameL = Path.GetDirectoryName(binL)!;
-        var exeL = Path.Combine(binL, "OfflineLecram" + Guid.NewGuid().ToString("N")[..6] + ".exe");
+        var exeL = Path.Combine(binL, "OfflineNr" + Guid.NewGuid().ToString("N")[..6] + ".exe");
         File.Copy(Path.Combine(Environment.SystemDirectory, "notepad.exe"), exeL);
         File.WriteAllText(Path.Combine(binL, "nvngx_dlss.dll"), "not a pe");
         var game64 = RandomNumberGenerator.GetBytes(600);
-        File.WriteAllBytes(Path.Combine(binL, LecramNr.Addon64), game64);
+        File.WriteAllBytes(Path.Combine(binL, NrAddon.Addon64), game64);
         File.WriteAllBytes(Path.Combine(storageL, "renodx-dlss5.addon64"), RandomNumberGenerator.GetBytes(256));
         var beforeL = Snapshot(gameL);
         Task InstallL(Route route, string? source) => Installers.InstallAsync(new InstallRequest
         {
-            GameDir = gameL, ExePath = exeL, Api = RenderApi.DX12, Bitness = 64, Route = route, LecramNrSource = source,
+            GameDir = gameL, ExePath = exeL, Api = RenderApi.DX12, Bitness = 64, Route = route, NrAddonSource = source,
         }, components, logs.Add, null, CancellationToken.None);
-        var addonL = Path.Combine(binL, LecramNr.Addon64);
+        var addonL = Path.Combine(binL, NrAddon.Addon64);
 
-        Check("lecram's NR: the game's copy is a source", LecramNr.Source(null, gameL, binL, null) == binL && LecramNr.Source(copyL, gameL, binL, null) == copyL);
+        Check("DLSS5 NR: the game's copy is a source", NrAddon.Source(null, gameL, binL, null) == binL && NrAddon.Source(copyL, gameL, binL, null) == copyL);
         await InstallL(Route.Native, null);
-        Check("lecram's NR: Native sets the game's copy aside, and it is still found in the backup",
-            !File.Exists(addonL) && LecramNr.InGame(gameL, binL, Journal.ReadManifest(gameL)) is { } aside && aside.Contains(Journal.BackupDir)
-            && LecramNr.Source(null, gameL, binL, Journal.ReadManifest(gameL)) == binL);
-        await InstallL(Route.LecramNr, binL);
-        Check("lecram's NR: its route installs the game's copy back, with NVIDIA's neural runtime, and no RenoDX DLSS5 add-on anywhere",
+        Check("DLSS5 NR: Native sets the game's copy aside, and it is still found in the backup",
+            !File.Exists(addonL) && NrAddon.InGame(gameL, binL, Journal.ReadManifest(gameL)) is { } aside && aside.Contains(Journal.BackupDir)
+            && NrAddon.Source(null, gameL, binL, Journal.ReadManifest(gameL)) == binL);
+        await InstallL(Route.NrAddon, binL);
+        Check("DLSS5 NR: its route installs the game's copy back, with NVIDIA's neural runtime, and no RenoDX DLSS5 add-on anywhere",
             Holds(addonL, game64) && File.Exists(Path.Combine(binL, "nvngx_dlssnr.dll")) && !File.Exists(Path.Combine(binL, "renodx-dlss5.addon64"))
-            && !File.Exists(Path.Combine(storageL, "renodx-dlss5.addon64")) && Journal.ReadManifest(gameL)?.Route == "lecramnr",
+            && !File.Exists(Path.Combine(storageL, "renodx-dlss5.addon64")) && Journal.ReadManifest(gameL)?.Route == "nraddon",
             string.Join(" | ", logs.TakeLast(6)));
         // ReShade's preset still lists the Feeder's techniques (a Feeder install before, then played): the reinstall keeps the
-        // preset and takes only DLSS5_Feed off it, as lecram's INSTALL.txt asks.
+        // preset and takes only DLSS5_Feed off it, as its INSTALL.txt asks.
         var presetL = Path.Combine(binL, "ReShadePreset.ini");
         File.WriteAllText(presetL, "Techniques=vort_MotionEffects@vort_Motion.fx,DLSS5_Feed@DLSS5_Feed.fx,SMAA@SMAA.fx\r\n" +
                                    "TechniqueSorting=DLSS5_Feed@DLSS5_Feed.fx,SMAA@SMAA.fx\r\n");
-        await InstallL(Route.LecramNr, copyL);
+        await InstallL(Route.NrAddon, copyL);
         var presetText = Ini.ReadText(presetL);
-        Check("lecram's NR: the preset loses DLSS5_Feed and keeps every other technique",
+        Check("DLSS5 NR: the preset loses DLSS5_Feed and keeps every other technique",
             Ini.Get(presetText, "", "Techniques") == "vort_MotionEffects@vort_Motion.fx,SMAA@SMAA.fx" && Ini.Get(presetText, "", "TechniqueSorting") == "SMAA@SMAA.fx",
             Show(presetText));
-        Check("lecram's NR: from the copy in Settings, both add-ons and the host folder as it is",
-            Holds(addonL, copy64) && File.Exists(Path.Combine(binL, LecramNr.Addon32))
-            && File.Exists(Path.Combine(binL, LecramNr.HostFolder, "nr-host64.exe")) && Holds(Path.Combine(binL, LecramNr.HostFolder, LecramNr.Addon64), copy64));
-        Check("lecram's NR: a reinstall leaves no staged copy behind",
-            !Directory.Exists(Path.Combine(Path.GetTempPath(), "DLSS5Master-lecram-nr")) || !Directory.EnumerateFileSystemEntries(Path.Combine(Path.GetTempPath(), "DLSS5Master-lecram-nr")).Any());
-        Throws<InstallException>("lecram's NR: a source without the copy is refused", () => InstallL(Route.LecramNr, rt).GetAwaiter().GetResult());
+        Check("DLSS5 NR: from the copy in Settings, both add-ons and the host folder as it is",
+            Holds(addonL, copy64) && File.Exists(Path.Combine(binL, NrAddon.Addon32))
+            && File.Exists(Path.Combine(binL, NrAddon.HostFolder, "nr-host64.exe")) && Holds(Path.Combine(binL, NrAddon.HostFolder, NrAddon.Addon64), copy64));
+        Check("DLSS5 NR: a reinstall leaves no staged copy behind",
+            !Directory.Exists(Path.Combine(Path.GetTempPath(), "DLSS5Master-nrDir-nr")) || !Directory.EnumerateFileSystemEntries(Path.Combine(Path.GetTempPath(), "DLSS5Master-nrDir-nr")).Any());
+        Throws<InstallException>("DLSS5 NR: a source without the copy is refused", () => InstallL(Route.NrAddon, rt).GetAwaiter().GetResult());
 
-        // lecram's own setup then installs NR over this install (its record beside the exe, newer than ours): neither a
+        // DLSS5 NR's own setup then installs NR over this install (its record beside the exe, newer than ours): neither a
         // setup nor Restore originals here may change its files until its Remove NR has run.
-        var setupRecord = LecramNr.SetupRecord(binL);
+        var setupRecord = NrAddon.SetupRecord(binL);
         Directory.CreateDirectory(Path.GetDirectoryName(setupRecord)!);
         Thread.Sleep(50);
         File.WriteAllText(setupRecord, "{\"version\":1,\"entries\":[]}");
@@ -704,26 +800,26 @@ ReinstallSettingsRaceTests.Run(Check);
         string? setupRefused = null, restoreRefused = null;
         try { await InstallL(Route.Native, null); } catch (InstallException e) { setupRefused = e.Message; }
         try { await Installers.RestoreAsync(gameL, exeL, logs.Add); } catch (InstallException e) { restoreRefused = e.Message; }
-        Check("lecram's NR: with lecram's setup install in the game, setup and restore both stop and change nothing",
+        Check("DLSS5 NR: with DLSS5 NR's setup install in the game, setup and restore both stop and change nothing",
             setupRefused?.Contains("Remove NR") == true && restoreRefused?.Contains("Remove NR") == true && Diff(beforeSetup, Snapshot(gameL)).Length == 0,
             (setupRefused ?? "setup ran") + " | " + (restoreRefused ?? "restore ran"));
         Directory.Delete(Path.GetDirectoryName(setupRecord)!, true);
         await Installers.RestoreAsync(gameL, exeL, logs.Add);
         var diffL = Diff(beforeL, Snapshot(gameL));
-        Check("lecram's NR: restore originals puts the game's own copy and the mirror folder's add-on back", diffL.Length == 0, diffL);
+        Check("DLSS5 NR: restore originals puts the game's own copy and the mirror folder's add-on back", diffL.Length == 0, diffL);
 
         // The player's copy in DLSS 5 Master's own folder (your-addons\dlss5-nr): used when Settings names none, the newest of
         // several (also one folder deeper: a zip unzipped with a folder of its own), never written by a setup or a restore;
         // a folder picked in Settings still comes first.
-        var drop = LecramNr.DropFolder;
-        Check("lecram's NR: DLSS 5 Master's folder for the copy is in its data folder and empty at first, so the game's copy is used",
-            drop.StartsWith(AppPaths.Root, StringComparison.OrdinalIgnoreCase) && LecramNr.DropCopy() is null && LecramNr.DropHint() is null
-            && LecramNr.Source(null, gameL, binL, Journal.ReadManifest(gameL)) == binL);
+        var drop = NrAddon.DropFolder;
+        Check("DLSS5 NR: DLSS 5 Master's folder for the copy is in its data folder and empty at first, so the game's copy is used",
+            drop.StartsWith(AppPaths.Root, StringComparison.OrdinalIgnoreCase) && NrAddon.DropCopy() is null && NrAddon.DropHint() is null
+            && NrAddon.Source(null, gameL, binL, Journal.ReadManifest(gameL)) == binL);
         Directory.CreateDirectory(drop);
         var dropZip = Path.Combine(drop, "DLSS5 NR Add-on v99.zip");
         File.WriteAllBytes(dropZip, RandomNumberGenerator.GetBytes(64));
-        Check("lecram's NR: a zip not yet unzipped in the folder is no copy, and Settings says to unzip it",
-            LecramNr.DropCopy() is null && LecramNr.DropHint()?.Contains("unzip it") == true, LecramNr.DropHint() ?? "no hint");
+        Check("DLSS5 NR: a zip not yet unzipped in the folder is no copy, and Settings says to unzip it",
+            NrAddon.DropCopy() is null && NrAddon.DropHint()?.Contains("unzip it") == true, NrAddon.DropHint() ?? "no hint");
         File.Delete(dropZip);
         // Two copies of different versions, real PE files so each has a file version: the older one (.NET's CoreLib) in the
         // first folder listed, the newer one (notepad) one level deeper, so only the version order and the deeper look find it.
@@ -733,23 +829,23 @@ ReinstallSettingsRaceTests.Run(Check);
         var dropB = Path.Combine(drop, "copy B", "DLSS5 NR Add-on");
         foreach (var (dir, pe) in new[] { (dropA, peOld), (dropB, peNew) })
         {
-            Directory.CreateDirectory(Path.Combine(dir, LecramNr.HostFolder));
-            File.Copy(pe, Path.Combine(dir, LecramNr.Addon64));
-            File.Copy(pe, Path.Combine(dir, LecramNr.HostFolder, LecramNr.Addon64));
-            File.WriteAllBytes(Path.Combine(dir, LecramNr.HostFolder, "nr-host64.exe"), RandomNumberGenerator.GetBytes(64));
+            Directory.CreateDirectory(Path.Combine(dir, NrAddon.HostFolder));
+            File.Copy(pe, Path.Combine(dir, NrAddon.Addon64));
+            File.Copy(pe, Path.Combine(dir, NrAddon.HostFolder, NrAddon.Addon64));
+            File.WriteAllBytes(Path.Combine(dir, NrAddon.HostFolder, "nr-host64.exe"), RandomNumberGenerator.GetBytes(64));
         }
         // The copies' own versions decide (Windows reports another version for System32's notepad.exe than for a copy of it).
-        Check("lecram's NR: the deeper test copy has the higher version", Scanner.CompareVersions(LecramNr.Version(dropB), LecramNr.Version(dropA)) > 0,
-            $"{LecramNr.Version(dropA)} vs {LecramNr.Version(dropB)}");
+        Check("DLSS5 NR: the deeper test copy has the higher version", Scanner.CompareVersions(NrAddon.Version(dropB), NrAddon.Version(dropA)) > 0,
+            $"{NrAddon.Version(dropA)} vs {NrAddon.Version(dropB)}");
         var newerDrop = dropB;
-        Check("lecram's NR: of several copies in the folder the newest version is used, also one folder deeper, and Settings still comes first",
-            LecramNr.DropCopy() == newerDrop && LecramNr.Source(null, gameL, binL, Journal.ReadManifest(gameL)) == newerDrop
-            && LecramNr.Source(copyL, gameL, binL, Journal.ReadManifest(gameL)) == copyL,
-            $"picked {LecramNr.DropCopy()}, expected {newerDrop}; source {LecramNr.Source(null, gameL, binL, Journal.ReadManifest(gameL))}");
+        Check("DLSS5 NR: of several copies in the folder the newest version is used, also one folder deeper, and Settings still comes first",
+            NrAddon.DropCopy() == newerDrop && NrAddon.Source(null, gameL, binL, Journal.ReadManifest(gameL)) == newerDrop
+            && NrAddon.Source(copyL, gameL, binL, Journal.ReadManifest(gameL)) == copyL,
+            $"picked {NrAddon.DropCopy()}, expected {newerDrop}; source {NrAddon.Source(null, gameL, binL, Journal.ReadManifest(gameL))}");
         // A copy cut short (no version can be read) listed first, and a link to a folder that is gone: neither hides the copy.
         var dropPartial = Path.Combine(drop, "0 partial");
         Directory.CreateDirectory(dropPartial);
-        File.WriteAllBytes(Path.Combine(dropPartial, LecramNr.Addon64), RandomNumberGenerator.GetBytes(64));
+        File.WriteAllBytes(Path.Combine(dropPartial, NrAddon.Addon64), RandomNumberGenerator.GetBytes(64));
         var linkTarget = Path.Combine(root3, "drop-link-target");
         Directory.CreateDirectory(linkTarget);
         var brokenLink = Path.Combine(drop, "Z link");
@@ -759,31 +855,31 @@ ReinstallSettingsRaceTests.Run(Check);
         Directory.Delete(linkTarget);
         bool linkMade = false;
         try { linkMade = File.GetAttributes(brokenLink).HasFlag(FileAttributes.ReparsePoint); } catch (IOException) { }
-        Check("lecram's NR: a copy with no version and a broken link in the folder hide nothing",
-            linkMade && LecramNr.DropCopy() == newerDrop, $"link made: {linkMade}; picked {LecramNr.DropCopy()}");
+        Check("DLSS5 NR: a copy with no version and a broken link in the folder hide nothing",
+            linkMade && NrAddon.DropCopy() == newerDrop, $"link made: {linkMade}; picked {NrAddon.DropCopy()}");
         Directory.CreateDirectory(linkTarget); // the link works again, so it is removed like the other tests' links
         if (linkMade) Directory.Delete(brokenLink);
         Directory.Delete(linkTarget);
         Directory.Delete(dropPartial, true);
         var beforeDrop = Snapshot(drop);
-        await InstallL(Route.LecramNr, LecramNr.Source(null, gameL, binL, Journal.ReadManifest(gameL)));
-        Check("lecram's NR: from DLSS 5 Master's folder, its add-on and its host folder go into the game",
-            Holds(addonL, File.ReadAllBytes(Path.Combine(newerDrop, LecramNr.Addon64)))
-            && File.Exists(Path.Combine(binL, LecramNr.HostFolder, "nr-host64.exe")) && Journal.ReadManifest(gameL)?.Route == "lecramnr",
+        await InstallL(Route.NrAddon, NrAddon.Source(null, gameL, binL, Journal.ReadManifest(gameL)));
+        Check("DLSS5 NR: from DLSS 5 Master's folder, its add-on and its host folder go into the game",
+            Holds(addonL, File.ReadAllBytes(Path.Combine(newerDrop, NrAddon.Addon64)))
+            && File.Exists(Path.Combine(binL, NrAddon.HostFolder, "nr-host64.exe")) && Journal.ReadManifest(gameL)?.Route == "nraddon",
             string.Join(" | ", logs.TakeLast(4)));
         await Installers.RestoreAsync(gameL, exeL, logs.Add);
         var diffDrop = Diff(beforeL, Snapshot(gameL));
-        Check("lecram's NR: setup and restore never change DLSS 5 Master's folder, and restore puts the game back as it was",
+        Check("DLSS5 NR: setup and restore never change DLSS 5 Master's folder, and restore puts the game back as it was",
             Diff(beforeDrop, Snapshot(drop)).Length == 0 && diffDrop.Length == 0, diffDrop);
-        File.Copy(peOld, Path.Combine(drop, LecramNr.Addon64));
-        Check("lecram's NR: an older copy unzipped straight into the folder does not hide a newer one in a folder in it",
-            LecramNr.DropCopy() == newerDrop, $"picked {LecramNr.DropCopy()}");
+        File.Copy(peOld, Path.Combine(drop, NrAddon.Addon64));
+        Check("DLSS5 NR: an older copy unzipped straight into the folder does not hide a newer one in a folder in it",
+            NrAddon.DropCopy() == newerDrop, $"picked {NrAddon.DropCopy()}");
         // The same version as the newest, complete with its host folder: right in the folder it wins the tie.
-        File.Copy(peNew, Path.Combine(drop, LecramNr.Addon64), true);
-        Directory.CreateDirectory(Path.Combine(drop, LecramNr.HostFolder));
-        File.Copy(peNew, Path.Combine(drop, LecramNr.HostFolder, LecramNr.Addon64));
-        Check("lecram's NR: a complete copy unzipped straight into the folder is a copy too, and wins a tie", LecramNr.DropCopy() == drop,
-            $"picked {LecramNr.DropCopy()}");
+        File.Copy(peNew, Path.Combine(drop, NrAddon.Addon64), true);
+        Directory.CreateDirectory(Path.Combine(drop, NrAddon.HostFolder));
+        File.Copy(peNew, Path.Combine(drop, NrAddon.HostFolder, NrAddon.Addon64));
+        Check("DLSS5 NR: a complete copy unzipped straight into the folder is a copy too, and wins a tie", NrAddon.DropCopy() == drop,
+            $"picked {NrAddon.DropCopy()}");
         Directory.Delete(drop, true);
 
         // OptiScaler, offline: a build of its own whose package waits in the download cache. The player picks XeSS in
@@ -900,14 +996,14 @@ ReinstallSettingsRaceTests.Run(Check);
     File.WriteAllBytes(Path.Combine(plain, "unins000.exe"), RandomNumberGenerator.GetBytes(2_000_000));
     var plainOwn = Ours(new AppSettings { ExtraFolders = { plain } });
     Check("adding a plain game's own folder adds that one game", plainOwn.Count == 1 && plainOwn[0].Dir == plain, Describe(plainOwn));
-    // Onimusha: Way of the Sword: lecram's NR host beside the game and the installer's message box in Tool. Neither is a
+    // Onimusha: Way of the Sword: DLSS5 NR host beside the game and the installer's message box in Tool. Neither is a
     // program of the game's own: the folder stays one game, and a folder of games lists neither as a game.
     Directory.CreateDirectory(Path.Combine(plain, "dlss5-nr-host"));
     File.WriteAllBytes(Path.Combine(plain, "dlss5-nr-host", "nr-host64.exe"), RandomNumberGenerator.GetBytes(400_000));
     Directory.CreateDirectory(Path.Combine(plain, "Tool"));
     File.WriteAllBytes(Path.Combine(plain, "Tool", "InstallerMessage.exe"), RandomNumberGenerator.GetBytes(1_600_000));
     var withHost = Ours(new AppSettings { ExtraFolders = { plain } });
-    Check("lecram's NR host and an installer helper beside the game keep its folder one game", withHost.Count == 1 && withHost[0].Dir == plain, Describe(withHost));
+    Check("DLSS5 NR host and an installer helper beside the game keep its folder one game", withHost.Count == 1 && withHost[0].Dir == plain, Describe(withHost));
     Directory.CreateDirectory(Path.Combine(lib, "Tool"));
     File.WriteAllBytes(Path.Combine(lib, "Tool", "InstallerMessage.exe"), RandomNumberGenerator.GetBytes(1_600_000));
     var all = Ours(new AppSettings { ExtraFolders = { lib } });
@@ -1054,8 +1150,9 @@ ReinstallSettingsRaceTests.Run(Check);
 // ====================================================================== Installers
 {
     var r = Installers.RoutesFor(RenderApi.DX12, 64, true);
-    Check("routes order", r.Select(o => o.Route).SequenceEqual(new[] { Route.Native, Route.Multipass, Route.Feeder, Route.OptiScaler, Route.NeuralMaster }));
-    Check("released routes dx12 x64", r.Where(o => o.Route != Route.NeuralMaster).All(o => o.Unavailable is null));
+    Check("routes order", r.Select(o => o.Route).SequenceEqual(new[] { Route.Native, Route.Multipass,
+        Route.Feeder, Route.OptiScaler, Route.Uplift, Route.MfgOnly, Route.NeuralMaster }));
+    Check("released routes dx12 x64", r.Where(o => o.Route is not (Route.NeuralMaster or Route.MfgOnly)).All(o => o.Unavailable is null));
     Check("routes labels", r[0].Label == "Native DLSS-NR (RenoDX DLSS5)" && r[1].Label == "RenoDX DLSS Tool (multipass)" && r[2].Label == "DLSS5 Feeder" && r[3].Label == "OptiScaler");
     Check("routes descriptions", r.All(o => o.Description.Length > 0));
     Check("NeuralMaster is not installable before native integration", r.Single(o => o.Route == Route.NeuralMaster).Unavailable == NeuralMasterDevelopmentPath.BuildStatus);
@@ -1082,7 +1179,12 @@ ReinstallSettingsRaceTests.Run(Check);
     r = Installers.RoutesFor(RenderApi.Vulkan, 64, false);
     Check("routes vulkan", r[0].Unavailable is not null && r[1].Unavailable is not null && r[2].Unavailable!.Contains("Vulkan layer") && r[3].Unavailable is null);
     r = Installers.RoutesFor(RenderApi.OpenGL, 64, false);
-    Check("routes opengl none", r.All(o => o.Unavailable is not null));
+    Check("routes OpenGL offers Feeder and Uplift for a game without native DLSS",
+        r.Where(o => o.Unavailable is null).Select(o => o.Route).SequenceEqual(new[] { Route.Feeder, Route.Uplift }));
+    Check("Uplift requires a matching Vulkan layer but permits native DLSS",
+        Installers.RoutesFor(RenderApi.Vulkan, 64, true).Single(o => o.Route == Route.Uplift).Unavailable is not null &&
+        Installers.RoutesFor(RenderApi.Vulkan, 64, true, vulkanFeederUnavailable: null)
+            .Single(o => o.Route == Route.Uplift).Unavailable is null);
 
     Check("recommend native", Installers.RecommendedRoute(RenderApi.DX12, 64, true) == Route.Native);
     // Native on DirectX 11 games with their own DLSS; never on a game without it (it would only wait for DLSS calls).
@@ -1095,7 +1197,7 @@ ReinstallSettingsRaceTests.Run(Check);
           Installers.RoutesFor(RenderApi.DX11, 32, true)[0].Unavailable is not null);
     Check("recommend feeder", Installers.RecommendedRoute(RenderApi.DX12, 64, false) == Route.Feeder);
     Check("recommend first avail", Installers.RecommendedRoute(RenderApi.Vulkan, 64, false) == Route.OptiScaler);
-    Check("recommend fallback", Installers.RecommendedRoute(RenderApi.OpenGL, 64, false) == Route.Native);
+    Check("recommend Feeder for OpenGL without native DLSS", Installers.RecommendedRoute(RenderApi.OpenGL, 64, false) == Route.Feeder);
 
     Check("mfg ok", Installers.MfgUnavailable(RenderApi.DX12, 64, true) is null);
     Check("mfg 32", Installers.MfgUnavailable(RenderApi.DX12, 32, true) is not null);
@@ -1105,27 +1207,36 @@ ReinstallSettingsRaceTests.Run(Check);
     Check("feeder note on DirectX 12 with the game's own DLSS", Installers.FeederStandsAside(RenderApi.DX12, true)?.Contains("Use Native") == true);
     Check("no feeder note on DirectX 11 or without DLSS", Installers.FeederStandsAside(RenderApi.DX11, true) is null && Installers.FeederStandsAside(RenderApi.DX12, false) is null);
     Check("the feeder stays selectable there", Installers.RoutesFor(RenderApi.DX12, 64, true).Single(o => o.Route == Route.Feeder).Unavailable is null);
+    RouteOption FeederRouteOf(RenderApi api, int bits, bool native) =>
+        Installers.RoutesFor(api, bits, native, vulkanFeederUnavailable: null).Single(o => o.Route == Route.Feeder);
+    Check("Feeder offers 32- and 64-bit OpenGL and Vulkan without native DLSS",
+        new[] { RenderApi.OpenGL, RenderApi.Vulkan }.All(api => new[] { 32, 64 }.All(bits =>
+            FeederRouteOf(api, bits, native: false).Unavailable is null &&
+            FeederRouteOf(api, bits, native: true).Unavailable is not null)));
 
-    // lecram's DLSS5 NR: offered only with the player's own copy; its host runs it where ReShade can load it, never Vulkan.
-    RouteOption? Lecram(RenderApi api, int bits) => Installers.RoutesFor(api, bits, false, lecramCopy: true).SingleOrDefault(o => o.Route == Route.LecramNr);
-    Check("lecram's NR: no route without a copy", Installers.RoutesFor(RenderApi.DX12, 64, true).All(o => o.Route != Route.LecramNr));
-    Check("lecram's NR: with a copy, the last route", Installers.RoutesFor(RenderApi.DX12, 64, true, lecramCopy: true)[^1].Route == Route.LecramNr);
-    Check("lecram's NR: Direct3D 9 to 12 and OpenGL, 32-bit too", new[] { RenderApi.DX9, RenderApi.DX10, RenderApi.DX11, RenderApi.DX12, RenderApi.OpenGL }
-        .All(api => Lecram(api, 64) is { Unavailable: null } && Lecram(api, 32) is { Unavailable: null }));
-    Check("lecram's NR: not on Vulkan", Lecram(RenderApi.Vulkan, 64)?.Unavailable?.Contains("Vulkan layer") == true);
-    Check("lecram's NR: route identity", Installers.RouteKey(Route.LecramNr) == "lecramnr" && Installers.RouteLabel("lecramnr").Contains("DLSS5 NR"));
-    Check("lecram's NR: never recommended", Installers.RecommendedRoute(RenderApi.OpenGL, 64, false) != Route.LecramNr);
+    // DLSS5 NR: a Vulkan install also requires a compatible ReShade layer for the selected executable.
+    RouteOption? NrRouteOf(RenderApi api, int bits) => Installers.RoutesFor(api, bits, false, nrCopy: true).SingleOrDefault(o => o.Route == Route.NrAddon);
+    Check("DLSS5 NR: no route without a copy", Installers.RoutesFor(RenderApi.DX12, 64, true).All(o => o.Route != Route.NrAddon));
+    Check("DLSS5 NR: with a copy, the last route", Installers.RoutesFor(RenderApi.DX12, 64, true, nrCopy: true)[^1].Route == Route.NrAddon);
+    Check("DLSS5 NR: Direct3D 9 to 12 and OpenGL, 32-bit too", new[] { RenderApi.DX9, RenderApi.DX10, RenderApi.DX11, RenderApi.DX12, RenderApi.OpenGL }
+        .All(api => NrRouteOf(api, 64) is { Unavailable: null } && NrRouteOf(api, 32) is { Unavailable: null }));
+    Check("DLSS5 NR: Vulkan needs a verified ReShade layer", NrRouteOf(RenderApi.Vulkan, 64)?.Unavailable?.Contains("Vulkan layer") == true);
+    Check("DLSS5 NR: 64-bit Vulkan is available with an enabled compatible layer",
+        Installers.RoutesFor(RenderApi.Vulkan, 64, false, nrCopy: true, vulkanNrUnavailable: null).Single(o => o.Route == Route.NrAddon).Unavailable is null
+        && Installers.RoutesFor(RenderApi.Vulkan, 32, false, nrCopy: true, vulkanNrUnavailable: null).Single(o => o.Route == Route.NrAddon).Unavailable is not null);
+    Check("DLSS5 NR: route identity", Installers.RouteKey(Route.NrAddon) == "nraddon" && Installers.RouteLabel("nraddon").Contains("DLSS5 NR"));
+    Check("DLSS5 NR: never recommended", Installers.RecommendedRoute(RenderApi.OpenGL, 64, false) != Route.NrAddon);
 
-    // lecram's own setup over a game (Like a Dragon: Ishin!): it backed up the game's dxgi.dll and renodx-dlss5, moved NVIDIA's
+    // DLSS5 NR's own setup over a game (Like a Dragon: Ishin!): it backed up the game's dxgi.dll and renodx-dlss5, moved NVIDIA's
     // runtime into its shared store, added its add-on and host, and calls the player's ReShade.ini its own. Removing it here
     // puts the game back as it was, keeps ReShade.ini, and moves its record aside; a changed backup stops it before anything.
     {
-        var rootR = Path.Combine(Path.GetTempPath(), "dlss5cr-lecramsetup-" + Guid.NewGuid().ToString("N"));
+        var rootR = Path.Combine(Path.GetTempPath(), "dlss5cr-nrsetup-" + Guid.NewGuid().ToString("N"));
         var binR = Path.Combine(rootR, "game", "bin");
         var gameR = Path.GetDirectoryName(binR)!;
         var setupR = Path.Combine(binR, "DLSS5-NR-setup");
         var storeR = Path.Combine(rootR, "store");
-        foreach (var d in new[] { Path.Combine(setupR, "backup"), Path.Combine(binR, LecramNr.HostFolder), storeR }) Directory.CreateDirectory(d);
+        foreach (var d in new[] { Path.Combine(setupR, "backup"), Path.Combine(binR, NrAddon.HostFolder), storeR }) Directory.CreateDirectory(d);
         var exeR = Path.Combine(binR, "OfflineIshin" + Guid.NewGuid().ToString("N")[..6] + ".exe");
         File.WriteAllBytes(exeR, RandomNumberGenerator.GetBytes(2048));
         byte[] dxgiOurs = RandomNumberGenerator.GetBytes(900), consumer = RandomNumberGenerator.GetBytes(700), runtime = RandomNumberGenerator.GetBytes(800);
@@ -1134,42 +1245,42 @@ ReinstallSettingsRaceTests.Run(Check);
         File.WriteAllBytes(Path.Combine(setupR, "backup", "dxgi.dll"), dxgiOurs);
         File.WriteAllBytes(Path.Combine(setupR, "backup", "renodx-dlss5.addon64"), consumer);
         File.WriteAllBytes(Path.Combine(storeR, "nvngx_dlssnr.dll"), runtime);
-        File.WriteAllBytes(Path.Combine(binR, "dxgi.dll"), RandomNumberGenerator.GetBytes(950));       // lecram's ReShade
-        File.WriteAllBytes(Path.Combine(binR, LecramNr.Addon64), RandomNumberGenerator.GetBytes(600));
-        File.WriteAllBytes(Path.Combine(binR, LecramNr.HostFolder, "nr-host64.exe"), RandomNumberGenerator.GetBytes(400));
-        File.WriteAllBytes(Path.Combine(binR, LecramNr.HostFolder, "ReShade.ini"), RandomNumberGenerator.GetBytes(40));
+        File.WriteAllBytes(Path.Combine(binR, "dxgi.dll"), RandomNumberGenerator.GetBytes(950));       // NR's ReShade
+        File.WriteAllBytes(Path.Combine(binR, NrAddon.Addon64), RandomNumberGenerator.GetBytes(600));
+        File.WriteAllBytes(Path.Combine(binR, NrAddon.HostFolder, "nr-host64.exe"), RandomNumberGenerator.GetBytes(400));
+        File.WriteAllBytes(Path.Combine(binR, NrAddon.HostFolder, "ReShade.ini"), RandomNumberGenerator.GetBytes(40));
         File.WriteAllBytes(Path.Combine(binR, "ReShade.ini"), ini);
         string Entry(string path, string? sha, bool shared = false) =>
             $"{{\"path\":{System.Text.Json.JsonSerializer.Serialize(path)},\"original_sha256\":{(sha is null ? "null" : "\"" + sha + "\"")}{(shared ? ",\"shared\":true" : "")}}}";
-        File.WriteAllText(LecramNr.SetupRecord(binR), "{\"version\":1,\"entries\":[" + string.Join(",",
-            Entry("renodx-dlss5.addon64", Sha(consumer)), Entry(LecramNr.Addon64, null), Entry(LecramNr.HostFolder, null),
-            Entry(LecramNr.HostFolder + "\\nr-host64.exe", null), Entry(LecramNr.HostFolder + "\\ReShade.ini", null),
+        File.WriteAllText(NrAddon.SetupRecord(binR), "{\"version\":1,\"entries\":[" + string.Join(",",
+            Entry("renodx-dlss5.addon64", Sha(consumer)), Entry(NrAddon.Addon64, null), Entry(NrAddon.HostFolder, null),
+            Entry(NrAddon.HostFolder + "\\nr-host64.exe", null), Entry(NrAddon.HostFolder + "\\ReShade.ini", null),
             Entry("nvngx_dlssnr.dll", Sha(runtime), shared: true), Entry("dxgi.dll", Sha(dxgiOurs)), Entry("ReShade.ini", null)) +
             "],\"shared_runtime\":" + System.Text.Json.JsonSerializer.Serialize(Path.Combine(storeR, "nvngx_dlssnr.dll")) + ",\"addon_version\":\"v12.9.5\"}");
 
         var logsR = new List<string>();
-        var read = LecramNr.ReadSetupInstall(binR);
-        Check("lecram's setup: its record reads as 3 to put back, 3 added files, its host folder, and ReShade.ini kept",
+        var read = NrAddon.ReadSetupInstall(binR);
+        Check("DLSS5 NR's setup: its record reads as 3 to put back, 3 added files, its host folder, and ReShade.ini kept",
             read.Problem is null && read.PutBack.Count == 3 && read.Delete.Count == 3 && read.Dirs.Count == 1 && read.Kept.Count == 1 && read.Version == "v12.9.5",
             read.Problem ?? $"{read.PutBack.Count}/{read.Delete.Count}/{read.Dirs.Count}/{read.Kept.Count}");
 
         // A backup changed since: nothing happens.
         File.WriteAllBytes(Path.Combine(setupR, "backup", "renodx-dlss5.addon64"), RandomNumberGenerator.GetBytes(700));
         string? refusedR = null;
-        try { LecramNr.RemoveSetupInstallAsync(gameR, exeR, logsR.Add).GetAwaiter().GetResult(); } catch (InstallException e) { refusedR = e.Message; }
-        Check("lecram's setup: a backup that no longer matches its record stops the removal before any change",
-            refusedR?.Contains("renodx-dlss5.addon64") == true && File.Exists(Path.Combine(binR, LecramNr.Addon64)) && File.Exists(LecramNr.SetupRecord(binR)),
+        try { NrAddon.RemoveSetupInstallAsync(gameR, exeR, logsR.Add).GetAwaiter().GetResult(); } catch (InstallException e) { refusedR = e.Message; }
+        Check("DLSS5 NR's setup: a backup that no longer matches its record stops the removal before any change",
+            refusedR?.Contains("renodx-dlss5.addon64") == true && File.Exists(Path.Combine(binR, NrAddon.Addon64)) && File.Exists(NrAddon.SetupRecord(binR)),
             refusedR ?? "removed");
         File.WriteAllBytes(Path.Combine(setupR, "backup", "renodx-dlss5.addon64"), consumer);
 
-        var moved = LecramNr.RemoveSetupInstallAsync(gameR, exeR, logsR.Add).GetAwaiter().GetResult();
-        Check("lecram's setup: removing it puts back dxgi.dll, the RenoDX DLSS5 add-on and the runtime, and keeps ReShade.ini",
+        var moved = NrAddon.RemoveSetupInstallAsync(gameR, exeR, logsR.Add).GetAwaiter().GetResult();
+        Check("DLSS5 NR's setup: removing it puts back dxgi.dll, the RenoDX DLSS5 add-on and the runtime, and keeps ReShade.ini",
             File.ReadAllBytes(Path.Combine(binR, "dxgi.dll")).SequenceEqual(dxgiOurs)
             && File.ReadAllBytes(Path.Combine(binR, "renodx-dlss5.addon64")).SequenceEqual(consumer)
             && File.ReadAllBytes(Path.Combine(binR, "nvngx_dlssnr.dll")).SequenceEqual(runtime)
             && File.ReadAllBytes(Path.Combine(binR, "ReShade.ini")).SequenceEqual(ini));
-        Check("lecram's setup: its add-on and host folder are gone, its record and backups moved into this app's backup folder",
-            !File.Exists(Path.Combine(binR, LecramNr.Addon64)) && !Directory.Exists(Path.Combine(binR, LecramNr.HostFolder)) && !Directory.Exists(setupR)
+        Check("DLSS5 NR's setup: its add-on and host folder are gone, its record and backups moved into this app's backup folder",
+            !File.Exists(Path.Combine(binR, NrAddon.Addon64)) && !Directory.Exists(Path.Combine(binR, NrAddon.HostFolder)) && !Directory.Exists(setupR)
             && File.Exists(Path.Combine(moved, "manifest.json")) && moved.StartsWith(Journal.BackupRoot(gameR), StringComparison.OrdinalIgnoreCase)
             && File.Exists(Path.Combine(storeR, "nvngx_dlssnr.dll")), moved);
         Directory.Delete(rootR, true);
@@ -1186,8 +1297,12 @@ ReinstallSettingsRaceTests.Run(Check);
     Check("routekey", Installers.RouteKey(Route.Feeder) == "feeder" && Installers.RouteKey(Route.OptiScaler) == "optiscaler");
     Check("apikey", Installers.ApiKey(RenderApi.DX12) == "dxgi" && Installers.ApiKey(RenderApi.DX11) == "dxgi" && Installers.ApiKey(RenderApi.Unknown) == "unknown" && Installers.ApiKey(RenderApi.OpenGL) == "opengl");
     Check("menukeys", Installers.MenuKeys.Length == 21 && Installers.MenuKeys[0] == ("Insert", "0x2D") && Installers.MenuKeys[17] == ("F12", "0x7B") && Installers.MenuKeys[^1] == ("Scroll Lock", "0x91"));
-    Check("opti builds", Components.OptiBuilds.Length == 2 && Components.OptiBuilds[0].Id == "0.9.90-shyvortex" && Components.OptiBuilds.All(b => b.Url is not null && b.Sha256 is { Length: 64 }));
-    Check("opti 0.9.90 whole backend", Components.OptiBuilds.Single(b => b.Id == "0.9.90-shyvortex") is { WholeBackend: true, NeuralRendering: true, Forwarded: false, Sha256.Length: 64 });
+    Check("opti builds", Components.OptiBuilds.Length == 2 && Components.OptiBuilds[0].Id == "0.9.95-shyvortex" && Components.OptiBuilds.All(b => b.Url is not null && b.Sha256 is { Length: 64 }));
+    Check("opti 0.9.95 whole backend", Components.OptiBuilds.Single(b => b.Id == "0.9.95-shyvortex") is { WholeBackend: true, NeuralRendering: true, Forwarded: false, Sha256.Length: 64 });
+    Check("opti compatible bundled and downloaded build IDs resolve to 0.9.95",
+        new[] { "0.9.90-shyvortex", "0.9.91", "0.9.91-shyvortex", "0.9.95" }
+            .All(id => Components.CurrentOptiBuildId(id) == "0.9.95-shyvortex")
+        && Components.CurrentOptiBuildId("0.8.3-rtx40-mfg") == "0.8.3-rtx40-mfg");
 
     // Feeder helpers
     Check("searchpaths merge", Installers.MergeSearchPaths(@".\reshade-shaders\Shaders\, D:\My\Shaders\**\**,./reshade-shaders/Shaders/**", @".\reshade-shaders\Shaders\**")
@@ -1568,6 +1683,56 @@ ReinstallSettingsRaceTests.Run(Check);
               && File.Exists(Path.Combine(dest, "README.txt")));
         File.WriteAllText(Path.Combine(bin, "dxgi.dll"), "not reshade");
         Check("unrecorded: non-ReShade dxgi ignored", ForeignInstalls.UnrecordedReShadeFiles(bin, "dxgi.dll").Count == 0);
+
+        var protectedGame = Directory.CreateDirectory(Path.Combine(tmp, "neuralmaster")).FullName;
+        var reference = Directory.CreateDirectory(Path.Combine(tmp, "reference")).FullName;
+        var protectedExe = Path.Combine(protectedGame, "D5M-ReShadeGuard-Fixture.exe");
+        var siblingExe = Path.Combine(protectedGame, "D5M-ReShadeGuard-Sibling.exe");
+        var hook = Path.Combine(protectedGame, "dxgi.dll");
+        var observer = Path.Combine(protectedGame, "IndependentObserver.addon64");
+        var addon = Path.Combine(protectedGame, "NeuralMaster-test.addon64");
+        var referenceAddon = Path.Combine(reference, Path.GetFileName(addon));
+        var referenceHost = Path.Combine(reference, "ReShade64.dll");
+        File.WriteAllText(protectedExe, "synthetic game executable");
+        File.WriteAllText(siblingExe, "second synthetic executable sharing the same hook");
+        File.WriteAllText(observer, "independent observer");
+        File.WriteAllText(addon, "synthetic NeuralMaster add-on");
+        File.WriteAllText(Path.Combine(protectedGame, "ReShade.ini"), "[GENERAL]\n");
+        File.Copy(addon, referenceAddon);
+        File.Copy(realReShade, hook);
+        File.Copy(realReShade, referenceHost);
+        var snapshots = new NeuralMasterSnapshots();
+        snapshots.ImportBuild(protectedGame, protectedExe, referenceAddon, referenceHost, "ReShade cleanup fixture");
+        snapshots.Uninstall(protectedGame, protectedExe);
+        var saved = snapshots.Inspect(protectedGame, protectedExe);
+        Check("unrecorded: NeuralMaster's saved host is verified and its backup is ready to restore",
+            saved is { CanRestore: true, BackupLocation: not null } && saved.VerifiedHostPaths.SequenceEqual(["dxgi.dll"])
+            && Pe.VersionMentions(hook, "ReShade") && Journal.ReadManifest(protectedGame) is null);
+
+        string[] Hashes(string folder) => Directory.GetFiles(folder, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal)
+            .Select(file => Path.GetRelativePath(folder, file) + " " + Components.Sha256(file)).ToArray();
+        var beforeGame = Hashes(protectedGame);
+        var beforeBackup = Hashes(saved.BackupLocation!);
+        foreach (var exe in new[] { protectedExe, siblingExe })
+        {
+            string? refusal = null;
+            try { await ForeignInstalls.MoveAsideUnrecordedReShadeAsync(protectedGame, exe, "dxgi.dll", _ => { }); }
+            catch (InstallException ex) { refusal = ex.Message; }
+            Check("unrecorded: matching NeuralMaster host is protected for " + Path.GetFileName(exe),
+                refusal?.Contains("verified NeuralMaster ReShade host", StringComparison.OrdinalIgnoreCase) == true,
+                refusal ?? "cleanup accepted a saved host");
+        }
+        Check("unrecorded: refusal preserves the ReShade hook, observer, settings and NeuralMaster backup",
+            beforeGame.SequenceEqual(Hashes(protectedGame)) && beforeBackup.SequenceEqual(Hashes(saved.BackupLocation!)));
+
+        // Change the inert test file's checksum without changing the version metadata used to recognize ReShade.
+        using (var variant = File.Open(hook, FileMode.Append)) variant.WriteByte(0xA5);
+        var variantHash = Components.Sha256(hook);
+        var otherDest = await ForeignInstalls.MoveAsideUnrecordedReShadeAsync(protectedGame, protectedExe, "dxgi.dll", _ => { });
+        Check("unrecorded: a different ReShade hook can be parked without changing the NeuralMaster backup",
+            !File.Exists(hook) && Components.Sha256(Path.Combine(otherDest, "dxgi.dll")) == variantHash
+            && beforeBackup.SequenceEqual(Hashes(saved.BackupLocation!))
+            && snapshots.Inspect(protectedGame, protectedExe).CanRestore);
         Directory.Delete(tmp, true);
     }
     else Check("unrecorded: payload ReShade64.dll present for test", false, realReShade);
@@ -1783,7 +1948,7 @@ ReinstallSettingsRaceTests.Run(Check);
 // ====================================================================== Set up several games: the plan
 {
     var exeDir = @"C:\games\Plan\bin";
-    var ctx = new BulkContext(NeuralRuntime: true, DlssRuntime: true, ReShade64: true, ReShade32: true, LecramCopy: null, SavedMenuKey: "0x24");
+    var ctx = new BulkContext(NeuralRuntime: true, DlssRuntime: true, ReShade64: true, ReShade32: true, NrCopy: null, SavedMenuKey: "0x24");
     var nr = Components.OptiBuilds[0];
     GameScan PlanScan(int bits = 64, RenderApi api = RenderApi.DX12, bool dlss = true, bool fg = false, string? antiCheat = null, Manifest? manifest = null)
     {
@@ -1794,19 +1959,26 @@ ReinstallSettingsRaceTests.Run(Check);
         if (fg) scan.Upscalers.Add(new UpscalerFile(Path.Combine(exeDir, "nvngx_dlssg.dll"), @"bin\nvngx_dlssg.dll", "nvngx_dlssg.dll", UpscalerKind.DlssFG, "310.4.0", 64));
         return scan;
     }
-    BulkGame PlanGame(GameScan? scan, string? api = null, string? lecramAddon = null, bool lecramInGame = false, string? menuKey = null,
-                      bool runtimeHere = false, bool lecramSetup = false, bool afterUs = false, LoaderFile? loader = null) => new()
+    BulkGame PlanGame(GameScan? scan, string? api = null, string? nrAddon = null, bool nrInGame = false, string? menuKey = null,
+                      bool runtimeHere = false, bool nrSetup = false, bool afterUs = false, LoaderFile? loader = null) => new()
     {
         Entry = new GameEntry { Launcher = "Steam", Name = "Plan", Dir = @"C:\games\Plan" }, Scan = scan,
-        Choices = api is null ? null : new GameOverride { Api = api }, LecramAddon = lecramAddon, LecramInGame = lecramInGame,
-        OptiMenuKey = menuKey, NeuralRuntimeHere = runtimeHere, LecramSetup = lecramSetup, LecramSetupAfterUs = afterUs,
+        Choices = api is null ? null : new GameOverride { Api = api }, NrAddon = nrAddon, NrInGame = nrInGame,
+        OptiMenuKey = menuKey, NeuralRuntimeHere = runtimeHere, NrSetup = nrSetup, NrSetupAfterUs = afterUs,
         Loaders = loader is null ? Array.Empty<LoaderFile>() : new[] { loader },
     };
     BulkRow P(BulkGame g, Route route, bool mfg = true, bool again = false, BulkContext? c = null) =>
         BulkSetup.Plan(g, new BulkOptions(route, nr, mfg, again), c ?? ctx);
 
-    Check("several games: the routes offered are the five a game's page offers",
-        BulkSetup.Routes.SequenceEqual(new[] { Route.Native, Route.Multipass, Route.Feeder, Route.OptiScaler, Route.LecramNr }));
+    Check("several games: the routes offered include GITC Uplift and MFG unlock only",
+        BulkSetup.Routes.SequenceEqual(new[] { Route.Native, Route.Multipass, Route.Feeder, Route.Uplift,
+            Route.OptiScaler, Route.NrAddon, Route.MfgOnly }));
+    var mfgContext = ctx with { NeuralRuntime = false, DlssRuntime = false };
+    var mfgRow = P(PlanGame(PlanScan(dlss: false, fg: true), nrAddon: "independent"), Route.MfgOnly, mfg: false, c: mfgContext);
+    Check("several games: MFG-only forces unlock on without neural runtime or removing independent NR",
+        mfgRow.Request is { Route: Route.MfgOnly, MfgUnlock: true } && mfgRow.Skip is null, mfgRow.Skip);
+    Check("several games: MFG-only has no neural runtime blocker",
+        BulkSetup.Blocker(new BulkOptions(Route.MfgOnly, nr, false, false), mfgContext) is null);
 
     var fresh = P(PlanGame(PlanScan(fg: true)), Route.Native);
     var req = fresh.Request;
@@ -1827,8 +1999,8 @@ ReinstallSettingsRaceTests.Run(Check);
     var other = PlanScan();
     other.OtherAppBackup = true;
     Check("several games: another app's install is left as it is", P(PlanGame(other), Route.Native).Skip?.Contains("Another app") == true);
-    Check("several games: lecram's own setup is left as it is", P(PlanGame(PlanScan(), lecramSetup: true), Route.Native).Skip?.Contains("lecram's own setup has NR") == true);
-    Check("several games: lecram's setup after DLSS 5 Master says so", P(PlanGame(PlanScan(), lecramSetup: true, afterUs: true), Route.Native).Skip?.Contains("after DLSS 5 Master") == true);
+    Check("several games: DLSS5 NR's own setup is left as it is", P(PlanGame(PlanScan(), nrSetup: true), Route.Native).Skip?.Contains("DLSS5 NR's own setup has NR") == true);
+    Check("several games: DLSS5 NR's setup after DLSS 5 Master says so", P(PlanGame(PlanScan(), nrSetup: true, afterUs: true), Route.Native).Skip?.Contains("after DLSS 5 Master") == true);
     Check("several games: an unknown renderer is left for its page", P(PlanGame(PlanScan(api: RenderApi.Unknown)), Route.Feeder).Skip?.Contains("Rendering API") == true);
     Check("several games: an unknown renderer chosen by hand on its page is set up", P(PlanGame(PlanScan(api: RenderApi.Unknown), api: "DX11"), Route.Feeder).Request is { Api: RenderApi.DX11 });
     Check("several games: an exe of unknown bitness is left as it is", P(PlanGame(PlanScan(bits: 0), api: "DX11"), Route.Feeder).Skip?.Contains("32- or 64-bit") == true);
@@ -1854,22 +2026,44 @@ ReinstallSettingsRaceTests.Run(Check);
     Check("several games: DLSS-NR OptiScaler builds are left out of games without DLSS", P(PlanGame(PlanScan(dlss: false)), Route.OptiScaler).Skip?.Contains("ships its own DLSS") == true);
     var vk = P(PlanGame(PlanScan(api: RenderApi.Vulkan)), Route.OptiScaler).Request;
     Check("several games: OptiScaler in a Vulkan game loads as winmm.dll", vk is { OptiHook: "winmm.dll", MfgUnlock: false }, vk?.OptiHook);
+    var vkScan = PlanScan(api: RenderApi.Vulkan, dlss: false);
+    var vkContext = ctx with { ReShade64 = false, ReShade32 = false, NrCopy = @"C:\copy" };
+    var vkNr = P(new BulkGame { Entry = new GameEntry { Dir = vkScan.Dir }, Scan = vkScan, VulkanNrUnavailable = null },
+        Route.NrAddon, c: vkContext);
+    var vkNrUnavailable = P(PlanGame(vkScan), Route.NrAddon, c: vkContext);
+    Check("several games: a verified Vulkan layer supports DLSS5 NR without a proxy or MFG",
+        vkNr.Request is { Route: Route.NrAddon, Api: RenderApi.Vulkan, MfgUnlock: false, NrAddonSource: @"C:\copy" }
+        && vkNr.Skip is null && vkNrUnavailable.Request is null && vkNrUnavailable.Skip?.Contains("Vulkan layer") == true,
+        vkNr.Skip ?? vkNrUnavailable.Skip);
+    var vkFeeder = P(new BulkGame { Entry = new GameEntry { Dir = vkScan.Dir }, Scan = vkScan, VulkanFeederUnavailable = null },
+        Route.Feeder, c: vkContext);
+    var vkFeederUnavailable = P(PlanGame(vkScan), Route.Feeder, c: vkContext);
+    Check("several games: Vulkan Feeder uses a verified layer without requiring a game proxy or MFG",
+        vkFeeder.Request is { Route: Route.Feeder, Api: RenderApi.Vulkan, MfgUnlock: false } && vkFeeder.Skip is null
+        && vkFeederUnavailable.Request is null && vkFeederUnavailable.Skip?.Contains("Vulkan layer") == true,
+        vkFeeder.Skip ?? vkFeederUnavailable.Skip);
+    var vkUpliftScan = PlanScan(api: RenderApi.Vulkan, dlss: true);
+    var vkUplift = P(new BulkGame { Entry = new GameEntry { Dir = vkUpliftScan.Dir }, Scan = vkUpliftScan,
+        VulkanFeederUnavailable = null }, Route.Uplift, c: vkContext with { DlssRuntime = false });
+    Check("several games: Vulkan Uplift can use a registered layer in games with native DLSS",
+        vkUplift.Request is { Route: Route.Uplift, Api: RenderApi.Vulkan, MfgUnlock: false } &&
+        vkUplift.Skip is null, vkUplift.Skip);
     Check("several games: OptiScaler.ini's menu key wins over the saved one", P(PlanGame(PlanScan(), menuKey: "0x70"), Route.OptiScaler).Request?.MenuKey == "0x70");
     Check("several games: a menu key it does not know becomes Insert", P(PlanGame(PlanScan(), menuKey: "0x99"), Route.OptiScaler).Request?.MenuKey == "0x2D");
     Check("several games: OptiScaler with the neural runtime beside the exe needs no runtime folder",
         P(PlanGame(PlanScan(), runtimeHere: true), Route.OptiScaler, c: ctx with { NeuralRuntime = false }).Request is not null
         && P(PlanGame(PlanScan()), Route.OptiScaler, c: ctx with { NeuralRuntime = false }).Skip?.Contains("neural runtime") == true);
 
-    Check("several games: lecram's NR without a copy is left out", P(PlanGame(PlanScan()), Route.LecramNr).Skip?.Contains("no copy") == true);
-    Check("several games: lecram's NR takes the copy from Settings or DLSS 5 Master's folder",
-        P(PlanGame(PlanScan(), lecramInGame: true), Route.LecramNr, c: ctx with { LecramCopy = @"C:\copy" }).Request?.LecramNrSource == @"C:\copy");
-    Check("several games: lecram's NR takes the game's own copy when there is no other",
-        P(PlanGame(PlanScan(), lecramInGame: true), Route.LecramNr).Request?.LecramNrSource == exeDir);
-    var setAside = P(PlanGame(PlanScan(), lecramAddon: "12.9.8"), Route.Native);
-    Check("several games: lecram's add-on in the game is never set aside unseen", setAside.Request is null && setAside.Skip!.Contains("12.9.8"), setAside.Skip);
-    Check("several games: lecram's add-on in the game goes with lecram's route and with OptiScaler",
-        P(PlanGame(PlanScan(), lecramAddon: "", lecramInGame: true), Route.LecramNr).Request is not null
-        && P(PlanGame(PlanScan(), lecramAddon: ""), Route.OptiScaler).Request is not null);
+    Check("several games: DLSS5 NR without a copy is left out", P(PlanGame(PlanScan()), Route.NrAddon).Skip?.Contains("no copy") == true);
+    Check("several games: DLSS5 NR takes the copy from Settings or DLSS 5 Master's folder",
+        P(PlanGame(PlanScan(), nrInGame: true), Route.NrAddon, c: ctx with { NrCopy = @"C:\copy" }).Request?.NrAddonSource == @"C:\copy");
+    Check("several games: DLSS5 NR takes the game's own copy when there is no other",
+        P(PlanGame(PlanScan(), nrInGame: true), Route.NrAddon).Request?.NrAddonSource == exeDir);
+    var setAside = P(PlanGame(PlanScan(), nrAddon: "12.9.8"), Route.Native);
+    Check("several games: DLSS5 NR's add-on in the game is never set aside unseen", setAside.Request is null && setAside.Skip!.Contains("12.9.8"), setAside.Skip);
+    Check("several games: DLSS5 NR's add-on in the game goes with the NR route and with OptiScaler",
+        P(PlanGame(PlanScan(), nrAddon: "", nrInGame: true), Route.NrAddon).Request is not null
+        && P(PlanGame(PlanScan(), nrAddon: ""), Route.OptiScaler).Request is not null);
 
     var record = new Manifest { Route = "native", Exe = @"bin\Plan.exe", MfgUnlock = "1.8.2", ReShadeHook = "d3d11.dll" };
     var waits = P(PlanGame(PlanScan(fg: true, manifest: record)), Route.Native, mfg: false);
@@ -1877,8 +2071,8 @@ ReinstallSettingsRaceTests.Run(Check);
     var again = P(PlanGame(PlanScan(fg: true, manifest: record)), Route.Native, mfg: false, again: true);
     Check("several games: set up again keeps its MFG unlock and its ReShade proxy", again.Request is { MfgUnlock: true, ReShadeProxy: "d3d11.dll" } && again.Reinstall);
     Check("several games: set up again with the same route keeps the in-game settings", again.Note.Contains("are kept"), again.Note);
-    Check("several games: Native to lecram's NR keeps them too (one family)",
-        P(PlanGame(PlanScan(manifest: record), lecramInGame: true), Route.LecramNr, again: true).Note.Contains("are kept"));
+    Check("several games: Native to DLSS5 NR keeps them too (one family)",
+        P(PlanGame(PlanScan(manifest: record), nrInGame: true), Route.NrAddon, again: true).Note.Contains("are kept"));
     var switched = P(PlanGame(PlanScan(manifest: record)), Route.Multipass, again: true);
     Check("several games: switching routes says the in-game settings start fresh", switched.Note.StartsWith("Switches from") && switched.Note.Contains("start fresh"), switched.Note);
     var moved = P(PlanGame(PlanScan(manifest: new Manifest { Route = "native", Exe = @"old\Plan.exe" })), Route.Native, again: true);
@@ -1938,40 +2132,40 @@ ReinstallSettingsRaceTests.Run(Check);
     };
     Check("several games: an ASI ReShade the restore leaves stops a reinstall before it starts", P(hiddenAsi, Route.Multipass, again: true).Skip?.Contains("ASI") == true);
 
-    // lecram's NR where it would not start is left as it is: RunLecramNr only logs that.
-    var noHost = ctx with { LecramCopy = @"C:\copy", LecramCopyHasHost = false };
-    Check("several games: a lecram copy without its host folder is left out of 32-bit games",
-        P(PlanGame(PlanScan(bits: 32, api: RenderApi.DX11, dlss: false)), Route.LecramNr, c: noHost).Skip?.Contains("dlss5-nr-host") == true);
+    // DLSS5 NR where it would not start is left as it is: RunNrAddon only logs that.
+    var noHost = ctx with { NrCopy = @"C:\copy", NrCopyHasHost = false };
+    Check("several games: a nrDir copy without its host folder is left out of 32-bit games",
+        P(PlanGame(PlanScan(bits: 32, api: RenderApi.DX11, dlss: false)), Route.NrAddon, c: noHost).Skip?.Contains("dlss5-nr-host") == true);
     Check("several games: ... and of Direct3D 9 games, not of 64-bit DirectX 12 ones",
-        P(PlanGame(PlanScan(api: RenderApi.DX9, dlss: false)), Route.LecramNr, c: noHost).Skip?.Contains("dlss5-nr-host") == true
-        && P(PlanGame(PlanScan()), Route.LecramNr, c: noHost).Request is not null);
-    Check("several games: the game's own lecram copy needs its host folder too",
-        P(PlanGame(PlanScan(bits: 32, api: RenderApi.DX11, dlss: false), lecramInGame: true), Route.LecramNr).Skip?.Contains("dlss5-nr-host") == true);
-    var oldReShade = ctx with { LecramCopy = @"C:\copy", ReShade64Version = "6.6.0.0" };
-    Check("several games: lecram's NR with an older ReShade picked in Settings is said above the list and on each game",
-        P(PlanGame(PlanScan()), Route.LecramNr, c: oldReShade).Skip?.Contains("6.6.0.0") == true
-        && BulkSetup.Blocker(new BulkOptions(Route.LecramNr, nr, true, false), oldReShade)?.Contains("6.8") == true
-        && BulkSetup.Blocker(new BulkOptions(Route.LecramNr, nr, true, false), ctx with { ReShade64Version = "6.8.0.2155" }) is null);
+        P(PlanGame(PlanScan(api: RenderApi.DX9, dlss: false)), Route.NrAddon, c: noHost).Skip?.Contains("dlss5-nr-host") == true
+        && P(PlanGame(PlanScan()), Route.NrAddon, c: noHost).Request is not null);
+    Check("several games: the game's own nrDir copy needs its host folder too",
+        P(PlanGame(PlanScan(bits: 32, api: RenderApi.DX11, dlss: false), nrInGame: true), Route.NrAddon).Skip?.Contains("dlss5-nr-host") == true);
+    var oldReShade = ctx with { NrCopy = @"C:\copy", ReShade64Version = "6.6.0.0" };
+    Check("several games: DLSS5 NR with an older ReShade picked in Settings is said above the list and on each game",
+        P(PlanGame(PlanScan()), Route.NrAddon, c: oldReShade).Skip?.Contains("6.6.0.0") == true
+        && BulkSetup.Blocker(new BulkOptions(Route.NrAddon, nr, true, false), oldReShade)?.Contains("6.8") == true
+        && BulkSetup.Blocker(new BulkOptions(Route.NrAddon, nr, true, false), ctx with { ReShade64Version = "6.8.0.2155" }) is null);
     var keepsOld = new BulkGame
     {
         Entry = new GameEntry { Name = "Plan", Dir = @"C:\games\Plan" }, Scan = PlanScan(),
         ReShadeAfterRestore = new ReShadeState(true, "dxgi.dll", "6.6.1.0", true, false), ReShadeAfterRestoreBits = 64,
     };
-    Check("several games: lecram's NR in a game that keeps its own older ReShade is left out",
-        P(keepsOld, Route.LecramNr, c: ctx with { LecramCopy = @"C:\copy" }).Skip?.Contains("would keep its ReShade 6.6.1.0") == true);
+    Check("several games: DLSS5 NR in a game that keeps its own older ReShade is left out",
+        P(keepsOld, Route.NrAddon, c: ctx with { NrCopy = @"C:\copy" }).Skip?.Contains("would keep its ReShade 6.6.1.0") == true);
     var keepsOld32 = new BulkGame
     {
         Entry = keepsOld.Entry, Scan = PlanScan(bits: 32, api: RenderApi.DX11, dlss: false),
         ReShadeAfterRestore = keepsOld.ReShadeAfterRestore, ReShadeAfterRestoreBits = 64,
     };
     Check("several games: a ReShade of the other bitness is replaced, so its version does not count",
-        P(keepsOld32, Route.LecramNr, c: ctx with { LecramCopy = @"C:\copy" }).Request is not null);
+        P(keepsOld32, Route.NrAddon, c: ctx with { NrCopy = @"C:\copy" }).Request is not null);
 
     var early = new BulkGame { Entry = new GameEntry { Name = "Plan", Dir = @"C:\games\Plan" }, Scan = PlanScan(), Choices = new GameOverride { LoadAddonsEarly = true } };
     Check("several games: the game's Load add-ons early choice goes with it", P(early, Route.Native).Request is { LoadAddonsEarly: true });
-    Check("lecram's NR needs ReShade 6.8: older versions are found, newer and unreadable ones are not",
-        BulkSetup.OlderThanLecramNeeds("6.6.0.0") && BulkSetup.OlderThanLecramNeeds("6.7.3") && !BulkSetup.OlderThanLecramNeeds("6.8.0.2155")
-        && !BulkSetup.OlderThanLecramNeeds("7.0.0") && !BulkSetup.OlderThanLecramNeeds(null) && !BulkSetup.OlderThanLecramNeeds("6.8"));
+    Check("DLSS5 NR needs ReShade 6.8: older versions are found, newer and unreadable ones are not",
+        BulkSetup.OlderThanNrNeeds("6.6.0.0") && BulkSetup.OlderThanNrNeeds("6.7.3") && !BulkSetup.OlderThanNrNeeds("6.8.0.2155")
+        && !BulkSetup.OlderThanNrNeeds("7.0.0") && !BulkSetup.OlderThanNrNeeds(null) && !BulkSetup.OlderThanNrNeeds("6.8"));
 }
 
 // ---------------------------------------------------------------- Set up several games: what a folder holds, and setups end to end
@@ -2002,12 +2196,12 @@ ReinstallSettingsRaceTests.Run(Check);
     Updates.State.Active["renodx-dlss5"] = new ActiveUpdate { Version = "test", Published = DateTime.UtcNow, Path = Path.Combine(ad, "renodx-dlss5.addon64") };
     try
     {
-        // What Read finds beside the exe: the menu key, lecram's add-on, the runtime, and the loaders this app did not add.
+        // What Read finds beside the exe: the menu key, DLSS5 NR's add-on, the runtime, and the loaders this app did not add.
         var probe = Path.Combine(root, "probe");
         var probeBin = Path.Combine(probe, "bin");
         Directory.CreateDirectory(probeBin);
         File.WriteAllText(Path.Combine(probeBin, "OptiScaler.ini"), "[Menu]\r\nShortcutKey=0x70\r\n");
-        File.WriteAllBytes(Path.Combine(probeBin, LecramNr.Addon64), RandomNumberGenerator.GetBytes(256));
+        File.WriteAllBytes(Path.Combine(probeBin, NrAddon.Addon64), RandomNumberGenerator.GetBytes(256));
         File.Copy(pe64, Path.Combine(probeBin, "nvngx_dlssnr.dll"));
         File.Copy(pe64, Path.Combine(probeBin, "dxgi.dll"));
         File.Copy(pe64, Path.Combine(probeBin, "winmm.dll"));
@@ -2018,7 +2212,7 @@ ReinstallSettingsRaceTests.Run(Check);
         };
         var facts = BulkSetup.Read(new GameEntry { Name = "Probe", Dir = probe }, probeScan, null);
         Check("several games: Read finds OptiScaler.ini's menu key", facts.OptiMenuKey == "0x70", facts.OptiMenuKey);
-        Check("several games: Read finds lecram's add-on beside the exe, and that the game holds a copy", facts.LecramAddon == "" && facts.LecramInGame);
+        Check("several games: Read finds DLSS5 NR's add-on beside the exe, and that the game holds a copy", facts.NrAddon == "" && facts.NrInGame);
         Check("several games: Read finds the neural runtime beside the exe", facts.NeuralRuntimeHere);
         Check("several games: Read lists a loader DLL, but not one this app added",
             facts.Loaders.Any(l => l.Name == "dxgi.dll" && !l.ReShade && !l.OptiScaler) && !facts.Loaders.Any(l => l.Name == "winmm.dll"),

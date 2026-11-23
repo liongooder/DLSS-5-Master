@@ -32,6 +32,9 @@ public sealed class GameScan
     public string? OptiScalerHook { get; set; }
     public bool OptiScalerIni { get; set; }
     public List<string> RenoDxAddons { get; set; } = new();
+    /// <summary>Relative path of a NeuralMaster add-on in the primary executable's load locations.</summary>
+    public string? NeuralMasterAddon { get; set; }
+    public string? VulkanFeederUnavailable { get; set; } = ReShadeVulkanLayer.FeederNotAvailable;
     public Manifest? Manifest { get; set; }
     public bool OtherAppBackup { get; set; }
     public string? OtherAppBackupRoute { get; set; }
@@ -48,8 +51,11 @@ public sealed class GameScan
 
     public bool HasFrameGen => Upscalers.Any(u => u.Kind == UpscalerKind.DlssFG && u.Bitness == 64);
 
+    internal string? ExternalFeederRuntime { get; set; }
+
     /// <summary>The game ships DLSS itself (ignoring copies this app added).</summary>
     public bool HasNativeDlss => Upscalers.Any(u => u.Kind == UpscalerKind.DlssSR &&
+        !u.Rel.Equals(ExternalFeederRuntime, StringComparison.OrdinalIgnoreCase) &&
         !(Manifest?.Added.Any(a => a.Equals(u.Rel, StringComparison.OrdinalIgnoreCase)) ?? false));
 }
 
@@ -190,7 +196,7 @@ public static partial class Scanner
         "modmanager", "mod_manager", "modorganizer", "steamerrorreporter", "unrealcefsubprocess", "cefsharp", "cef_", "cefprocess",
         "qtwebengineprocess", "epicwebhelper", "createdump", "7z", "python", "ueprereqsetup", "prereqsetup", "gamelaunchhelper",
         "rockstar-games-launcher", "redprelauncher", "playgtav", "dlss5-feed-host", "dgvoodoocpl", "reshade_setup",
-        "nr-host", // lecram's DLSS5 NR host, in dlss5-nr-host beside the game
+        "nr-host", "gitc-uplift-helper", "uplift-helper",
     };
 
     // BattlEye's launcher is the game's own name with "_BE" (ArkAscended_BE.exe, DayZ_BE.exe).
@@ -576,6 +582,27 @@ public static partial class Scanner
         }
         catch { }
         scan.RenoDxAddons = addons;
+        scan.NeuralMasterAddon = scan.Primary is { } exe ? NeuralMasterSnapshots.FindLoadableAddon(scan.Dir, exe.Path) : null;
+        scan.ExternalFeederRuntime = FindDetroitFeederRuntime(scan, exeDir);
+        scan.VulkanFeederUnavailable = scan.Primary is { Api: RenderApi.Vulkan, Bitness: 32 or 64 } vulkanExe
+            ? ReShadeVulkanLayer.FeederUnavailableReason(vulkanExe.Path) : ReShadeVulkanLayer.FeederNotAvailable;
+    }
+
+    private static string? FindDetroitFeederRuntime(GameScan scan, string exeDir)
+    {
+        // This Detroit executable was scanned without native DLSS. A manual Feeder setup can leave its standalone
+        // SR runtime behind. Match the verified executable and runtime bytes before excluding only that root DLL.
+        if (scan.Primary is not { Api: RenderApi.Vulkan, Bitness: 64 } exe ||
+            !Path.GetFileName(exe.Path).Equals("DetroitBecomeHuman.exe", StringComparison.OrdinalIgnoreCase) ||
+            !File.Exists(Path.Combine(exeDir, "dlss5-feed.cfg"))) return null;
+
+        var runtimePath = Path.Combine(exeDir, "nvngx_dlss.dll");
+        var runtime = scan.Upscalers.FirstOrDefault(u => u.Kind == UpscalerKind.DlssSR &&
+            u.Path.Equals(runtimePath, StringComparison.OrdinalIgnoreCase));
+        return runtime is not null &&
+               Components.HashMatches(exe.Path, "ecf52321921387e683904e089082d76b973326fc093af14e524056715519c1cf") &&
+               Components.HashMatches(runtime.Path, "858ccff96360c3098db9264cd6f13d04a027e09b6ce7ad5bbc297570e824b4f2")
+            ? runtime.Rel : null;
     }
 
     public static bool HasAddonSupport(string file) => Pe.Contains(file, "Searching for add-ons");

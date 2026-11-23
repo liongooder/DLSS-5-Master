@@ -30,15 +30,21 @@ public sealed class GameItem : INotifyPropertyChanged
         {
             // Kept short: it shares the top of the poster with the API badge. The game panel has the full wording.
             if (Scan is null) return "";
+            if (Scan.NeuralMasterAddon is not null)
+                return Scan.Manifest?.MfgUnlock is not null || string.Equals(Scan.Manifest?.Route, "mfgonly", StringComparison.OrdinalIgnoreCase)
+                    ? "NeuralMaster + MFG" : "NeuralMaster";
             if (Scan.Manifest is not null)
             {
+                if (Scan.Manifest.Route.Equals("neuralmaster", StringComparison.OrdinalIgnoreCase))
+                    return Scan.Manifest.MfgUnlock is not null ? "MFG unlock" : "";
                 var route = Scan.Manifest.Route.ToLowerInvariant() switch
                 {
                     "native" => "Native", "multipass" or "renodx" => "Multipass", "feeder" => "Feeder", "optiscaler" => "OptiScaler",
-                    "lecramnr" => AddonIdentity.InstalledName(Entry.Dir, Scan.Manifest),
+                    "nraddon" => AddonIdentity.InstalledName(Entry.Dir, Scan.Manifest), "mfgonly" => "MFG unlock",
+                    "uplift" => "GITC Uplift",
                     var other => other,
                 };
-                return route + (Scan.Manifest.MfgUnlock is not null ? " + MFG" : "");
+                return route + (Scan.Manifest.MfgUnlock is not null && Scan.Manifest.Route != "mfgonly" ? " + MFG" : "");
             }
             if (IsModdedElsewhere) return "Other app";
             return "";
@@ -66,10 +72,12 @@ public sealed class GameItem : INotifyPropertyChanged
     public Visibility FrameGenVisibility => HasFrameGen ? Visibility.Visible : Visibility.Collapsed;
     public Visibility FactsVisibility => Scan is null ? Visibility.Collapsed : Visibility.Visible;
 
-    /// <summary>The DLSS 5 routes (Native, Multipass, Feeder) this game can use.</summary>
+    /// <summary>The DLSS 5 routes this game can use.</summary>
     public List<string> ReadyRoutes => Scan?.Primary is not { } exe ? new()
-        : Installers.RoutesFor(exe.Api, exe.Bitness, Scan.HasNativeDlss, Scan.HasFrameGen)
-            .Where(r => r.Route != Route.OptiScaler && r.Unavailable is null).Select(r => r.Route.ToString()).ToList();
+        : Installers.RoutesFor(exe.Api, exe.Bitness, Scan.HasNativeDlss, Scan.HasFrameGen,
+              vulkanFeederUnavailable: Scan.VulkanFeederUnavailable)
+            .Where(r => r.Route != Route.OptiScaler && r.Unavailable is null)
+            .Select(r => r.Route == Route.Uplift ? "GITC Uplift" : r.Route.ToString()).ToList();
     public bool IsReady => ReadyRoutes.Count > 0;
 
     public bool IsModdedElsewhere => Scan is { Manifest: null } s && (s.OtherAppBackup || s.OtherAppRecord || s.OptiScalerHook is not null || s.ReShade.Installed);

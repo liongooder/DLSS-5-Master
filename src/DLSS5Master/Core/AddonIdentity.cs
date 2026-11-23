@@ -10,7 +10,7 @@ public sealed record AddonIdentity(string Name, string? Version)
     {
         if (folder is not null)
         {
-            foreach (var name in bits == 32 ? new[] { LecramNr.Addon32, LecramNr.Addon64 } : new[] { LecramNr.Addon64, LecramNr.Addon32 })
+            foreach (var name in bits == 32 ? new[] { NrAddon.Addon32, NrAddon.Addon64 } : new[] { NrAddon.Addon64, NrAddon.Addon32 })
             {
                 var file = Path.Combine(folder, name);
                 if (!File.Exists(file)) continue;

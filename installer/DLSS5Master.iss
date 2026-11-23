@@ -57,7 +57,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Excludes: "payload\neuralmaster\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
-Source: "licenses\*"; DestDir: "{app}\licenses"; Flags: ignoreversion
+Source: "licenses\*"; DestDir: "{app}\licenses"; Excludes: "NeuralMaster-*.txt"; Flags: ignoreversion
 
 [InstallDelete]
 ; Remove the retired renderer from an older app installation, never from games.
@@ -81,6 +81,8 @@ Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_9_81-shyvortex.zip"
 Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_9_85-shyvortex.zip"
 ; Updated public add-on bundle replaces the 0.9.86 archive.
 Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_9_86-shyvortex.zip"
+Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_9_90-shyvortex.zip"
+Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_9_91-shyvortex.zip"
 
 [UninstallDelete]
 ; The large caches in the app's data folder (about 1.2 GB on a used install): downloaded add-ons and OptiScaler builds,

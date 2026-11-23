@@ -12,6 +12,8 @@ internal sealed class InstallTransaction : IDisposable
     internal sealed class State
     {
         public string Game { get; set; } = "";
+        public string? Owner { get; set; }
+        public string? OwnerTarget { get; set; }
         public List<Entry> Files { get; set; } = new();
         public List<string> Directories { get; set; } = new();
     }
@@ -22,16 +24,34 @@ internal sealed class InstallTransaction : IDisposable
     internal static string Key(string game) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(game).TrimEnd('\\').ToUpperInvariant())));
     private static string Folder(string game) => Path.Combine(AppPaths.Root, "install-transactions", Key(game));
     internal static bool Pending(string game) => File.Exists(Path.Combine(Folder(game), "pending.json"));
-    internal static InstallTransaction Begin(string game)
+    internal static string? PendingOwner(string game) => ReadPending(game)?.Owner;
+    internal static string? PendingOwnerTarget(string game) => ReadPending(game)?.OwnerTarget;
+
+    private static State? ReadPending(string game)
+    {
+        var path = Path.Combine(Folder(game), "pending.json");
+        if (!File.Exists(path)) return null;
+        return JsonSerializer.Deserialize<State>(File.ReadAllText(path)) ?? throw new InstallException("Unreadable rollback record.");
+    }
+
+    internal static IDisposable AcquireLease(string game) => OpenLease(Folder(game));
+
+    private static FileStream OpenLease(string folder)
+    {
+        Directory.CreateDirectory(folder);
+        return new FileStream(Path.Combine(folder, "operation.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+    }
+
+    internal static InstallTransaction Begin(string game, string? owner = null, string? ownerTarget = null)
     {
         if (Current.Value is not null) throw new InstallException("A file transaction is already running.");
         var folder = Folder(game);
-        Directory.CreateDirectory(folder);
-        var lease = new FileStream(Path.Combine(folder, "operation.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        var lease = OpenLease(folder);
         try
         {
             if (Pending(game)) throw new InstallException("An unfinished file transaction needs recovery before another install.");
-            var t = new InstallTransaction(folder, new State { Game = Path.GetFullPath(game) }, lease);
+            var state = new State { Game = Path.GetFullPath(game), Owner = owner, OwnerTarget = ownerTarget };
+            var t = new InstallTransaction(folder, state, lease);
             t.Save();
             Current.Value = t;
             return t;
@@ -76,7 +96,7 @@ internal sealed class InstallTransaction : IDisposable
         _state.Files.Add(entry);
         Save(); // durable record before the caller writes
     }
-    internal static void Recover(string game)
+    internal static void Recover(string game, string? expectedOwner = null, string? expectedOwnerTarget = null)
     {
         var folder = Folder(game);
         var path = Path.Combine(folder, "pending.json");
@@ -85,6 +105,11 @@ internal sealed class InstallTransaction : IDisposable
         if (!File.Exists(path)) return; // another process may have committed before the lock was acquired
         var state = JsonSerializer.Deserialize<State>(File.ReadAllText(path)) ?? throw new InstallException("Unreadable rollback record.");
         if (!Path.GetFullPath(game).Equals(state.Game, StringComparison.OrdinalIgnoreCase)) throw new InstallException("Rollback record belongs to another folder.");
+        if (!StringComparer.Ordinal.Equals(state.Owner, expectedOwner))
+            throw new InstallException(state.Owner == "neuralmaster" ? "Recover the interrupted operation from the game's NeuralMaster bar first."
+                : "The interrupted operation belongs to another workflow. Recover it there first.");
+        if (!StringComparer.OrdinalIgnoreCase.Equals(state.OwnerTarget, expectedOwnerTarget))
+            throw new InstallException($"The interrupted operation belongs to a different executable: {state.OwnerTarget}");
         new InstallTransaction(folder, state, lease).Rollback();
     }
     internal void Rollback()

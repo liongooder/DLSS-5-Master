@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -7,7 +7,7 @@ namespace DLSS5Master.Core;
 
 public enum Backend { ReShade, OptiScaler }
 
-public enum Route { Native, Multipass, Feeder, OptiScaler, NeuralMaster, LecramNr }
+public enum Route { Native, Multipass, Feeder, OptiScaler, NeuralMaster, NrAddon, MfgOnly, Uplift }
 
 public sealed class InstallRequest
 {
@@ -26,8 +26,11 @@ public sealed class InstallRequest
     public bool LoadAddonsEarly { get; init; }
     public bool AntiCheatAcknowledged { get; init; }
 
-    /// <summary>For the lecram's DLSS5 NR route: the folder of the player's copy (<see cref="LecramNr.Source"/>).</summary>
-    public string? LecramNrSource { get; init; }
+    /// <summary>For the DLSS5 NR route: the folder of the player's copy (<see cref="NrAddon.Source"/>).</summary>
+    public string? NrAddonSource { get; init; }
+
+    // Offline fixtures can supply registered layer candidates without changing the Windows registry.
+    internal IReadOnlyList<string>? VulkanLayerManifests { get; init; }
 }
 
 public sealed record RouteOption(Route Route, string Label, string Description, string? Unavailable);
@@ -53,6 +56,7 @@ public static partial class Installers
     private const string ConsumerAddon = "renodx-dlss5.addon64";
     private const string MultipassAddon = "renodx-dlss.addon64";
     private const string ForwarderDll = "nvngx.dll_dlssnr.dll";
+    private const string UpliftRuntimeFolder = "GITC-Uplift";
 
     // ------------------------------------------------------------------ keys and labels
 
@@ -74,7 +78,9 @@ public static partial class Installers
         Route.Multipass => "multipass",
         Route.Feeder => "feeder",
         Route.NeuralMaster => "neuralmaster",
-        Route.LecramNr => "lecramnr",
+        Route.NrAddon => "nraddon",
+        Route.MfgOnly => "mfgonly",
+        Route.Uplift => "uplift",
         _ => "optiscaler",
     };
 
@@ -97,7 +103,9 @@ public static partial class Installers
             "feeder" => "ReShade · DLSS5 Feeder",
             "optiscaler" => "OptiScaler",
             "neuralmaster" => "NeuralMaster · retired prototype",
-            "lecramnr" => "ReShade · DLSS5 NR (supplied separately)",
+            "nraddon" => "ReShade · DLSS5 NR (supplied separately)",
+            "mfgonly" => "MFG unlock only",
+            "uplift" => "ReShade · GITC Uplift",
             "swap" => "DLL swap only",
             _ => key,
         };
@@ -113,6 +121,25 @@ public static partial class Installers
         return null;
     }
 
+    internal static string? MfgOnlyConflict(string gameDir, string exePath, Manifest? manifest)
+    {
+        if (manifest is null) return null;
+        if (manifest.Route is not ("native" or "multipass" or "feeder" or "nraddon" or "mfgonly" or "swap" or "uplift"))
+            return "MFG unlock needs ReShade add-on support and cannot be added to this setup.";
+        try
+        {
+            var target = Path.GetFullPath(exePath);
+            if (!target.Equals(Journal.SafePath(gameDir, manifest.Exe), StringComparison.OrdinalIgnoreCase))
+                return "Select the executable used by the existing setup to install MFG unlock.";
+            var exeDir = Path.GetDirectoryName(target)!;
+            if (manifest.Route == "uplift" &&
+                !UpliftAddonDirectory(gameDir, exeDir).Equals(exeDir, StringComparison.OrdinalIgnoreCase))
+                return "MFG unlock needs ReShade's add-on folder to be beside this game's executable.";
+            return null;
+        }
+        catch (InstallException ex) { return ex.Message; }
+    }
+
     /// <summary>
     /// Why the Feeder would do nothing in this game, or null. On DirectX 12 it runs DLSS on the game's own device, so it
     /// switches itself off when the game loads DLSS of its own (Like a Dragon: Ishin!); on DirectX 11 it brings its own device.
@@ -122,8 +149,10 @@ public static partial class Installers
             ? "The Feeder stands aside in DirectX 12 games that have DLSS of their own: it switches itself off. Use Native, or set Rendering API to DirectX 11 if the game can run on it."
             : null;
 
-    /// <param name="lecramCopy">The player has a copy of lecram's DLSS5 NR (<see cref="LecramNr.Source"/>): only then is its route offered.</param>
-    public static List<RouteOption> RoutesFor(RenderApi api, int bitness, bool hasNativeDlss, bool hasFrameGen = false, bool lecramCopy = false, string? addonName = null)
+    /// <param name="nrCopy">The player has a copy of DLSS5 NR (<see cref="NrAddon.Source"/>): only then is its route offered.</param>
+    public static List<RouteOption> RoutesFor(RenderApi api, int bitness, bool hasNativeDlss, bool hasFrameGen = false, bool nrCopy = false,
+        string? addonName = null, string? vulkanNrUnavailable = ReShadeVulkanLayer.NotAvailable,
+        string? vulkanFeederUnavailable = ReShadeVulkanLayer.FeederNotAvailable)
     {
         bool x64 = bitness == 64;
         const string need64 = "Needs a 64-bit game.";
@@ -142,10 +171,16 @@ public static partial class Installers
         string? feeder = api switch
         {
             RenderApi.DX11 or RenderApi.DX12 => null,
-            RenderApi.Vulkan => "Vulkan games need a global Vulkan layer for the Feeder; not supported yet.",
+            RenderApi.Vulkan or RenderApi.OpenGL when hasNativeDlss => "The Feeder is offered for Vulkan and OpenGL games without built-in DLSS.",
+            RenderApi.Vulkan or RenderApi.OpenGL when bitness is not (32 or 64) => "Needs a 32-bit or 64-bit game.",
+            RenderApi.Vulkan => vulkanFeederUnavailable,
+            RenderApi.OpenGL => null,
             RenderApi.DX9 or RenderApi.DX8 or RenderApi.DirectDraw => "This API needs the dgVoodoo wrapper for the Feeder; not supported yet.",
-            _ => "Needs a DirectX 11 or 12 game.",
+            _ => "Needs DirectX 11, DirectX 12, Vulkan or OpenGL.",
         };
+        var feederText = "For games without DLSS: shaders compute motion vectors and feed them through ReShade to the neural pass.";
+        if (api == RenderApi.Vulkan)
+            feederText += " Uses the game's registered ReShade Vulkan layer. Turn off NVIDIA Smooth Motion for this game if it is enabled.";
 
         string? opti = !x64 ? need64
             : api is RenderApi.DX11 or RenderApi.DX12 or RenderApi.Vulkan ? null
@@ -156,30 +191,39 @@ public static partial class Installers
             optiText += " The DLSS-NR builds rely on the game's own DLSS, which this game does not ship; use the custom (official) build for upscaling only.";
         var multipassText = "ReShade with the RenoDX DLSS Tool, which runs several neural passes. Streamline is added when the game has none of its own.";
         if (hasFrameGen) multipassText += " The game's DLSS Frame Generation keeps working.";
+        var upliftUnavailable = bitness is not (32 or 64) ? "Needs a 32-bit or 64-bit game." : api switch
+        {
+            RenderApi.DX9 or RenderApi.DX10 or RenderApi.DX11 or RenderApi.DX12 or RenderApi.OpenGL => null,
+            RenderApi.Vulkan => vulkanFeederUnavailable,
+            _ => "Needs DirectX 9–12, Vulkan or OpenGL.",
+        };
 
         var options = new List<RouteOption>
         {
             new(Route.Native, "Native DLSS-NR (RenoDX DLSS5)",
                 "ReShade plus the RenoDX DLSS5 add-on and NVIDIA's neural runtime, working through the game's own DLSS with its real depth and motion. The best fit for DirectX 11 and 12 games that use DLSS.", native),
             new(Route.Multipass, "RenoDX DLSS Tool (multipass)", multipassText, multipass),
-            new(Route.Feeder, "DLSS5 Feeder",
-                "For games without DLSS: shaders compute motion vectors and feed them through ReShade to the neural pass.", feeder),
+            new(Route.Feeder, "DLSS5 Feeder", feederText, feeder),
             new(Route.OptiScaler, "OptiScaler", optiText, opti),
+            new(Route.Uplift, "GITC Uplift",
+                "Neural rendering through ReShade on RTX graphics, with or without the game's own DLSS. In game, open the GITC Uplift tab in ReShade to enable it.", upliftUnavailable),
+            new(Route.MfgOnly, "MFG unlock only",
+                "Installs the MFG unlock with ReShade add-on support, without adding an NR route, neural model or Streamline. Requires a 64-bit DirectX 12 game with DLSS Frame Generation.",
+                MfgUnavailable(api, bitness, hasFrameGen)),
             new(Route.NeuralMaster, "NeuralMaster",
                 "Native game depth and motion → neural passes → Look/HDR. View development status in the NeuralMaster tab.",
                 NeuralMasterDevelopmentPath.BuildStatus),
         };
-        // Its own host runs it in 32-bit, Direct3D 9/10 and OpenGL games. Vulkan needs ReShade's Vulkan layer, installed for
-        // the whole PC, which this app does not do.
-        if (lecramCopy)
-            options.Add(new(Route.LecramNr, AddonIdentity.SafeName(addonName),
+        // Its own host runs it in 32-bit, Direct3D 9/10 and OpenGL games. On Vulkan use a compatible registered layer.
+        if (nrCopy)
+            options.Add(new(Route.NrAddon, AddonIdentity.SafeName(addonName),
                 "Use your own copy of the supported DLSS5 NR add-on with ReShade and NVIDIA’s neural runtime. Select its folder in Settings. " +
                 "The add-on is supplied separately and is not included or downloaded by DLSS 5 Master.",
                 api switch
                 {
                     RenderApi.DX9 or RenderApi.DX10 or RenderApi.DX11 or RenderApi.DX12 or RenderApi.OpenGL => null,
-                    RenderApi.Vulkan => "Vulkan games need ReShade's Vulkan layer, which DLSS 5 Master does not install; lecram's own setup does.",
-                    _ => "Needs a Direct3D 9, 10, 11 or 12 game, or an OpenGL one.",
+                    RenderApi.Vulkan => x64 ? vulkanNrUnavailable : ReShadeVulkanLayer.Need64Bit,
+                    _ => "Needs Direct3D 9, 10, 11, 12, OpenGL or a compatible 64-bit Vulkan setup.",
                 }));
         return options;
     }
@@ -207,12 +251,13 @@ public static partial class Installers
         public string? Consumer { get; init; }
         public string? Multipass { get; init; }
         public Components.FeederPayload? Feeder { get; init; }
+        public Components.UpliftPayload? Uplift { get; init; }
         public string? OptiFolder { get; init; }
         public OptiBuild? Build { get; init; }
         public string? MfgFile { get; init; }
         public NativeMfgProviders? MfgProviders { get; init; }
-        /// <summary>The player's copy of lecram's DLSS5 NR, staged (<see cref="LecramNr.Stage"/>).</summary>
-        public string? LecramNr { get; init; }
+        /// <summary>The player's copy of DLSS5 NR, staged (<see cref="NrAddon.Stage"/>).</summary>
+        public string? NrAddon { get; init; }
         public required GameScan Scan { get; set; }
         public int Bits => Req.Bitness;
         public void Log(string line) => S.Log(line);
@@ -232,6 +277,13 @@ public static partial class Installers
         void Note(string line) { log(line); AppPaths.Log(gameTag + line); }
 
         // ---- 1. preconditions (nothing downloaded or changed yet)
+        NeuralMasterProtection.Check(gameDir, exePath);
+        bool vulkanNr = req.Route == Route.NrAddon && req.Api == RenderApi.Vulkan;
+        bool vulkanLayer = req.Route is (Route.Feeder or Route.Uplift) && req.Api == RenderApi.Vulkan;
+        if (vulkanNr && VulkanNrUnavailable(req, exePath) is { } layerProblem)
+            throw new InstallException(layerProblem);
+        if (vulkanLayer && ReShadeVulkanLayer.FeederUnavailableReason(exePath, req.VulkanLayerManifests) is { } vulkanProblem)
+            throw new InstallException(vulkanProblem);
         if (!Journal.CanWrite(exeDir))
         {
             var hint = exeDir.Contains("Program Files", StringComparison.OrdinalIgnoreCase)
@@ -242,7 +294,7 @@ public static partial class Installers
         // Another tool's install in this game: never overwrite it (both apps would then fight over the same files).
         if (File.Exists(Path.Combine(gameDir, "_DLSS5_Backup", "manifest.json")) || Scanner.OtherAppRecordRouteFor(gameDir) is not null)
             throw new InstallException("Another app has an install in this game. Remove it with that app first, then install with DLSS 5 Master.");
-        if (LecramNr.SetupInstalled(exeDir)) throw new InstallException(LecramNr.SetupInstalledMessage);
+        if (NrAddon.SetupInstalled(exeDir)) throw new InstallException(NrAddon.SetupInstalledMessage(NrAddon.SetupName(exeDir)));
         AssertGameClosed(exePath);
         if (!previewOnly && InstallTransaction.Pending(gameDir))
         {
@@ -252,52 +304,62 @@ public static partial class Installers
 
         progress?.Report("Scanning the game…");
         var scan = await Task.Run(() => Scanner.Scan(gameDir, exePath, ct), ct);
-        if (scan.Manifest?.Route == "neuralmaster") throw new InstallException("NeuralMaster development installations are excluded. Nothing was changed.");
+        if (NeuralMasterProtection.Conflict(scan) is { } neuralMasterConflict)
+            throw new InstallException(neuralMasterConflict);
+        if (req.Route == Route.MfgOnly && MfgOnlyConflict(gameDir, exePath, scan.Manifest) is { } conflict)
+            throw new InstallException(conflict);
         if (scan.AntiCheatName is { } antiCheat && !req.AntiCheatAcknowledged)
             throw new InstallException(AntiCheatWarning(antiCheat) + " Tick the acknowledgement to continue anyway.");
 
-        if (req.Route == Route.LecramNr && !LecramNr.Has(req.LecramNrSource, gameDir, exeDir, Journal.ReadManifest(gameDir)))
-            throw new InstallException($"Your copy of lecram's DLSS5 NR was not found{(req.LecramNrSource is null ? "" : " in " + req.LecramNrSource)}. " +
+        if (req.Route == Route.NrAddon && !NrAddon.Has(req.NrAddonSource, gameDir, exeDir, Journal.ReadManifest(gameDir)))
+            throw new InstallException($"Your copy of DLSS5 NR was not found{(req.NrAddonSource is null ? "" : " in " + req.NrAddonSource)}. " +
                 "Unzip it into DLSS 5 Master's folder for it (Settings → Open folder), or pick its folder in Settings.");
-        var option = RoutesFor(req.Api, req.Bitness, scan.HasNativeDlss, scan.HasFrameGen, lecramCopy: req.Route == Route.LecramNr).First(o => o.Route == req.Route);
+        var option = RoutesFor(req.Api, req.Bitness, scan.HasNativeDlss, scan.HasFrameGen, nrCopy: req.Route == Route.NrAddon,
+            vulkanNrUnavailable: vulkanNr ? null : ReShadeVulkanLayer.NotAvailable,
+            vulkanFeederUnavailable: vulkanLayer ? null : ReShadeVulkanLayer.FeederNotAvailable).First(o => o.Route == req.Route);
         if (option.Unavailable is not null)
             throw new InstallException($"{option.Label} cannot be used here: {option.Unavailable}");
 
-        bool wantMfg = req.MfgUnlock && req.Route != Route.OptiScaler;
+        bool wantMfg = req.Route == Route.MfgOnly || (req.MfgUnlock && req.Route != Route.OptiScaler);
         if (wantMfg && MfgUnavailable(req.Api, req.Bitness, scan.HasFrameGen) is { } mfgWhy)
             throw new InstallException(mfgWhy);
+        if (req.Route == Route.Uplift && wantMfg &&
+            !UpliftAddonDirectory(gameDir, exeDir).Equals(exeDir, StringComparison.OrdinalIgnoreCase))
+            throw new InstallException("MFG unlock needs ReShade's add-on folder to be beside this game's executable.");
 
         bool reshadeRoute = req.Route != Route.OptiScaler;
         var build = req.OptiBuild ?? Components.OptiBuilds[0];
         var runtime = components.RuntimeFiles();
+        if (req.Route == Route.MfgOnly)
+            runtime = runtime.Where(p => p.Key.Equals(FrameGenDll, StringComparison.OrdinalIgnoreCase))
+                .ToDictionary(p => p.Key, p => p.Value, StringComparer.OrdinalIgnoreCase);
 
         // Local prerequisites first, so we do not download anything that could not be used.
-        if (reshadeRoute && !runtime.ContainsKey(NeuralDll))
+        if (reshadeRoute && req.Route != Route.MfgOnly && !runtime.ContainsKey(NeuralDll))
             throw new InstallException($"The NVIDIA neural runtime ({NeuralDll}) was not found. Pick the NVIDIA runtime folder in Settings.");
         if (req.Route == Route.OptiScaler && build.NeuralRendering && !runtime.ContainsKey(NeuralDll) && !File.Exists(Path.Combine(exeDir, NeuralDll)))
             throw new InstallException($"This OptiScaler build needs the NVIDIA neural runtime ({NeuralDll}). Pick the NVIDIA runtime folder in Settings.");
-        if (req.Route == Route.Feeder)
-        {
-            if (req.Api is not (RenderApi.DX11 or RenderApi.DX12))
-                throw new InstallException("The Feeder route supports DirectX 11 and 12 games only in this version.");
-            if (!runtime.ContainsKey(DlssDll))
-                throw new InstallException($"The Feeder route needs {DlssDll} in the NVIDIA runtime folder. Pick it in Settings.");
-        }
+        if (req.Route == Route.Feeder && !runtime.ContainsKey(DlssDll))
+            throw new InstallException($"The Feeder route needs {DlssDll} in the NVIDIA runtime folder. Pick it in Settings.");
         string? reshade = null, reshade64 = null;
         if (reshadeRoute)
         {
-            reshade = components.ReShadeDll(req.Bitness)
-                      ?? throw new InstallException($"No {req.Bitness}-bit ReShade with add-on support was found. Pick a ReShade_Setup_*_Addon.exe in Settings.");
+            if (!vulkanNr && !vulkanLayer)
+                reshade = components.ReShadeDll(req.Bitness)
+                          ?? throw new InstallException($"No {req.Bitness}-bit ReShade with add-on support was found. Pick a ReShade_Setup_*_Addon.exe in Settings.");
             if (req.Route == Route.Feeder && req.Bitness != 64)
                 reshade64 = components.ReShadeDll(64)
                             ?? throw new InstallException("The Feeder's 64-bit helper needs a 64-bit ReShade with add-on support. Pick a ReShade_Setup_*_Addon.exe in Settings.");
         }
         if (req.Route == Route.OptiScaler && build.NeuralRendering && !scan.HasNativeDlss)
             Note("Warning: this game has no DLSS of its own; DLSS-NR OptiScaler builds may not activate.");
+        if (req.Route == Route.Uplift && Pe.GetBitness(runtime[NeuralDll]) != 64)
+            throw new InstallException("GITC Uplift needs the 64-bit NVIDIA neural runtime, including in 32-bit games.");
 
         // ---- 2. fetch everything before touching the game
         string? consumer = null, multipass = null, opti = null, mfg = null;
         Components.FeederPayload? feeder = null;
+        using var uplift = req.Route == Route.Uplift ? await components.UpliftAsync(progress, ct) : null;
         switch (req.Route)
         {
             case Route.Native:
@@ -315,30 +377,54 @@ public static partial class Installers
                 break;
         }
         if (wantMfg)
-            mfg = NativeMfgProviders.KnownWorkingBackend(exeDir, scan.Upscalers)
-                  ?? await components.MfgUnlockAsync(progress, ct);
+            // The selected updated or included component wins. Existing backend
+            // mirrors are replacement targets, never a reason to select old bytes.
+            mfg = await components.MfgUnlockAsync(progress, ct);
         // Capture before RestoreForReinstall: that restore may put older FG
         // files back, and RuntimeFiles() may contain only NR/SR, not an FG DLL.
         using var mfgProviders = wantMfg
             ? NativeMfgProviders.Stage(gameDir, scan.Upscalers, runtime.GetValueOrDefault(FrameGenDll), mfg!, Note, exeDir)
             : null;
         ct.ThrowIfCancellationRequested();
-        // The player's copy of lecram's DLSS5 NR, put aside before the restore below changes the game folder.
-        using var lecram = req.Route == Route.LecramNr
-            ? await Task.Run(() => LecramNr.Stage(req.LecramNrSource!, gameDir, exeDir, Journal.ReadManifest(gameDir)), ct)
+        // The player's copy of DLSS5 NR, put aside before the restore below changes the game folder.
+        using var nrDir = req.Route == Route.NrAddon
+            ? await Task.Run(() => NrAddon.Stage(req.NrAddonSource!, gameDir, exeDir, Journal.ReadManifest(gameDir)), ct)
             : null;
         // Count destination copies and the originals the journal must back up.
         await Task.Run(() => AssertRoom(gameDir, exeDir, scan.Manifest,
             InstallSpaceNeeded(req, scan, runtime, reshade, reshade64, consumer, multipass,
-                feeder, opti, lecram?.Dir, mfgProviders, preview)), ct);
+                feeder, uplift, opti, nrDir?.Dir, mfgProviders, preview)), ct);
         if (previewOnly) return;
 
         using var transaction = InstallTransaction.Begin(gameDir);
         try
         {
+        NeuralMasterProtection.Check(gameDir, exePath);
         // ---- 3. undo an earlier install by this app, keeping the settings the player changed in the game
         var kept = new List<KeptSetting>();
         var old = Journal.ReadManifest(gameDir);
+        if (req.Route == Route.MfgOnly && old is not null)
+        {
+            AssertGameClosed(exePath);
+            if (MfgOnlyConflict(gameDir, exePath, old) is { } changedSetup)
+                throw new InstallException(changedSetup);
+            progress?.Report("Installing MFG unlock…");
+            await Task.Run(() =>
+            {
+                var existing = new Session(gameDir, old, log);
+                var mfgJob = new Job
+                {
+                    Req = req, S = existing, ExeDir = exeDir, Runtime = runtime, ReShade = reshade,
+                    MfgFile = mfgProviders!.BackendPath, MfgProviders = mfgProviders, Scan = scan,
+                };
+                PlaceReShade(mfgJob, feederMode: false);
+                RunMfg(mfgJob);
+                UpdateEarlyAddons(existing, exeDir, req.LoadAddonsEarly, mfgOnly: true);
+                existing.Save();
+            });
+            transaction.Commit();
+            return;
+        }
         if (old is not null)
         {
             // The downloads can take minutes, and ReShade saves its settings while the game runs.
@@ -369,17 +455,16 @@ public static partial class Installers
             session.Manifest.OptiScalerBuild = build.Id;
             session.Manifest.OptiScalerHook = req.OptiHook;
         }
-        if (wantMfg)
+        if (req.Route == Route.NrAddon)
         {
-            // A missing version is still an installed backend with a known hash; keep its settings on reinstall.
-            session.Manifest.MfgUnlock = Pe.GetFileVersion(mfgProviders!.BackendPath) ?? "unknown";
-            session.Manifest.MfgUnlockSha256 = mfgProviders.BackendSha256;
-        }
-        if (req.Route == Route.LecramNr)
-        {
-            var identity = AddonIdentity.Read(lecram?.Dir, req.Bitness);
+            var identity = AddonIdentity.Read(nrDir?.Dir, req.Bitness);
             session.Manifest.AddonName = identity.Name;
             session.Manifest.AddonVersion = identity.Version;
+        }
+        if (req.Route == Route.Uplift)
+        {
+            session.Manifest.AddonName = "GITC Uplift";
+            session.Manifest.AddonVersion = Components.UpliftVersion;
         }
         session.Save();
         await Task.Run(() =>
@@ -390,7 +475,7 @@ public static partial class Installers
             {
                 Req = req, S = session, ExeDir = exeDir, Runtime = runtime,
                 ReShade = reshade, ReShade64 = reshade64, Consumer = consumer, Multipass = multipass,
-                Feeder = feeder, OptiFolder = opti, Build = build, MfgFile = mfgProviders?.BackendPath ?? mfg, MfgProviders = mfgProviders, LecramNr = lecram?.Dir,
+                Feeder = feeder, Uplift = uplift, OptiFolder = opti, Build = build, MfgFile = mfgProviders?.BackendPath ?? mfg, MfgProviders = mfgProviders, NrAddon = nrDir?.Dir,
                 // Fresh look at the folder now that any earlier install is gone.
                 Scan = Scanner.Scan(gameDir, exePath),
             };
@@ -399,12 +484,16 @@ public static partial class Installers
                 case Route.Native: RunRenoDx(job, multipassMode: false); break;
                 case Route.Multipass: RunRenoDx(job, multipassMode: true); break;
                 case Route.Feeder: RunFeeder(job); break;
+                case Route.Uplift: RunUplift(job); break;
                 case Route.OptiScaler: RunOptiScaler(job); break;
-                case Route.LecramNr: RunLecramNr(job); break;
+                case Route.NrAddon: RunNrAddon(job); break;
+                case Route.MfgOnly: PlaceReShade(job, feederMode: false); break;
             }
             if (wantMfg) RunMfg(job);
             // Last, with every add-on in place: ReShade must not be told to load early an add-on that is gone.
-            if (req.Route != Route.OptiScaler) UpdateEarlyAddons(session, exeDir, req.LoadAddonsEarly);
+            if (req.Route != Route.OptiScaler)
+                UpdateEarlyAddons(session, exeDir, req.LoadAddonsEarly, mfgOnly: req.Route == Route.MfgOnly,
+                    addonDir: req.Route == Route.Uplift ? UpliftAddonDirectory(gameDir, exeDir) : null);
             session.Save();
         });
         session.Log($"Done: {RouteLabel(RouteKey(req.Route))} installed. Restore originals undoes every change.");
@@ -433,7 +522,7 @@ public static partial class Installers
         var kept = new List<KeptSetting>();
         var root = Path.GetFullPath(gameDir).TrimEnd('\\', '/');
         var dir = Path.GetFullPath(exeDir).TrimEnd('\\', '/');
-        bool routeBefore = old.Route is "native" or "multipass" or "feeder" or "optiscaler" or "neuralmaster" or "lecramnr";
+        bool routeBefore = old.Route is "native" or "multipass" or "feeder" or "optiscaler" or "neuralmaster" or "nraddon" or "mfgonly" or "uplift";
         string? dirBefore = null;
         try { if (!string.IsNullOrEmpty(old.Exe)) dirBefore = Path.GetDirectoryName(Journal.SafePath(root, old.Exe)); }
         catch (InstallException) { }
@@ -445,15 +534,16 @@ public static partial class Installers
 
         var candidates = new List<string>();
         var routeKey = RouteKey(route);
-        // Native's add-on and lecram's NR keep their settings in the same ReShade.ini section ([RenoDX.DLSS5]).
-        static string Family(string? key) => key == "lecramnr" ? "native" : key ?? "";
+        // Native's add-on and DLSS5 NR keep their settings in the same ReShade.ini section ([RenoDX.DLSS5]).
+        static string Family(string? key) => key == "nraddon" ? "native" : key ?? "";
         if (Family(old.Route) != Family(routeKey))
         {
             if (routeBefore) log($"The route changed from {RouteLabel(old.Route)} to {RouteLabel(routeKey)}, so this setup starts with fresh in-game settings.");
         }
         else if (route == Route.OptiScaler)
         {
-            if (old.OptiScalerBuild == optiBuild) candidates.Add(Path.Combine(dir, "OptiScaler.ini"));
+            if (Components.CurrentOptiBuildId(old.OptiScalerBuild) == Components.CurrentOptiBuildId(optiBuild))
+                candidates.Add(Path.Combine(dir, "OptiScaler.ini"));
         }
         else
         {
@@ -581,12 +671,17 @@ public static partial class Installers
         {
             if (feederMode)
                 throw new InstallException($"ReShade is loaded here as an ASI plugin ({current.File}). The Feeder route needs its own ReShade as {hook}; remove the ASI ReShade first.");
-            if (!current.AddonSupport)
+            if (!current.AddonSupport || job.Req.Route == Route.Uplift &&
+                !UpliftReShadeSupported(Path.Combine(job.ExeDir, current.File!), job.Req.Api))
                 throw new InstallException($"ReShade is loaded here as an ASI plugin ({current.File}) without add-on support. Replace it with the add-on build of ReShade, or remove it.");
             job.Log($"Keeping the existing ReShade ASI ({current.File}); it has add-on support.");
             job.S.Manifest.ReShadeHook = current.File;
             return;
         }
+
+        if ((feederMode || job.Req.Route == Route.Uplift) && job.Req.Api == RenderApi.OpenGL && current.Installed &&
+            !string.Equals(current.File, hook, StringComparison.OrdinalIgnoreCase))
+            throw new InstallException($"ReShade uses {current.File} here. Remove that setup before installing the OpenGL {(feederMode ? "Feeder" : "GITC Uplift")} with {hook}.");
 
         foreach (var name in new[] { "dxgi.dll", "d3d11.dll", "d3d12.dll", "d3d9.dll", "opengl32.dll" })
         {
@@ -599,7 +694,8 @@ public static partial class Installers
         if (current.Installed && current.File is not null)
         {
             var existing = Path.Combine(job.ExeDir, current.File);
-            if (current.AddonSupport && Pe.GetBitness(existing) == job.Bits)
+            if (current.AddonSupport && Pe.GetBitness(existing) == job.Bits &&
+                (job.Req.Route != Route.Uplift || UpliftReShadeSupported(existing, job.Req.Api)))
             {
                 job.Log($"Keeping the existing add-on ReShade {current.Version} ({current.File}).");
                 job.S.Manifest.ReShadeHook = current.File;
@@ -611,6 +707,9 @@ public static partial class Installers
                 job.Log($"Removed {current.File}: a ReShade without add-on support (or of the wrong bitness) cannot load the add-ons.");
             }
         }
+
+        if (job.Req.Route == Route.Uplift && !UpliftReShadeSupported(job.ReShade!, job.Req.Api))
+            throw new InstallException("GITC Uplift needs ReShade with full add-on support. OpenGL needs ReShade 6.8 or newer.");
 
         // ReShade writes these on first launch; tracking them now means Restore removes them later.
         foreach (var f in new[] { "ReShade.ini", "ReShadePreset.ini", "ReShade.log" })
@@ -628,7 +727,7 @@ public static partial class Installers
     }
 
     /// <summary>Take the add-on out of ReShade's DisabledAddons list if the user had switched it off.</summary>
-    private static void EnableAddon(Job job, string dir, string addonFile)
+    private static void EnableAddon(Job job, string dir, string addonFile, string? displayName = null)
     {
         var ini = Path.Combine(dir, "ReShade.ini");
         if (!File.Exists(ini)) return;
@@ -637,7 +736,8 @@ public static partial class Installers
         if (string.IsNullOrEmpty(disabled)) return;
         var stem = AddonStem(addonFile);
         var items = disabled.Split(',').Select(i => i.Trim()).Where(i => i.Length > 0).ToList();
-        var kept = items.Where(i => !i.Equals(stem, StringComparison.OrdinalIgnoreCase) && !i.Equals(addonFile, StringComparison.OrdinalIgnoreCase)).ToList();
+        var kept = items.Where(i => !i.Equals(stem, StringComparison.OrdinalIgnoreCase) &&
+            !i.Equals(addonFile, StringComparison.OrdinalIgnoreCase) && !i.Equals(displayName, StringComparison.OrdinalIgnoreCase)).ToList();
         if (kept.Count == items.Count) return;
         job.S.WriteTracked(ini, Ini.Set(text, "ADDON", "DisabledAddons", string.Join(",", kept)));
         job.Log($"Re-enabled {stem} in {job.S.Rel(ini)}.");
@@ -647,20 +747,21 @@ public static partial class Installers
     /// The DLSS 5 add-ons, this app's and other DLSS 5 tools'. ReShade loads every add-on in its folder, so one that another
     /// install left behind (an older MFG unlock, a second neural add-on, a Feeder) would run alongside this one.
     /// </summary>
-    private static readonly string[] DlssAddonPatterns = { "renodx-dlss*.addon64", "renodx-mfgunlock.addon*", "dlss5-feed*.addon*", "Neuralmaster-nvngx.dll.addon64", "NeuralMaster.addon64" };
+    private static readonly string[] DlssAddonPatterns = { "renodx-dlss*.addon64", "renodx-mfgunlock.addon*", "dlss5-feed*.addon*", "gitc-uplift.addon*", "Neuralmaster-nvngx.dll.addon64", "NeuralMaster.addon64" };
 
     /// <summary>
-    /// Neural rendering add-ons that this app does not install but players add themselves. Next to this app's add-ons they
-    /// stop working or run a second neural pass (GITC Uplift refuses to run beside RenoDX's, Deep Fried Chicken goes idle,
-    /// lecram's v11+ stops beside renodx-dlss5), so a setup sets them aside too. Only for setting aside: the early-load and
-    /// error 1114 handling stays with this app's own add-ons.
+    /// Other neural rendering add-ons, including legacy names. A setup sets these aside to avoid competing passes.
     /// </summary>
     private static readonly (string Pattern, string Name)[] OtherNeuralAddons =
     {
-        ("dlss5-nr*.addon*", "lecram's DLSS5 NR add-on"),
+        ("dlss5-nr*.addon*", "DLSS5 NR add-on"),
         ("gitc-uplift*.addon*", "GITC Uplift"),
+        ("uplift.addon*", "GITC Uplift"),
         ("deep-fried-chicken*.addon*", "Deep Fried Chicken"),
     };
+
+    internal static bool IsOtherNeuralAddon(string name) =>
+        OtherNeuralAddons.Any(addon => System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(addon.Pattern, name, ignoreCase: true));
 
     /// <summary>
     /// Sets aside the DLSS 5 add-ons in <paramref name="dir"/> other than <paramref name="keep"/>: each goes into this
@@ -736,7 +837,7 @@ public static partial class Installers
     /// </summary>
     public static List<string> AddonsToLoadEarly(string gameDir, Manifest? manifest)
     {
-        if (manifest is null || manifest.Route is not ("native" or "multipass" or "feeder" or "neuralmaster" or "lecramnr") || string.IsNullOrEmpty(manifest.Exe)) return new();
+        if (manifest is null || manifest.Route is not ("native" or "multipass" or "feeder" or "neuralmaster" or "nraddon" or "mfgonly" or "uplift") || string.IsNullOrEmpty(manifest.Exe)) return new();
         string? dir;
         try { dir = Path.GetDirectoryName(Journal.SafePath(Path.GetFullPath(gameDir).TrimEnd('\\', '/'), manifest.Exe)); }
         catch (InstallException) { return new(); }
@@ -804,16 +905,20 @@ public static partial class Installers
     /// of add-on files that are gone come off it (ReShade reports "errors loading some add-ons" for each), and with
     /// <paramref name="loadEarly"/> the DLSS 5 add-ons in the folder go on it. Other entries stay. True when ReShade.ini changed.
     /// </summary>
-    internal static bool UpdateEarlyAddons(Session s, string dir, bool loadEarly)
+    internal static bool UpdateEarlyAddons(Session s, string dir, bool loadEarly, bool mfgOnly = false, string? addonDir = null)
     {
         var iniPath = Path.Combine(dir, "ReShade.ini");
         var text = Ini.ReadText(iniPath);
         var listed = SplitList(Ini.Get(text, "ADDON", "LoadFromDllMain"));
-        var gone = listed.Where(n => IsAddonFile(n) && !File.Exists(Path.Combine(dir, n))).ToList();
+        addonDir ??= dir;
+        var gone = mfgOnly ? new List<string>() : listed.Where(n => IsAddonFile(n) && !File.Exists(Path.Combine(addonDir, n))).ToList();
         var kept = listed.Where(n => !gone.Contains(n, StringComparer.OrdinalIgnoreCase)).ToList();
         var added = new List<string>();
-        if (loadEarly && Directory.Exists(dir))
-            foreach (var name in DlssAddonPatterns.SelectMany(p => Directory.EnumerateFiles(dir, p)).Select(Path.GetFileName).OfType<string>()
+        if (loadEarly && Directory.Exists(addonDir))
+            foreach (var name in (mfgOnly ? new[] { Components.MfgAddon } : DlssAddonPatterns)
+                         .SelectMany(p => Directory.EnumerateFiles(addonDir, p)).Select(Path.GetFileName).OfType<string>()
+                         .Where(n => !n.StartsWith("gitc-uplift.addon", StringComparison.OrdinalIgnoreCase) ||
+                                     n.Equals($"gitc-uplift.addon{s.Manifest.Bitness}", StringComparison.OrdinalIgnoreCase))
                          .Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase))
                 if (!kept.Contains(name, StringComparer.OrdinalIgnoreCase)) { kept.Add(name); added.Add(name); }
         if (gone.Count == 0 && added.Count == 0) return false;
@@ -831,13 +936,16 @@ public static partial class Installers
     /// </summary>
     public static void LoadAddonsEarly(string gameDir, Action<string> log)
     {
+        NeuralMasterProtection.Check(gameDir, null);
         var manifest = Journal.ReadManifest(gameDir) ?? throw new InstallException("Set up DLSS 5 in this game first.");
         if (string.IsNullOrEmpty(manifest.Exe)) throw new InstallException("The install record names no game executable.");
         var s = new Session(gameDir, manifest, log);
         var exe = Journal.SafePath(s.GameDir, manifest.Exe);
         // ReShade saves ReShade.ini while the game runs, which would undo the change.
         AssertGameClosed(exe);
-        if (!UpdateEarlyAddons(s, Path.GetDirectoryName(exe)!, loadEarly: true))
+        var dir = Path.GetDirectoryName(exe)!;
+        if (!UpdateEarlyAddons(s, dir, loadEarly: true,
+            addonDir: manifest.Route == "uplift" ? UpliftAddonDirectory(s.GameDir, dir) : null))
             s.Log("ReShade.ini already loads the DLSS 5 add-ons as soon as ReShade starts.");
         s.Save();
     }
@@ -893,42 +1001,140 @@ public static partial class Installers
         job.Log($"Added {job.S.Rel(dest)} {srcVersion}.");
     }
 
-    // ------------------------------------------------------------------ lecram's DLSS5 NR (the player's copy)
+    // ------------------------------------------------------------------ DLSS5 NR (the player's copy)
 
-    private static void RunLecramNr(Job job)
+    private static string? VulkanNrUnavailable(InstallRequest request, string exePath) => request.Bitness == 64
+        ? ReShadeVulkanLayer.UnavailableReason(exePath, request.VulkanLayerManifests)
+        : ReShadeVulkanLayer.Need64Bit;
+
+    private static void RunNrAddon(Job job)
     {
         var bits = job.Bits;
-        var src = job.LecramNr!;
-        FixOldCompiler(job);
+        var src = job.NrAddon!;
+        bool vulkan = job.Req.Api == RenderApi.Vulkan;
+        if (vulkan)
+        {
+            AssertGameClosed(job.Req.ExePath);
+            if (VulkanNrUnavailable(job.Req, job.Req.ExePath) is { } layerProblem)
+                throw new InstallException(layerProblem);
+        }
+        else FixOldCompiler(job);
 
         foreach (var u in job.Scan.Upscalers.Where(u => u.Kind is UpscalerKind.DlssSR or UpscalerKind.DlssNR && u.Bitness == bits).ToList())
             if (job.Runtime.TryGetValue(u.Name, out var dll)) PlaceRuntime(job, dll, u.Path, bits);
         // NR runs 64-bit in every game (32-bit ones through its host) and looks for its runtime beside the game's exe.
         PlaceRuntime(job, job.Runtime[NeuralDll], Path.Combine(job.ExeDir, NeuralDll), 64);
 
-        SetAsideOtherAddons(job.S, job.ExeDir, LecramNr.Addon64, LecramNr.Addon32, job.MfgFile is null ? null : Components.MfgAddon);
+        SetAsideOtherAddons(job.S, job.ExeDir, NrAddon.Addon64, NrAddon.Addon32, job.MfgFile is null ? null : Components.MfgAddon);
         SetAsideConsumerCopies(job);
-        foreach (var addon in new[] { LecramNr.Addon64, LecramNr.Addon32 })
+        foreach (var addon in new[] { NrAddon.Addon64, NrAddon.Addon32 })
             if (File.Exists(Path.Combine(src, addon))) job.S.CopyTracked(Path.Combine(src, addon), Path.Combine(job.ExeDir, addon), "addon");
-        if (Directory.Exists(Path.Combine(src, LecramNr.HostFolder)))
-            job.S.CopyTreeTracked(Path.Combine(src, LecramNr.HostFolder), Path.Combine(job.ExeDir, LecramNr.HostFolder), "addon");
+        if (Directory.Exists(Path.Combine(src, NrAddon.HostFolder)))
+            job.S.CopyTreeTracked(Path.Combine(src, NrAddon.HostFolder), Path.Combine(job.ExeDir, NrAddon.HostFolder), "addon");
         else if (bits != 64 || job.Req.Api is RenderApi.DX9 or RenderApi.DX10 or RenderApi.OpenGL)
-            job.Log($"Your copy has no {LecramNr.HostFolder} folder: NR needs its host in this game, so it will not start. Pick the whole unzipped add-on folder in Settings.");
-        job.Log($"Added your copy of lecram's DLSS5 NR {LecramNr.Version(src) ?? ""}".TrimEnd() + ".");
+            job.Log($"Your copy has no {NrAddon.HostFolder} folder: NR needs its host in this game, so it will not start. Pick the whole unzipped add-on folder in Settings.");
+        job.Log($"Added your copy of DLSS5 NR {NrAddon.Version(src) ?? ""}".TrimEnd() + ".");
 
-        PlaceReShade(job, feederMode: false);
-        var reshade = Scanner.InspectReShade(job.ExeDir);
-        if (reshade.Installed && BulkSetup.OlderThanLecramNeeds(reshade.Version))
-            job.Log($"lecram's DLSS5 NR needs ReShade 6.8 or newer, and this game keeps ReShade {reshade.Version}. Remove that ReShade, then reinstall.");
-        EnableAddon(job, job.ExeDir, bits == 64 ? LecramNr.Addon64 : LecramNr.Addon32);
+        if (vulkan)
+        {
+            UseRegisteredVulkanLayer(job);
+            job.Log("Choose Present in the NR panel if needed.");
+        }
+        else
+        {
+            PlaceReShade(job, feederMode: false);
+            var reshade = Scanner.InspectReShade(job.ExeDir);
+            if (reshade.Installed && BulkSetup.OlderThanNrNeeds(reshade.Version))
+                job.Log($"DLSS5 NR needs ReShade 6.8 or newer, and this game keeps ReShade {reshade.Version}. Remove that ReShade, then reinstall.");
+        }
+        EnableAddon(job, job.ExeDir, bits == 64 ? NrAddon.Addon64 : NrAddon.Addon32);
         RemoveFeedTechnique(job);
         if (!job.Scan.Upscalers.Any(u => u.Kind == UpscalerKind.DlssSR && u.Bitness == bits))
-            job.Log("The game has no DLSS of its own: NR takes DLSS Super Resolution from the NVIDIA driver's store, or from the storage lecram's setup fills.");
+            job.Log("The game has no DLSS of its own: NR takes DLSS Super Resolution from the NVIDIA driver's store, or from the storage DLSS5 NR's setup fills.");
         job.Log("In game, Home opens NR's panel and Shift+Home opens ReShade.");
     }
 
+    private static void UseRegisteredVulkanLayer(Job job)
+    {
+        var ini = Path.Combine(job.ExeDir, "ReShade.ini");
+        if (!File.Exists(ini))
+            job.S.WriteTracked(ini, "[ADDON]\r\nAddonPath=.\\\r\n");
+        // Track runtime-created files only if they were absent when this setup started.
+        foreach (var name in new[] { "ReShadePreset.ini", "ReShade.log" })
+        {
+            var path = Path.Combine(job.ExeDir, name);
+            if (!File.Exists(path)) job.S.TrackBeforeWrite(path, "reshade");
+        }
+        job.Log("Using this game's registered ReShade Vulkan layer.");
+    }
+
+    private static bool UpliftReShadeSupported(string file, RenderApi api)
+    {
+        if (!Scanner.HasAddonSupport(file) ||
+            Pe.Contains(file, "because this build of ReShade has only limited add-on functionality")) return false;
+        if (api != RenderApi.OpenGL) return true;
+        var version = Pe.GetFileVersion(file);
+        return Scanner.IsVersion(version) && Scanner.CompareVersions(version, "6.8.0") >= 0;
+    }
+
+    private static string UpliftAddonDirectory(string gameDir, string exeDir)
+    {
+        string dir;
+        try
+        {
+            var configured = Ini.Get(Ini.ReadText(Path.Combine(exeDir, "ReShade.ini")), "ADDON", "AddonPath")?.Trim('"');
+            dir = string.IsNullOrWhiteSpace(configured) ? exeDir :
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(configured, exeDir));
+        }
+        catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException)
+        {
+            throw new InstallException("ReShade's AddonPath is invalid.");
+        }
+        var backup = Journal.BackupRoot(gameDir);
+        if (dir.Equals(backup, StringComparison.OrdinalIgnoreCase) ||
+            dir.StartsWith(backup + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            throw new InstallException("ReShade's AddonPath points into this game's backup folder.");
+        InstallTransaction.CheckPath(gameDir, Path.Combine(dir, "gitc-uplift.addon64"));
+        return dir;
+    }
+
+    private static void RunUplift(Job job)
+    {
+        var req = job.Req;
+        AssertGameClosed(req.ExePath);
+        if (req.Api == RenderApi.Vulkan)
+        {
+            if (ReShadeVulkanLayer.FeederUnavailableReason(req.ExePath, req.VulkanLayerManifests) is { } problem)
+                throw new InstallException(problem);
+            UseRegisteredVulkanLayer(job);
+        }
+        else
+            PlaceReShade(job, feederMode: false);
+
+        var addonDir = UpliftAddonDirectory(job.S.GameDir, job.ExeDir);
+        if (job.MfgFile is not null && !addonDir.Equals(job.ExeDir, StringComparison.OrdinalIgnoreCase))
+            throw new InstallException("MFG unlock needs ReShade's add-on folder to be beside this game's executable.");
+        var payload = job.Uplift!;
+        SetAsideOtherAddons(job.S, addonDir, "gitc-uplift.addon32", "gitc-uplift.addon64",
+            job.MfgFile is null ? null : Components.MfgAddon);
+        var legacyHelper = Path.Combine(addonDir, "uplift-helper64.exe");
+        if (File.Exists(legacyHelper)) job.S.DeleteTracked(legacyHelper, "addon");
+        job.S.CopyTreeTracked(payload.AddonDirectory, addonDir, "addon");
+        job.S.CopyTracked(job.Runtime[NeuralDll], Path.Combine(addonDir, UpliftRuntimeFolder, NeuralDll), "runtime");
+        job.S.CopyTreeTracked(payload.ShaderDirectory, Path.Combine(job.ExeDir, "reshade-shaders", "Shaders"), "shaders");
+
+        var iniPath = Path.Combine(job.ExeDir, "ReShade.ini");
+        var ini = Ini.ReadText(iniPath);
+        ini = Ini.Set(ini, "GENERAL", "EffectSearchPaths",
+            MergeSearchPaths(Ini.Get(ini, "GENERAL", "EffectSearchPaths"), @".\reshade-shaders\Shaders\**"));
+        job.S.WriteTracked(iniPath, ini);
+        EnableAddon(job, job.ExeDir, $"gitc-uplift.addon{job.Bits}", "GITC Uplift");
+        RemoveFeedTechnique(job);
+        job.Log($"Added GITC Uplift {Components.UpliftVersion}. In game, open ReShade (Home), select GITC Uplift and turn on Enable.");
+    }
+
     /// <summary>
-    /// Takes the Feeder's DLSS5_Feed technique off the game's ReShade preset (Techniques and TechniqueSorting): lecram's NR finds
+    /// Takes the Feeder's DLSS5_Feed technique off the game's ReShade preset (Techniques and TechniqueSorting): DLSS5 NR finds
     /// depth and motion itself, and its INSTALL.txt asks for the technique to go. Other techniques stay; a preset outside the
     /// game is shared with other games and is left as it is.
     /// </summary>
@@ -947,11 +1153,11 @@ public static partial class Installers
         }
         if (changed == text) return;
         job.S.WriteTracked(preset, ToCrlf(changed));
-        job.Log($"Took the Feeder's DLSS5_Feed technique off {job.S.Rel(preset)}: lecram's NR finds depth and motion itself.");
+        job.Log($"Took the Feeder's DLSS5_Feed technique off {job.S.Rel(preset)}: DLSS5 NR finds depth and motion itself.");
     }
 
     /// <summary>
-    /// Sets aside the RenoDX DLSS5 add-on wherever else it is in the game: lecram's NR switches itself off when it finds one
+    /// Sets aside the RenoDX DLSS5 add-on wherever else it is in the game: DLSS5 NR switches itself off when it finds one
     /// anywhere there ("two NR add-ons are loaded"), mirror folders included (Onimusha: Way of the Sword's _storage_).
     /// </summary>
     private static void SetAsideConsumerCopies(Job job)
@@ -962,7 +1168,7 @@ public static partial class Installers
         {
             if (f.StartsWith(backup, StringComparison.OrdinalIgnoreCase)) continue;
             job.S.DeleteTracked(f, "addon");
-            job.Log($"Set aside {job.S.Rel(f)}: lecram's NR switches itself off while the RenoDX DLSS5 add-on is anywhere in the game. Restore originals puts it back.");
+            job.Log($"Set aside {job.S.Rel(f)}: DLSS5 NR switches itself off while the RenoDX DLSS5 add-on is anywhere in the game. Restore originals puts it back.");
         }
     }
 
@@ -1022,7 +1228,8 @@ public static partial class Installers
 
     // ------------------------------------------------------------------ Feeder
 
-    private static readonly string[] FeedTechniques = { "vort_MotionEffects@vort_Motion.fx", "DLSS5_Feed@DLSS5_Feed.fx" };
+    private const string FeedTechnique = "DLSS5_Feed@DLSS5_Feed.fx";
+    private const string VortTechnique = "vort_MotionEffects@vort_Motion.fx";
     private static readonly HashSet<string> ReplacedTechniqueNames = new(StringComparer.OrdinalIgnoreCase)
     { "Lumenite_Kernel", "Lumenite_QuantMotion", "vort_MotionEffects", "DLSS5_Feed", "Launchpad" };
 
@@ -1038,11 +1245,20 @@ public static partial class Installers
         var req = job.Req;
         var payload = job.Feeder!;
         bool x64 = job.Bits == 64;
-        if (req.Api is not (RenderApi.DX11 or RenderApi.DX12))
-            throw new InstallException("The Feeder route supports DirectX 11 and 12 games only in this version.");
-
-        FixOldCompiler(job);
-        PlaceReShade(job, feederMode: true);
+        bool builtInMotion = req.Api == RenderApi.OpenGL;
+        if (req.Api == RenderApi.Vulkan)
+        {
+            AssertGameClosed(req.ExePath);
+            if (ReShadeVulkanLayer.FeederUnavailableReason(req.ExePath, req.VulkanLayerManifests) is { } layerProblem)
+                throw new InstallException(layerProblem);
+            UseRegisteredVulkanLayer(job);
+        }
+        else
+        {
+            if (req.Api is RenderApi.DX11 or RenderApi.DX12) FixOldCompiler(job);
+            PlaceReShade(job, feederMode: true);
+        }
+        job.S.TrackBeforeWrite(Path.Combine(job.ExeDir, "dlss5-feed.log"), "tool");
 
         var feedName = x64 ? "dlss5-feed.addon64" : "dlss5-feed.addon32";
         job.S.CopyTracked(x64 ? payload.Addon64 : payload.Addon32, Path.Combine(job.ExeDir, feedName), "addon");
@@ -1064,7 +1280,7 @@ public static partial class Installers
         }
         ini = Ini.Set(ini, "GENERAL", "StartupPresetPath", "");
         ini = Ini.Set(ini, "GENERAL", "NoReloadOnInit", "0");
-        ini = Ini.Set(ini, "GENERAL", "PreprocessorDefinitions", EnsureMvProvider(Ini.Get(ini, "GENERAL", "PreprocessorDefinitions")));
+        ini = Ini.Set(ini, "GENERAL", "PreprocessorDefinitions", EnsureMvProvider(Ini.Get(ini, "GENERAL", "PreprocessorDefinitions"), builtInMotion));
         ini = Ini.Set(ini, "ADDON", "AddonPath", @".\");
         if (x64) ini = ApplyConsumerSettings(ini, helper: false);
 
@@ -1080,10 +1296,10 @@ public static partial class Installers
 
         // Preset: Feeder techniques first, then the user's own.
         var preset = ToCrlf(Ini.ReadText(presetFile));
-        preset = Ini.Set(preset, "", "Techniques", MergeTechniques(Ini.Get(preset, "", "Techniques")));
-        preset = Ini.Set(preset, "", "TechniqueSorting", MergeTechniques(Ini.Get(preset, "", "TechniqueSorting")));
-        preset = Ini.Set(preset, "", "PreprocessorDefinitions", EnsureMvProvider(Ini.Get(preset, "", "PreprocessorDefinitions")));
-        preset = Ini.Set(preset, "DLSS5_Feed.fx", "PreprocessorDefinitions", EnsureMvProvider(Ini.Get(preset, "DLSS5_Feed.fx", "PreprocessorDefinitions")));
+        preset = Ini.Set(preset, "", "Techniques", MergeTechniques(Ini.Get(preset, "", "Techniques"), builtInMotion));
+        preset = Ini.Set(preset, "", "TechniqueSorting", MergeTechniques(Ini.Get(preset, "", "TechniqueSorting"), builtInMotion));
+        preset = Ini.Set(preset, "", "PreprocessorDefinitions", EnsureMvProvider(Ini.Get(preset, "", "PreprocessorDefinitions"), builtInMotion));
+        preset = Ini.Set(preset, "DLSS5_Feed.fx", "PreprocessorDefinitions", EnsureMvProvider(Ini.Get(preset, "DLSS5_Feed.fx", "PreprocessorDefinitions"), builtInMotion));
         job.S.WriteTracked(presetFile, ToCrlf(preset));
         job.Log($"Configured ReShade.ini and {job.S.Rel(presetFile)} for the Feeder.");
 
@@ -1113,7 +1329,8 @@ public static partial class Installers
 
         EnableAddon(job, job.ExeDir, feedName);
         EnableAddon(job, hostDir, ConsumerAddon);
-        job.Log("In the ReShade overlay, enable DLSS5_Feed and vort_MotionEffects.");
+        job.Log(builtInMotion ? "OpenGL uses the Feeder's built-in motion vectors. Press Alt+C to open Feeder settings."
+            : "In the ReShade overlay, enable DLSS5_Feed and vort_MotionEffects.");
     }
 
     /// <summary>
@@ -1175,9 +1392,9 @@ public static partial class Installers
         return string.Join(",", result);
     }
 
-    internal static string EnsureMvProvider(string? current)
+    internal static string EnsureMvProvider(string? current, bool builtInMotion = false)
     {
-        var result = new List<string> { "DLSS5_MV_PROVIDER=2" };
+        var result = new List<string> { builtInMotion ? "DLSS5_MV_PROVIDER=5" : "DLSS5_MV_PROVIDER=2" };
         foreach (var item in SplitList(current))
         {
             var name = item.Split('=')[0].Trim();
@@ -1187,9 +1404,9 @@ public static partial class Installers
         return string.Join(",", result);
     }
 
-    internal static string MergeTechniques(string? current)
+    internal static string MergeTechniques(string? current, bool builtInMotion = false)
     {
-        var result = new List<string>(FeedTechniques);
+        var result = builtInMotion ? new List<string> { FeedTechnique } : new List<string> { VortTechnique, FeedTechnique };
         foreach (var item in SplitList(current))
         {
             var name = item.Split('@')[0].Trim();
@@ -1357,6 +1574,12 @@ public static partial class Installers
 
     private static void RunMfg(Job job)
     {
+        job.S.Manifest.MfgUnlock = Pe.GetFileVersion(job.MfgFile!) ?? "unknown";
+        job.S.Manifest.MfgUnlockSha256 = job.MfgProviders!.BackendSha256;
+        // Record settings before the add-on creates or changes them in game.
+        // Restore must not depend on NTFS creation times (which can be reused).
+        foreach (var name in new[] { "MFGAdaUnlock.ini", "MFGAdaUnlock.profiles.json" })
+            job.S.TrackBeforeWrite(Path.Combine(job.ExeDir, name), "settings");
         job.S.CopyTracked(job.MfgFile!, Path.Combine(job.ExeDir, Components.MfgAddon), "addon");
         job.Log($"Added the MFG unlock add-on {job.S.Manifest.MfgUnlock}.");
 
@@ -1380,13 +1603,15 @@ public static partial class Installers
 
     public static Task RestoreAsync(string gameDir, string? exePath, Action<string> log) => Task.Run(() =>
     {
+        NeuralMasterProtection.Check(gameDir, exePath);
         if (!string.IsNullOrWhiteSpace(exePath)) AssertGameClosed(exePath);
-        if (LecramSetupAfterUs(gameDir)) throw new InstallException(LecramNr.SetupAfterUsMessage);
-        if (Journal.ReadManifest(gameDir)?.Route == "neuralmaster") throw new InstallException("NeuralMaster development installations are excluded.");
+        if (NrSetupAfterUs(gameDir))
+            throw new InstallException(NrAddon.SetupAfterUsMessage(Journal.ReadManifest(gameDir) is { } m ? AddonIdentity.InstalledName(gameDir, m) : "DLSS5 NR"));
         if (InstallTransaction.Pending(gameDir)) InstallTransaction.Recover(gameDir);
         using var transaction = InstallTransaction.Begin(gameDir);
         try
         {
+            NeuralMasterProtection.Check(gameDir, exePath);
             if (Journal.ReadManifest(gameDir) is { } old) RouteProfiles.Save(gameDir, old, log);
             if (!Session.Restore(gameDir, log)) log("Nothing to restore: DLSS 5 Master has no install record in this game.");
             transaction.Commit();
@@ -1395,18 +1620,18 @@ public static partial class Installers
     });
 
     /// <summary>
-    /// lecram's own setup installed NR in the game after this app's install: its record then names this app's files as the
+    /// DLSS5 NR's own setup installed NR in the game after this app's install: its record then names this app's files as the
     /// originals it puts back, so a restore here first would leave its Remove NR putting them back again.
     /// </summary>
-    public static bool LecramSetupAfterUs(string gameDir)
+    public static bool NrSetupAfterUs(string gameDir)
     {
         try
         {
             if (Journal.ReadManifest(gameDir) is not { Exe.Length: > 0 } m) return false;
             var exeDir = Path.GetDirectoryName(Journal.SafePath(Path.GetFullPath(gameDir).TrimEnd('\\', '/'), m.Exe));
-            if (exeDir is null || !LecramNr.SetupInstalled(exeDir)) return false;
+            if (exeDir is null || !NrAddon.SetupInstalled(exeDir)) return false;
             var ours = m.Date.Kind == DateTimeKind.Local ? m.Date.ToUniversalTime() : m.Date;
-            return File.GetLastWriteTimeUtc(LecramNr.SetupRecord(exeDir)) > ours;
+            return File.GetLastWriteTimeUtc(NrAddon.SetupRecord(exeDir)) > ours;
         }
         catch (InstallException) { return false; }
     }
@@ -1485,6 +1710,7 @@ public static partial class Installers
 
     public static void SetOptiMenuKey(string gameDir, string exeDir, string code, Action<string> log)
     {
+        NeuralMasterProtection.Check(gameDir, Path.Combine(exeDir, "game.exe"));
         var iniPath = Path.Combine(exeDir, "OptiScaler.ini");
         if (!File.Exists(iniPath)) throw new InstallException("OptiScaler.ini was not found next to the game. Install OptiScaler first.");
         var text = Ini.Set(Ini.ReadText(iniPath), "Menu", "ShortcutKey", code);
@@ -1507,6 +1733,7 @@ public static partial class Installers
 
     public static void SwapDll(string gameDir, string exePath, UpscalerFile target, string source, Action<string> log)
     {
+        NeuralMasterProtection.Check(gameDir, exePath);
         AssertGameClosed(exePath);
         if (!Path.GetFileName(source).Equals(target.Name, StringComparison.OrdinalIgnoreCase))
             throw new InstallException($"{Path.GetFileName(source)} cannot replace {target.Name}: the file names differ.");

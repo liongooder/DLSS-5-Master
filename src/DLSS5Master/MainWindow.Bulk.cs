@@ -29,9 +29,11 @@ public sealed partial class MainWindow
     {
         Route.Native => "ReShade with the game's own DLSS: 64-bit DirectX 11 and 12 games that ship DLSS.",
         Route.Multipass => "ReShade with the RenoDX DLSS Tool: 64-bit DirectX 9, 11 and 12 games.",
-        Route.Feeder => "ReShade with motion worked out by shaders, for games without DLSS: DirectX 11 and 12.",
+        Route.Feeder => "ReShade with estimated motion for games without DLSS. Supports DirectX 11, DirectX 12, OpenGL and Vulkan with a registered ReShade layer.",
+        Route.Uplift => "Neural rendering through ReShade. Supports DirectX 9–12, OpenGL and Vulkan with a registered ReShade layer.",
         Route.OptiScaler => "OptiScaler on its own, without ReShade: 64-bit DirectX 11, 12 and Vulkan games.",
-        _ => "Locally supplied add-on with ReShade: Direct3D 9 to 12 and OpenGL games. Uses the folder or ZIP imported in Settings.",
+        Route.MfgOnly => "MFG unlock with ReShade only: 64-bit DirectX 12 games with DLSS Frame Generation. No NR route is added.",
+        _ => "Locally supplied add-on with ReShade. Supports Direct3D 9 to 12, OpenGL and 64-bit Vulkan with a registered ReShade layer.",
     };
 
     /// <summary>The drive a folder is on ("D:"), for "the drive is full".</summary>
@@ -114,12 +116,12 @@ public sealed partial class MainWindow
     {
         var itemOf = new Dictionary<BulkGame, GameItem>();
         for (int n = 0; n < games.Count; n++) itemOf[games[n]] = items[n];
-        var labels = Installers.RoutesFor(RenderApi.DX12, 64, hasNativeDlss: true, hasFrameGen: true, lecramCopy: true, addonName: AddonIdentity.Read(context.LecramCopy).Name)
+        var labels = Installers.RoutesFor(RenderApi.DX12, 64, hasNativeDlss: true, hasFrameGen: true, nrCopy: true, addonName: AddonIdentity.Read(context.NrCopy).Name)
             .ToDictionary(r => r.Route, r => r.Label);
         string LabelOf(Route r) => labels.TryGetValue(r, out var l) ? l : r.ToString();
-        // lecram's NR only with a copy of it, as on a game's page.
-        bool lecramOffered = context.LecramCopy is not null || games.Any(g => g.LecramInGame);
-        var routes = BulkSetup.Routes.Where(r => r != Route.LecramNr || lecramOffered).ToList();
+        // DLSS5 NR only with a copy of it, as on a game's page.
+        bool nrOffered = context.NrCopy is not null || games.Any(g => g.NrInGame);
+        var routes = BulkSetup.Routes.Where(r => r != Route.NrAddon || nrOffered).ToList();
         var builds = Components.AllOptiBuilds;
 
         Route? route = null;
@@ -339,7 +341,7 @@ public sealed partial class MainWindow
                     : waiting == 0 ? $"Fits {GameCount(fit)}."
                     : $"Fits {GameCount(fit)}, and {waiting} more set up already.");
             }
-            mfgPanel.Visibility = route is { } shown && shown != Route.OptiScaler ? Visibility.Visible : Visibility.Collapsed;
+            mfgPanel.Visibility = route is { } shown && shown is not (Route.OptiScaler or Route.MfgOnly) ? Visibility.Visible : Visibility.Collapsed;
             buildPanel.Visibility = route == Route.OptiScaler ? Visibility.Visible : Visibility.Collapsed;
             gamesPanel.Children.Clear();
             leftPanel.Children.Clear();
@@ -352,7 +354,8 @@ public sealed partial class MainWindow
             }
             var o = OptionsFor(rt);
             rows = BulkSetup.Plan(games, o, context);
-            int setUp = (o.Again ? rows : BulkSetup.Plan(games, o with { Again = true }, context)).Count(p => p.Reinstall && p.Request is not null);
+            var includingReinstalls = o.Again ? rows : BulkSetup.Plan(games, o with { Again = true }, context);
+            int setUp = includingReinstalls.Count(p => p.Reinstall && p.Request is not null);
             againText.Text = setUp switch
             {
                 0 => "Also set up again the games DLSS 5 Master has set up already (this route fits none of them)",
@@ -360,7 +363,8 @@ public sealed partial class MainWindow
                 _ => $"Also set up again the {setUp} games DLSS 5 Master has set up already",
             };
             againBox.Visibility = setUp > 0 || againBox.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
-            var block = BulkSetup.Blocker(o, context);
+            bool usesVulkanLayer = includingReinstalls.Any(row => row.Request is { Route: Route.NrAddon or Route.Feeder or Route.Uplift, Api: RenderApi.Vulkan });
+            var block = BulkSetup.Blocker(o, context, usesVulkanLayer);
             blocker.Message = block ?? "";
             blocker.IsOpen = block is not null;
 
@@ -423,7 +427,7 @@ public sealed partial class MainWindow
             int done = 0, failed = 0, left = 0, notStarted = 0;
             try
             {
-                // The runtime, ReShade or lecram copy picked in Settings while this was open changes what fits.
+                // The runtime, ReShade or NR copy picked in Settings while this was open changes what fits.
                 BulkContext fresh;
                 try { fresh = await Task.Run(() => BulkContext.Read(_settings, _components)); }
                 catch (Exception ex)

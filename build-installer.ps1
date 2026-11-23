@@ -14,7 +14,7 @@ $root = $PSScriptRoot
 $project = Join-Path $root 'src\DLSS5Master\DLSS5Master.csproj'
 $publish = Join-Path $root 'publish'
 
-# lecram's DLSS5 NR (version 11 and later) is a paid add-on that players bring themselves (your-addons\dlss5-nr). None of
+# DLSS5 NR (version 11 and later) is a paid add-on that players bring themselves (your-addons\dlss5-nr). None of
 # its files may ever be packaged, whatever the payload manifest says: the csproj ships all of payload\ and addons\, and the
 # installer all of publish\. Names are matched loosely (its release zip is "DLSS5 NR Add-on v<version>.zip"), zips are
 # looked into, and payload\ may hold only what the manifest pins, so a renamed copy cannot slip in either.
@@ -27,13 +27,13 @@ function Assert-NoPaidAddon([string]$dir) {
     if ($found.Count -eq 0) {
         foreach ($zip in @($items | Where-Object { -not $_.PSIsContainer -and $_.Extension -eq '.zip' })) {
             try { $archive = [IO.Compression.ZipFile]::OpenRead($zip.FullName) }
-            catch { throw "$($zip.FullName) cannot be opened as a zip, so it cannot be checked for lecram's DLSS5 NR: $($_.Exception.Message)" }
+            catch { throw "$($zip.FullName) cannot be opened as a zip, so it cannot be checked for DLSS5 NR: $($_.Exception.Message)" }
             try { $found += @($archive.Entries | Where-Object { $_.FullName -match $paidAddon } | ForEach-Object { "$($zip.FullName) > $($_.FullName)" }) }
             finally { $archive.Dispose() }
         }
     }
     if ($found.Count -gt 0) {
-        throw "lecram's DLSS5 NR must never be packaged. Remove: $(($found | Select-Object -First 5) -join ', ')"
+        throw "DLSS5 NR must never be packaged. Remove: $(($found | Select-Object -First 5) -join ', ')"
     }
 }
 
@@ -59,10 +59,10 @@ if ($Stage -in 'all', 'publish') {
     # Bundled third-party add-on: MFGAdaUnlock-RenoDx (MIT). Pinned URL + SHA-256, same pin as Core/Components.cs.
     $addons = Join-Path $root 'src\DLSS5Master\addons'
     $mfg = Join-Path $addons 'renodx-mfgunlock.addon64'
-    $mfgSha = 'dde12538667b2337dbb830fbdd83c6536e4e05658c7eff5dd100f2c9b46ac75f'
+    $mfgSha = 'f8c806fe99fa200614be0c04f0a7908dd9e2de6d28ed67bb309bcd9fb66d703b'
     if (-not (Test-Path $mfg) -or (Get-FileHash $mfg -Algorithm SHA256).Hash.ToLower() -ne $mfgSha) {
         New-Item -ItemType Directory -Force $addons | Out-Null
-        Invoke-WebRequest 'https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/1.9.0/renodx-mfgunlock.addon64' -OutFile $mfg -UseBasicParsing
+        Invoke-WebRequest 'https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/1.11.0/renodx-mfgunlock.addon64' -OutFile $mfg -UseBasicParsing
         if ((Get-FileHash $mfg -Algorithm SHA256).Hash.ToLower() -ne $mfgSha) { Remove-Item $mfg; throw 'renodx-mfgunlock.addon64 failed its checksum' }
     }
 
@@ -82,7 +82,7 @@ if ($Stage -in 'all', 'publish') {
     $payload = Join-Path $root 'src\DLSS5Master\payload'
     foreach ($row in Import-Csv (Join-Path $root 'installer\payload-manifest.csv')) {
         if ($row.dest -like 'neuralmaster\*') { throw 'The retired NeuralMaster finished-picture payload must not be packaged.' }
-        if ($row.dest -match $paidAddon -or $row.source -match $paidAddon) { throw "lecram's DLSS5 NR must never be packaged, but payload-manifest.csv lists $($row.dest)." }
+        if ($row.dest -match $paidAddon -or $row.source -match $paidAddon) { throw "DLSS5 NR must never be packaged, but payload-manifest.csv lists $($row.dest)." }
         $dest = Join-Path $payload $row.dest
         if ((Test-Path $dest) -and (Get-FileHash $dest -Algorithm SHA256).Hash.ToLower() -eq $row.sha256) { continue }
         if ($row.source -like 'https://*' -and $row.dest -like '*.zip') {

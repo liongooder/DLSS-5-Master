@@ -17,15 +17,23 @@ public sealed class Components
     /// <summary>OptiScaler builds offered in the app: updated ones first, then the built-in list.</summary>
     public static List<OptiBuild> AllOptiBuilds => Updates.OptiBuilds().Concat(OptiBuilds).ToList();
 
+    internal const string BundledOptiBuildId = "0.9.95-shyvortex";
+    internal static readonly IReadOnlyList<string> PreviousOptiBuildIds =
+        ["0.9.95", "0.9.91-shyvortex", "0.9.91", "0.9.90-shyvortex"];
+
     public static readonly OptiBuild[] OptiBuilds =
     {
-        new("0.9.90-shyvortex", "OptiScaler NR 0.9.90 (recommended)",
-            "https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/releases/download/v0.9.90/OptiScaler-NR-v0.9.90.zip",
-            "f3dbfe36f0de4ff646499642c2eda53c80b56b5e7def34f5bf7b9f88efb86ee0", null, null, false, true, WholeBackend: true),
+        new(BundledOptiBuildId, "OptiScaler NR 0.9.95 (recommended)",
+            "https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/releases/download/v0.9.95/OptiScaler-NR-v0.9.95.zip",
+            "2d25a701b1bc63e5aacb954fe44ec2842352149bb22a204f979fa61a827023c0", null, null, false, true, WholeBackend: true),
         new("0.8.3-rtx40-mfg", "OptiScaler NR 0.8.3 · RTX 40 MFG (older)",
             "https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/releases/download/v0.8.3/OptiScaler-NR-v0.8.3-rtx40-mfg.zip",
             "aac7ea64d80604a5b79f686043ba28fbefefaf98818e861a377b78122cb24448", null, null, false, true),
     };
+
+    // Keep profiles from the earlier bundles and accepted updates in this release line.
+    internal static string? CurrentOptiBuildId(string? id) =>
+        id is not null && PreviousOptiBuildIds.Contains(id) ? BundledOptiBuildId : id;
 
     public static readonly Dictionary<string, string> FeederHashes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -36,9 +44,9 @@ public sealed class Components
     };
 
     public const string MfgAddon = "renodx-mfgunlock.addon64";
-    public const string MfgVersion = "1.9.0";
-    public const string MfgUrl = "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/1.9.0/renodx-mfgunlock.addon64";
-    public const string MfgSha256 = "dde12538667b2337dbb830fbdd83c6536e4e05658c7eff5dd100f2c9b46ac75f";
+    public const string MfgVersion = "1.11.0";
+    public const string MfgUrl = "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/" + MfgVersion + "/" + MfgAddon;
+    public const string MfgSha256 = "f8c806fe99fa200614be0c04f0a7908dd9e2de6d28ed67bb309bcd9fb66d703b";
 
     public static readonly string[] OptiLibraries =
     {
@@ -61,6 +69,77 @@ public sealed class Components
     private const string FeederUrl = "https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v2.0.0/DLSS5-Feeder-2.0.0.zip";
     private const string FeederSha = "fa41fe2c5d3da803688775b802dc373a922daab0e721c8154a17066fcdd62584";
     private const string FeederFolder = "DLSS5-Feeder-2.0.0";
+
+    public const string UpliftVersion = "2.0.0";
+    private const string UpliftZip = "GITC-Uplift-" + UpliftVersion + ".zip";
+    private const string UpliftUrl = "https://github.com/ghostinthecamera/GITC-Uplift/releases/download/v" + UpliftVersion + "/" + UpliftZip;
+    private const string UpliftSha256 = "1eac38a62339e993cc98fd4f4773dd8a327b098b47c4d21fc070a9d3d6aac255";
+    private static readonly string[] UpliftFiles =
+    {
+        "Addons/gitc-uplift.addon64",
+        "Addons/gitc-uplift.addon32",
+        "Addons/gitc-uplift-helper64.exe",
+        "Shaders/Uplift.fx",
+        "Shaders/UpliftMask.fx",
+    };
+
+    public sealed class UpliftPayload : IDisposable
+    {
+        private readonly string _root;
+
+        internal UpliftPayload(string root) => _root = root;
+
+        public string AddonDirectory => Path.Combine(_root, "Addons");
+        public string ShaderDirectory => Path.Combine(_root, "Shaders");
+
+        public void Dispose()
+        {
+            try { Directory.Delete(_root, recursive: true); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
+    }
+
+    public async Task<UpliftPayload> UpliftAsync(IProgress<string>? progress, CancellationToken ct)
+    {
+        var zip = ComponentHealth.IncludedFile("payload/gitc-uplift/" + UpliftZip);
+        if (!HashMatches(zip, UpliftSha256))
+        {
+            zip = Path.Combine(AppPaths.Components, UpliftZip);
+            await DownloadVerifiedAsync(UpliftUrl, UpliftSha256, zip, progress, ct);
+        }
+
+        progress?.Report("Preparing GITC Uplift…");
+        return await Task.Run(() => ExtractUplift(zip, ct), ct);
+    }
+
+    private static UpliftPayload ExtractUplift(string zip, CancellationToken ct)
+    {
+        using var input = File.OpenRead(zip);
+        if (!Convert.ToHexStringLower(SHA256.HashData(input)).Equals(UpliftSha256, StringComparison.Ordinal))
+            throw new InstallException("The GITC Uplift release did not match its published SHA-256.");
+
+        input.Position = 0;
+        using var archive = new ZipArchive(input, ZipArchiveMode.Read);
+        var stage = Directory.CreateTempSubdirectory("dlss5master-uplift-").FullName;
+        var payload = new UpliftPayload(stage);
+        try
+        {
+            foreach (var name in UpliftFiles)
+            {
+                ct.ThrowIfCancellationRequested();
+                var entry = archive.GetEntry(name) ?? throw new InstallException($"The GITC Uplift ZIP is missing {name}.");
+                var target = Path.Combine(stage, name);
+                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                entry.ExtractToFile(target);
+            }
+            return payload;
+        }
+        catch
+        {
+            payload.Dispose();
+            throw;
+        }
+    }
 
     private static readonly HttpClient Http = CreateClient();
 
@@ -241,6 +320,9 @@ public sealed class Components
 
     public async Task<FeederPayload> FeederAsync(IProgress<string>? p, CancellationToken ct)
     {
+        if (_settings.FeederFolder is { Length: > 0 } selected)
+            return FeederZipImport.ReadSelection(selected).Payload
+                   ?? throw new InstallException("The selected DLSS5 Feeder ZIP is no longer available. Choose the ZIP again or select Automatic in Settings.");
         if (Updates.ActivePath("feeder") is { } updated && FindFeederAny(updated) is { } fromUpdate) return fromUpdate;
         if (FindFeeder(ComponentHealth.IncludedDirectory("feeder", "payload/feeder"), out _) is { } local) return local;
         var dir = Path.Combine(AppPaths.Components, FeederFolder);
@@ -335,7 +417,7 @@ public sealed class Components
         return Convert.ToHexString(SHA256.HashData(fs)).ToLowerInvariant();
     }
 
-    private static bool HashMatches(string file, string sha)
+    internal static bool HashMatches(string file, string sha)
     {
         try { return Sha256(file).Equals(sha, StringComparison.OrdinalIgnoreCase); }
         catch { return false; }

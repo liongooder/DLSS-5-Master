@@ -84,8 +84,10 @@ public sealed class AppSettings
     public string RuntimeFolder { get; set; } = "";
     /// <summary>Folder or ReShade_Setup_*_Addon.exe providing ReShade32/64.dll. Empty = auto-detect.</summary>
     public string ReShadeSource { get; set; } = "";
-    /// <summary>The player's copy of lecram's DLSS5 NR (the unzipped add-on folder). Empty = only games that already have it offer its route.</summary>
-    public string LecramNrFolder { get; set; } = "";
+    /// <summary>The player's copy of DLSS5 NR (the unzipped add-on folder). Empty = only games that already have it offer its route.</summary>
+    public string NrFolder { get; set; } = "";
+    /// <summary>A locally imported Feeder release. Empty = use the normal update and included component selection.</summary>
+    public string FeederFolder { get; set; } = "";
     public string OptiScalerMenuKey { get; set; } = "0x2D";
     public bool ShowCommunity { get; set; } = true;
     /// <summary>Overlay: neural style 0 Default, 1 Natural, 2 Cinematic.</summary>
@@ -108,7 +110,13 @@ public sealed class AppSettings
         {
             if (File.Exists(AppPaths.SettingsFile))
             {
-                var s = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(AppPaths.SettingsFile)) ?? new();
+                using var document = JsonDocument.Parse(File.ReadAllText(AppPaths.SettingsFile));
+                var root = document.RootElement;
+                var s = root.Deserialize<AppSettings>() ?? new();
+                if (root.ValueKind == JsonValueKind.Object && !root.TryGetProperty(nameof(NrFolder), out _)
+                    && root.TryGetProperty("LecramNrFolder", out var previousFolder)
+                    && previousFolder.ValueKind == JsonValueKind.String)
+                    s.NrFolder = previousFolder.GetString() ?? "";
                 s.Overrides = IgnoringCase(s.Overrides);
                 return s;
             }

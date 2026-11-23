@@ -54,6 +54,7 @@ public static class ComponentHealth
             new ComponentGroup("mfgunlock", "MFG Unlock", Components.MfgVersion,
                 new[] { new ComponentPin("addons/" + Components.MfgAddon, Components.MfgUrl, Components.MfgSha256) }),
             Group("feeder", "DLSS5 Feeder", VersionOf("feeder"), p => p.RelativePath.StartsWith("payload/feeder/")),
+            Group("gitc-uplift", "GITC Uplift", Components.UpliftVersion, p => p.RelativePath.StartsWith("payload/gitc-uplift/")),
             Group("optiscaler-nr", "OptiScaler NR", VersionOf("optiscaler-nr"), p => p.RelativePath.StartsWith("payload/optiscaler/")),
         };
     }

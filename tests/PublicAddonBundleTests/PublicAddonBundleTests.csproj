@@ -6,8 +6,10 @@
   <ItemGroup>
     <Compile Include="../../src/DLSS5Master/Core/*.cs" LinkBase="Core" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.13" />
+    <EmbeddedResource Include="../../installer/payload-manifest.csv" LogicalName="DLSS5Master.ComponentManifest" />
     <Content Include="../../src/DLSS5Master/addons/renodx-mfgunlock.addon64" Link="addons/renodx-mfgunlock.addon64" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../src/DLSS5Master/payload/feeder/**/*" Link="payload/feeder/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="../../src/DLSS5Master/payload/optiscaler/OptiScaler-0_9_90-shyvortex.zip" Link="payload/optiscaler/OptiScaler-0_9_90-shyvortex.zip" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../src/DLSS5Master/payload/gitc-uplift/GITC-Uplift-2.0.0.zip" Link="payload/gitc-uplift/GITC-Uplift-2.0.0.zip" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../src/DLSS5Master/payload/optiscaler/OptiScaler-0_9_95-shyvortex.zip" Link="payload/optiscaler/OptiScaler-0_9_95-shyvortex.zip" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

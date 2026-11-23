@@ -9,7 +9,7 @@ internal static class RouteProfiles
     private static string FileFor(string game, string exe, string route, string? build) => Path.Combine(AppPaths.Root,
         "route-profiles", InstallTransaction.Key(game), InstallTransaction.Key(exe) + "-" + route + "-" +
         InstallTransaction.Key(Path.Combine(game, build ?? "default")) + ".json");
-    internal static bool Allowed(string route) => route is "native" or "multipass" or "feeder" or "lecramnr" or "optiscaler";
+    internal static bool Allowed(string route) => route is "native" or "multipass" or "feeder" or "nraddon" or "optiscaler" or "mfgonly" or "uplift";
     internal static void Save(string game, Manifest m, Action<string> log)
     {
         if (!Allowed(m.Route) || !Enum.TryParse<Route>(m.Route, true, out var route)) return;
@@ -29,6 +29,17 @@ internal static class RouteProfiles
         var key = Installers.RouteKey(route);
         if (!Allowed(key)) return new();
         var file = FileFor(game, exe, key, route == Route.OptiScaler ? build : null);
+        if (route == Route.NrAddon && !File.Exists(file))
+            file = FileFor(game, exe, "lecramnr", null);
+        if (route == Route.OptiScaler && build == Components.BundledOptiBuildId && !File.Exists(file))
+        {
+            // Older app versions keyed compatible settings by their original build IDs.
+            foreach (var previous in Components.PreviousOptiBuildIds)
+            {
+                var candidate = FileFor(game, exe, key, previous);
+                if (File.Exists(candidate)) { file = candidate; break; }
+            }
+        }
         if (!File.Exists(file)) return new();
         if (new FileInfo(file).Length > 12 * 1024 * 1024) throw new InstallException("Saved route settings are too large.");
         var p = JsonSerializer.Deserialize<Profile>(File.ReadAllText(file));

@@ -56,8 +56,9 @@ DLSS 5 Master checks GitHub for newer RenoDX, MFG unlock, Feeder and OptiScaler 
 ## Features
 
 - **Game library**: finds Steam, Epic, GOG, Ubisoft, Xbox and custom-folder games, with cover art, and detects each game's executable, DirectX/Vulkan version, 32/64-bit, and DLSS / FSR / XeSS / Streamline DLLs.
-- **ReShade + RenoDX routes**: *Native* (RenoDX DLSS5 add-on, through the game's own DLSS, DirectX 11 or 12), *Multipass* (RenoDX DLSS Tool) and *DLSS5 Feeder* (for games without DLSS). If ReShade cannot start the add-ons in a game (error 1114 in its log), the game's page offers to have ReShade load them as soon as it starts.
-- **OptiScaler**: OptiScaler NR pre-SR MFG 0.9.90 is included; the NR 0.8.3 RTX 40 MFG build can be picked instead (downloaded when first used). You choose the proxy DLL name (`dxgi`, `winmm`, `version`, …) and the in-game menu key.
+- **ReShade + RenoDX routes**: *Native* (RenoDX DLSS5 add-on, through the game's own DLSS, DirectX 11 or 12), *Multipass* (RenoDX DLSS Tool) and *DLSS5 Feeder*. Feeder supports DirectX 11, DirectX 12, OpenGL and Vulkan games without native DLSS. Vulkan uses a full-add-on ReShade layer already registered for the selected executable and requires NVIDIA Smooth Motion to be off. If ReShade cannot start the add-ons in a game (error 1114 in its log), the game's page offers to have ReShade load them as soon as it starts.
+- **GITC Uplift** runs neural rendering through ReShade in DirectX 9–12, OpenGL and Vulkan games. Vulkan uses a full-add-on ReShade layer registered for the game. In game, open ReShade with **Home** and select **Enable** in the **GITC Uplift** tab.
+- **OptiScaler** bundles OptiScaler NR pre-SR MFG 0.9.95. The NR 0.8.3 RTX 40 MFG build is available on first use. You choose the proxy DLL name (`dxgi`, `winmm`, `version`, …) and the in-game menu key.
 - **DLSS 5 Neural Rendering (NR) add-on** - supplied separately. Select its folder or ZIP in Settings; the add-on is not included or downloaded by DLSS 5 Master. The route title uses the supplied add-on's product metadata.
 - **Several games at once**: *Bulk install* on the Games page sets one route up in every shown game it fits. Each game is ticked; untick any you want to leave as it is. Games the route does not fit, and games with anti-cheat, are left as they are and listed with the reason. Games already set up are set up again only if you ask.
 - **MFG unlock**: [MFGAdaUnlock-RenoDx](https://github.com/mavismmg/MFGAdaUnlock-RenoDx) as a tick box on every ReShade route: DLSS multi frame generation (3x/4x) on GeForce RTX 40, or its XeMFG mode (Intel XeSS frame generation, 2x–6x) on RTX 20, 30, 40 and 50.
@@ -108,9 +109,10 @@ The installer bundles these components, unmodified and checked against the pinne
 
 | Component | Source | Licence |
 |---|---|---|
-| OptiScaler NR pre-SR MFG 0.9.90 (bundled; also contains dlssg_for_sm86, which the overlay uses for frame generation on RTX 20/30) | [ShyVortex/OptiScaler-NR-PreSR-MFG](https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG) (source at tag v0.9.90); [sdli1995/dlssg_for_sm86](https://github.com/sdli1995/dlssg_for_sm86) | GPL-3.0 |
+| OptiScaler NR pre-SR MFG 0.9.95 (bundled with dlssg_for_sm86 for overlay frame generation on RTX 20/30) | [ShyVortex/OptiScaler-NR-PreSR-MFG at v0.9.95](https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/tree/v0.9.95), [sdli1995/dlssg_for_sm86](https://github.com/sdli1995/dlssg_for_sm86) | GPL-3.0 |
 | OptiScaler NR pre-SR multipass 0.8.3 RTX 40 MFG (downloaded when chosen) | [wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) | GPL-3.0 |
 | DLSS5-Feeder | [jlrouzies-fr/DLSS5-Feeder](https://github.com/jlrouzies-fr/DLSS5-Feeder) | MIT |
+| GITC Uplift 2.0.0 | by [ghostinthecamera](https://github.com/ghostinthecamera/GITC-Uplift), [release](https://github.com/ghostinthecamera/GITC-Uplift/releases/tag/v2.0.0) | MIT |
 | RenoDX DLSS5 add-on | Built on [RenoDX](https://github.com/clshortfuse/renodx) (MIT); builds via [RankFTW/rhi-repo](https://github.com/RankFTW/rhi-repo) | No licence published |
 | RenoDX DLSS Tool | by ShortFuse; builds via [RankFTW/rhi-repo](https://github.com/RankFTW/rhi-repo) | No licence published |
 | NVIDIA DLSS / Frame Gen / Ray Reconstruction / neural rendering runtimes, Streamline | NVIDIA | NVIDIA licence (included) |

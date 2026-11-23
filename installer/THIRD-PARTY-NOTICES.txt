@@ -2,7 +2,7 @@ DLSS 5 Master
 ============
 
 DLSS 5 Master installs and removes ReShade + RenoDX neural rendering routes
-(Native, Multipass, Feeder), OptiScaler, and swaps upscaler DLLs in your games.
+(Native, Multipass, Feeder), GITC Uplift, OptiScaler, and swaps upscaler DLLs in your games.
 
 Every change it makes to a game is recorded in the "_DLSS5Master_Backup"
 folder inside that game, and "Restore originals" puts the game back exactly
@@ -18,7 +18,11 @@ Third-party notices
 
 Bundled with this installer (unmodified, SHA-256 pinned):
 
-- MFGAdaUnlock-RenoDx 1.9.0 (renodx-mfgunlock.addon64) -
+- GITC Uplift 2.0.0 by ghostinthecamera (GITC-Uplift-2.0.0.zip) -
+  https://github.com/ghostinthecamera/GITC-Uplift/releases/tag/v2.0.0
+  MIT License and third-party notices are included in the upstream ZIP.
+
+- MFGAdaUnlock-RenoDx 1.11.0 (renodx-mfgunlock.addon64) -
   https://github.com/mavismmg/MFGAdaUnlock-RenoDx
 
   MIT License
@@ -75,11 +79,11 @@ Bundled with this installer (unmodified, SHA-256 pinned):
   in payload\runtime\nvngx_dlss.license.txt, reflex.license.txt and
   nis.license.txt. These files are NVIDIA's property.
 
-- OptiScaler NR pre-SR MFG 0.9.90
-  (payload\optiscaler\OptiScaler-0_9_90-shyvortex.zip, the unmodified
+- OptiScaler NR pre-SR MFG 0.9.95
+  (payload\optiscaler\OptiScaler-0_9_95-shyvortex.zip, the unmodified
   release file) - GPL-3.0; the licence text is the LICENSE file inside the zip.
   Source code: https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG
-  (tag v0.9.90). The zip also contains NVIDIA Streamline, AMD FidelityFX and
+  (tag v0.9.95). The zip also contains NVIDIA Streamline, AMD FidelityFX and
   Intel XeSS libraries under the licences in its Licenses folder.
 
 - The overlay helper (overlay\dlss5-overlay.exe) is part of DLSS 5 Master. It is
@@ -90,7 +94,7 @@ Bundled with this installer (unmodified, SHA-256 pinned):
   Microsoft Visual C++ runtime (overlay\msvcp140.dll, vcruntime140.dll,
   vcruntime140_1.dll), redistributed under the Visual Studio licence terms.
   On RTX 20 / 30 cards, with frame generation on, the overlay unpacks
-  dlssg_for_sm86 0.4.1 (https://github.com/sdli1995/dlssg_for_sm86) from the
+  dlssg_for_sm86 (https://github.com/sdli1995/dlssg_for_sm86) from the
   OptiScaler package above into its own folder. Its terms are in the
   THIRD_PARTY_NOTICES.txt that comes with it; its kernel images and the NVIDIA
   runtime inside it are NVIDIA's material.

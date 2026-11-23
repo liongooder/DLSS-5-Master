@@ -57,10 +57,11 @@ public sealed partial class MainWindow
         target ??= CommunityPanel;
         target.Children.Clear();
         var family = Community.GpuFamily(Community.LocalGpu);
+        bool uplift = editor && _scan?.Manifest?.Route == "uplift";
 
         // Overall counts.
         if (s.Counts.Total == 0)
-            target.Children.Add(Muted("No reports for this game yet. Install a route and be the first to say how it went."));
+            target.Children.Add(Muted(uplift ? "No reports for this game yet." : "No reports for this game yet. Install a route and be the first to say how it went."));
         else
         {
             target.Children.Add(new TextBlock
@@ -84,7 +85,7 @@ public sealed partial class MainWindow
                 target.Children.Add(Muted($"On {family} like yours: ✅ {onMine.Sum(c => c.Works)}  🟡 {onMine.Sum(c => c.Partly)}  ❌ {onMine.Sum(c => c.Broken)}"));
         }
 
-        if (editor) target.Children.Add(MyReportEditor(s));
+        if (editor && !uplift) target.Children.Add(MyReportEditor(s));
 
         // Every report with the PC it ran on, newest first (a server before 0.9.8 sends only the ones with a note). The game
         // panel shows the newest few above its other sections; "Show all" opens the game's report window.
@@ -287,8 +288,9 @@ public sealed partial class MainWindow
         "native" => "Native",
         "multipass" => "Multipass",
         "feeder" => "Feeder",
+        "uplift" => "GITC Uplift",
         "optiscaler" => "OptiScaler",
-        "lecramnr" => "DLSS5 NR",
+        "nraddon" => "DLSS5 NR",
         _ => route,
     };
 

@@ -213,8 +213,14 @@ public static class ForeignInstalls
     /// </summary>
     public static Task<string> MoveAsideUnrecordedReShadeAsync(string gameDir, string exePath, string hookFile, Action<string> log) => Task.Run(() =>
     {
+        using var lease = InstallTransaction.AcquireLease(gameDir);
+        NeuralMasterProtection.Check(gameDir, exePath);
+        if (InstallTransaction.Pending(gameDir))
+            throw new InstallException("Recover the interrupted game setup before removing ReShade.");
         Installers.AssertGameClosed(exePath);
         var exeDir = Path.GetDirectoryName(exePath)!;
+        if (new NeuralMasterSnapshots().IsVerifiedSavedHost(gameDir, exePath, Path.Combine(exeDir, hookFile)))
+            throw new InstallException("This game uses a verified NeuralMaster ReShade host. Manage it from the game's NeuralMaster bar.");
         var items = UnrecordedReShadeFiles(exeDir, hookFile);
         if (items.Count == 0) throw new InstallException("No ReShade found next to the game's executable. Nothing was changed.");
         var dest = Path.Combine(gameDir, Journal.BackupDir, "removed", DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
@@ -273,6 +279,7 @@ public static class ForeignInstalls
     /// </summary>
     public static Task<int> RemoveAllAsync(string gameDir, string? exePath, Action<string> log) => Task.Run(() =>
     {
+        NeuralMasterProtection.Check(gameDir, exePath);
         if (exePath is not null) Installers.AssertGameClosed(exePath);
         var installs = Find(gameDir).OrderByDescending(f => f.Date).ToList();
         if (installs.Count == 0) { log("No other app install found in this game."); return 0; }

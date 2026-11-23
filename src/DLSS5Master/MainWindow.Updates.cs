@@ -11,6 +11,7 @@ namespace DLSS5Master;
 public sealed partial class MainWindow
 {
     private bool _updating;
+    private bool _feederZipWorking;
     private string? _updatesViewStamp;
 
     /// <summary>Runs the daily check in the background when it is due; marks the Settings tab when updates exist.</summary>
@@ -52,7 +53,10 @@ public sealed partial class MainWindow
 
     private void RefreshUpdatesPanel()
     {
-        var stamp = System.Text.Json.JsonSerializer.Serialize(new { Updates.State, _updating, _componentWorking });
+        bool customFeeder = !string.IsNullOrWhiteSpace(_settings.FeederFolder);
+        var feederZip = customFeeder ? FeederZipImport.DisplayName(_settings.FeederFolder) : null;
+        if (!_feederZipWorking) RefreshFeederZipStatus(customFeeder, feederZip);
+        var stamp = System.Text.Json.JsonSerializer.Serialize(new { Updates.State, _updating, _componentWorking, customFeeder, feederZip });
         if (_updatesViewStamp == stamp) return;
         _updatesViewStamp = stamp;
         AutoCheckBox.IsChecked = Updates.State.AutoCheck;
@@ -62,7 +66,10 @@ public sealed partial class MainWindow
         {
             var (version, _, updated) = Updates.InUse(src);
             var available = Updates.Available(src);
-            var latest = Updates.State.Latest.GetValueOrDefault(src.Id);
+            var custom = src.Id == "feeder" && customFeeder;
+            var current = custom
+                ? feederZip is null ? "Selected ZIP unavailable" : $"In use: {feederZip} (local ZIP)"
+                : $"In use: {version}{(updated ? " (updated)" : " (included)")}";
 
             var grid = new Grid { Padding = new Thickness(18, 10, 14, 10), ColumnSpacing = 10, BorderBrush = Res("RowBorder"),
                                   BorderThickness = new Thickness(0, UpdateRows.Children.Count == 0 ? 0 : 1, 0, 0) };
@@ -75,9 +82,9 @@ public sealed partial class MainWindow
             info.Children.Add(new TextBlock
             {
                 FontSize = 12, Foreground = Res(available is not null ? "AccentText" : "MutedText"), TextWrapping = TextWrapping.Wrap,
-                Text = $"In use: {version}{(updated ? " (updated)" : " (included)")}" +
-                       (available is not null ? $"   ·   New: {available.Version}{(available.Prerelease ? " (beta)" : "")}, {available.Published.ToLocalTime().ToString("d MMM yyyy", CultureInfo.InvariantCulture)}"
-                        : Updates.State.LastCheck is null ? "" : "   ·   Up to date"),
+                Text = current +
+                       (available is not null ? $"   ·   {(custom ? "Automatic update" : "New")}: {available.Version}{(available.Prerelease ? " (beta)" : "")}, {available.Published.ToLocalTime().ToString("d MMM yyyy", CultureInfo.InvariantCulture)}"
+                        : Updates.State.LastCheck is null || custom ? "" : "   ·   Up to date"),
             });
             grid.Children.Add(info);
 
@@ -88,7 +95,7 @@ public sealed partial class MainWindow
                 Grid.SetColumn(update, 1);
                 grid.Children.Add(update);
             }
-            if (updated)
+            if (updated && !custom)
             {
                 var undo = new Button { Content = "Use included", VerticalAlignment = VerticalAlignment.Center };
                 ToolTipService.SetToolTip(undo, $"Go back to {src.BundledVersion}, the version included with DLSS 5 Master");
@@ -109,6 +116,73 @@ public sealed partial class MainWindow
         UpdateStatus.Text = _updating ? "Checking for updates…" : Updates.State.LastCheck is { } t
             ? $"Last checked {t.ToLocalTime().ToString("d MMM yyyy", CultureInfo.InvariantCulture)} at {t.ToLocalTime().ToString("h:mm tt", CultureInfo.InvariantCulture)}. {Updates.AvailableCount switch { 0 => "Everything is up to date.", 1 => "1 update available.", var n => $"{n} updates available." }}"
             : "Not checked yet.";
+    }
+
+    private void RefreshFeederZipStatus(bool custom, string? zip)
+    {
+        ChooseFeederZipButton.IsEnabled = true;
+        AutomaticFeederButton.IsEnabled = custom;
+        var (version, _, updated) = Updates.InUse(Updates.Sources.First(source => source.Id == "feeder"));
+        FeederZipStatus.Text = custom
+            ? zip is null ? "Selected ZIP unavailable. Choose it again or use automatic." : $"Using {zip}."
+            : $"Automatic · {version} ({(updated ? "accepted update" : "included")})";
+        FeederZipStatus.Foreground = Res(custom && zip is null ? "WarnText" : "MutedText");
+    }
+
+    private async void ChooseFeederZip_Click(object sender, RoutedEventArgs e)
+    {
+        if (_feederZipWorking || _busy || _bulkRunning || _appUpdating || _componentWorking) return;
+        _feederZipWorking = true;
+        ChooseFeederZipButton.IsEnabled = AutomaticFeederButton.IsEnabled = false;
+        string? error = null;
+        try
+        {
+            if (await PickFileAsync(".zip") is not { } file) return;
+            FeederZipStatus.Foreground = Res("MutedText");
+            FeederZipStatus.Text = "Reading Feeder ZIP…";
+            var copy = await Task.Run(() => FeederZipImport.Prepare(file));
+            if (_busy || _bulkRunning || _appUpdating || _componentWorking)
+                error = "Wait for the current setup or update to finish, then choose the ZIP again.";
+            else
+                SaveFeederSelection(copy);
+        }
+        catch (Exception ex) { error = $"Could not use this Feeder ZIP. {ex.Message}"; }
+        finally
+        {
+            _feederZipWorking = false;
+            RefreshUpdatesPanel();
+            if (error is not null) ShowFeederZipError(error);
+        }
+    }
+
+    private void AutomaticFeeder_Click(object sender, RoutedEventArgs e)
+    {
+        if (_feederZipWorking || _busy || _bulkRunning || _appUpdating || _componentWorking) return;
+        try
+        {
+            SaveFeederSelection("");
+            RefreshUpdatesPanel();
+        }
+        catch (Exception ex) { ShowFeederZipError($"Could not save the Feeder selection. {ex.Message}"); }
+    }
+
+    private void SaveFeederSelection(string folder)
+    {
+        var previous = _settings.FeederFolder;
+        _settings.FeederFolder = folder;
+        try { _settings.Save(); }
+        catch
+        {
+            _settings.FeederFolder = previous;
+            throw;
+        }
+        _ = RefreshComponentsAsync();
+    }
+
+    private void ShowFeederZipError(string error)
+    {
+        FeederZipStatus.Text = error;
+        FeederZipStatus.Foreground = Res("WarnText");
     }
 
     private async void CheckUpdates_Click(object sender, RoutedEventArgs e)
@@ -243,7 +317,9 @@ public sealed partial class MainWindow
             RefreshOptiBuildList();
             RefreshUpdatesPanel();
             await RefreshComponentsAsync();
-            UpdateStatus.Text = $"{src.Name} updated to {Updates.InUse(src).Version}. Reinstall a game to give it the new version.";
+            UpdateStatus.Text = src.Id == "feeder" && !string.IsNullOrWhiteSpace(_settings.FeederFolder)
+                ? $"Feeder {Updates.InUse(src).Version} is ready for automatic setup. Select Use automatic in DLSS5 Feeder to switch."
+                : $"{src.Name} updated to {Updates.InUse(src).Version}. Reinstall a game to give it the new version.";
         }
         catch (Exception ex) { UpdateStatus.Text = $"✖ {src.Name}: {ex.Message}"; }
         finally

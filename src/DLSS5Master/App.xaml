@@ -18,6 +18,7 @@
       <Color x:Key="SystemAccentColorDark3">#FF2A6815</Color>
 
       <SolidColorBrush x:Key="AccentText" Color="#FF7FE05A" />
+      <SolidColorBrush x:Key="NeuralMasterAccent" Color="#FF8BD1FF" />
       <SolidColorBrush x:Key="WarnText" Color="#FFF2B84B" />
       <SolidColorBrush x:Key="ErrorText" Color="#FFFF6B6B" />
       <SolidColorBrush x:Key="MutedText" Color="#99FFFFFF" />

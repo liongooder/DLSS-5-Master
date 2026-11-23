@@ -480,6 +480,17 @@
         </Border>
         <Border Style="{StaticResource Card}">
           <StackPanel Spacing="10">
+            <TextBlock Text="DLSS5 Feeder" Style="{StaticResource SectionTitle}" />
+            <TextBlock Text="Choose a DLSS5 Feeder release ZIP for new setups and reinstalls." TextWrapping="Wrap" Foreground="{StaticResource MutedText}" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button x:Name="ChooseFeederZipButton" Content="Choose ZIP…" Click="ChooseFeederZip_Click" />
+              <Button x:Name="AutomaticFeederButton" Content="Use automatic" Click="AutomaticFeeder_Click" IsEnabled="False" />
+            </StackPanel>
+            <TextBlock x:Name="FeederZipStatus" FontSize="12" Foreground="{StaticResource MutedText}" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+        <Border Style="{StaticResource Card}">
+          <StackPanel Spacing="10">
             <TextBlock Text="NVIDIA RUNTIME (nvngx_dlss*.dll, sl.*.dll)" Style="{StaticResource SectionTitle}" />
             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}" Text="DLSS, Frame Generation, Ray Reconstruction, neural rendering and Streamline runtimes are included with DLSS 5 Master. Leave empty to use them, or pick a folder that holds other versions." />
             <Grid ColumnSpacing="8">
@@ -510,20 +521,20 @@
             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}" Text="Use your own copy of the supported DLSS5 NR add-on. Choose its folder or ZIP using Browse; ZIP files are extracted automatically into DLSS 5 Master's data folder. The add-on is supplied separately and is not included or downloaded by DLSS 5 Master." />
             <Grid ColumnSpacing="8">
               <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-              <TextBox x:Name="LecramNrBox" PlaceholderText="DLSS 5 Master's folder" IsReadOnly="True" />
-              <Button Grid.Column="1" Click="OpenLecramNrFolder_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE838;" FontSize="13" /><TextBlock Text="Open folder" /></StackPanel></Button>
+              <TextBox x:Name="NrAddonBox" PlaceholderText="DLSS 5 Master's folder" IsReadOnly="True" />
+              <Button Grid.Column="1" Click="OpenNrFolder_Click"><StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE838;" FontSize="13" /><TextBlock Text="Open folder" /></StackPanel></Button>
               <Button Grid.Column="2">
                 <Button.Flyout>
                   <MenuFlyout>
-                    <MenuFlyoutItem Text="Choose folder…" Click="PickLecramNr_Click" />
+                    <MenuFlyoutItem Text="Choose folder…" Click="PickNrAddon_Click" />
                     <MenuFlyoutItem Text="Choose ZIP…" Click="PickOwnAddonZip_Click" />
                   </MenuFlyout>
                 </Button.Flyout>
                 <StackPanel Orientation="Horizontal" Spacing="6"><FontIcon Glyph="&#xE8B7;" FontSize="13" /><TextBlock Text="Browse…" /></StackPanel>
               </Button>
-              <Button Grid.Column="3" Content="Clear" Click="ClearLecramNr_Click" ToolTipService.ToolTip="Forget the folder you picked and use DLSS 5 Master's folder again" />
+              <Button Grid.Column="3" Content="Clear" Click="ClearNrAddon_Click" ToolTipService.ToolTip="Forget the folder you picked and use DLSS 5 Master's folder again" />
             </Grid>
-            <TextBlock x:Name="LecramNrStatus" FontSize="12" TextWrapping="Wrap" />
+            <TextBlock x:Name="NrAddonStatus" FontSize="12" TextWrapping="Wrap" />
           </StackPanel>
         </Border>
         <Border Style="{StaticResource Card}">
@@ -601,7 +612,7 @@
             <Image x:Name="AboutLogo" Height="150" HorizontalAlignment="Left" Stretch="Uniform" Margin="0,0,0,6" />
             <TextBlock x:Name="AboutVersionText" FontSize="20" FontWeight="SemiBold" />
             <TextBlock TextWrapping="Wrap" Foreground="{StaticResource MutedText}"
-                       Text="One place for ReShade + RenoDX neural rendering routes (Native, Multipass, Feeder), OptiScaler, and per-game DLL swapping. Every change is recorded in _DLSS5Master_Backup inside the game folder, and Restore originals puts the game back exactly as it was." />
+                       Text="One place for ReShade neural rendering routes, including GITC Uplift, plus OptiScaler and per-game DLL swapping. Every change is recorded in _DLSS5Master_Backup inside the game folder, and Restore originals puts the game back exactly as it was." />
           </StackPanel>
         </Border>
         <Border Style="{StaticResource Card}">
@@ -706,13 +717,33 @@
               <!-- ROUTE: one card per way of running DLSS 5 (filled in code; the hidden boxes below hold the choice) -->
               <StackPanel Spacing="10">
                 <TextBlock Text="HOW TO RUN DLSS 5" Style="{StaticResource SectionTitle}" />
-                <Grid x:Name="RouteCards" ColumnSpacing="10" />
+                <Grid x:Name="RouteCards" ColumnSpacing="10" RowSpacing="10" SizeChanged="RouteCards_SizeChanged" />
                 <StackPanel x:Name="OptiBuildPanel" Visibility="Collapsed">
                   <TextBlock Text="OptiScaler build" Style="{StaticResource FieldLabel}" />
                   <ComboBox x:Name="OptiBuildBox" HorizontalAlignment="Stretch" SelectionChanged="OptiBuildBox_SelectionChanged" />
                 </StackPanel>
                 <TextBlock x:Name="RouteDescription" TextWrapping="Wrap" Foreground="{StaticResource MutedText}" />
                 <InfoBar x:Name="RouteWarning" IsClosable="False" Severity="Warning" />
+                <Border x:Name="NeuralMasterGameBar" Visibility="Collapsed" Background="#FF403316"
+                        BorderBrush="#FF6B5426" BorderThickness="1" CornerRadius="6" Padding="14,10">
+                  <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <StackPanel Spacing="3" VerticalAlignment="Center">
+                      <TextBlock x:Name="NeuralMasterGameBuild" Text="NeuralMaster" Foreground="{StaticResource NeuralMasterAccent}"
+                                 FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap" />
+                      <TextBlock x:Name="NeuralMasterBackupDetails" FontSize="12" TextTrimming="CharacterEllipsis"
+                                 Visibility="Collapsed" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                      <Button x:Name="NeuralMasterUninstallButton" Content="Remove" AutomationProperties.Name="Remove NeuralMaster"
+                              Click="NeuralMasterUninstall_Click" IsEnabled="False" Visibility="Collapsed" />
+                      <Button x:Name="NeuralMasterRestoreButton" Content="Restore" AutomationProperties.Name="Restore NeuralMaster"
+                              Click="NeuralMasterRestore_Click" IsEnabled="False" Visibility="Collapsed" />
+                      <Button x:Name="NeuralMasterRecoverButton" Content="Recover" AutomationProperties.Name="Recover interrupted NeuralMaster change"
+                              Click="NeuralMasterRecover_Click" IsEnabled="False" Visibility="Collapsed" />
+                    </StackPanel>
+                  </Grid>
+                </Border>
                 <!-- The route choice itself (kept as the source of truth for installing). -->
                 <StackPanel Visibility="Collapsed">
                   <ComboBox x:Name="BackendBox" SelectionChanged="BackendBox_SelectionChanged">
@@ -737,7 +768,15 @@
                   </ComboBox>
                 </StackPanel>
                 <StackPanel>
-                  <CheckBox x:Name="MfgBox" Content="MFG unlock — multi frame generation: DLSS 3x/4x on RTX 40, or Intel XeSS 2x–6x on RTX 20–50 (MFGAdaUnlock 1.9.0)" />
+                  <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                      <ColumnDefinition Width="*" />
+                      <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <CheckBox x:Name="MfgBox" />
+                    <Button x:Name="InstallMfgButton" Grid.Column="1" VerticalAlignment="Center"
+                            Content="Install MFG unlock" Click="InstallMfg_Click" />
+                  </Grid>
                   <TextBlock x:Name="MfgNote" Margin="28,0,0,0" FontSize="12" Foreground="{StaticResource MutedText}" TextWrapping="Wrap" />
                 </StackPanel>
                 <!-- Rarely needed: closed unless something in it is on -->

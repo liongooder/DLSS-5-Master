@@ -1,20 +1,20 @@
 namespace DLSS5Master.Core;
 
 /// <summary>
-/// lecram's DLSS5 NR add-on: a paid add-on that players buy themselves. DLSS 5 Master never ships or downloads it; its route
+/// DLSS5 NR add-on: a paid add-on that players buy themselves. DLSS 5 Master never ships or downloads it; its route
 /// installs the player's own copy, from the folder picked in Settings (the unzipped "DLSS5 NR Add-on" folder), else from
 /// DLSS 5 Master's own folder for it (<see cref="DropFolder"/>), else from a game that already has it. Its layout, from its
 /// INSTALL.txt: dlss5-nr.addon64 and dlss5-nr.addon32 beside the game's ReShade, and the dlss5-nr-host folder as it is (its
 /// 64-bit host for 32-bit, Direct3D 9/10 and OpenGL games).
 /// </summary>
-public static class LecramNr
+public static class NrAddon
 {
     public const string Addon64 = "dlss5-nr.addon64";
     public const string Addon32 = "dlss5-nr.addon32";
     public const string HostFolder = "dlss5-nr-host";
 
     /// <summary>
-    /// lecram's own setup keeps its record of a game beside the game's exe, in DLSS5-NR-setup\manifest.json, with backups of
+    /// DLSS5 NR's own setup keeps its record of a game beside the game's exe, in DLSS5-NR-setup\manifest.json, with backups of
     /// the files it replaced (DLSS 5 Master's own, when it came after it) and NVIDIA's runtime moved into its shared store.
     /// Its Remove NR undoes that from the record, so DLSS 5 Master must not change those files underneath it.
     /// </summary>
@@ -22,20 +22,25 @@ public static class LecramNr
 
     public static bool SetupInstalled(string exeDir) => File.Exists(SetupRecord(exeDir));
 
-    public const string SetupInstalledMessage =
-        "lecram's DLSS5 NR Setup has NR installed in this game. Remove it here (or with Remove NR in lecram's setup) before setting up " +
-        "with DLSS 5 Master; or keep NR as lecram's setup installed it.";
+    /// <summary>The add-on's own product name, read from the file beside the exe; "DLSS5 NR" when it cannot be read.</summary>
+    public static string SetupName(string exeDir) => AddonIdentity.Read(exeDir).Name;
 
-    public const string SetupAfterUsMessage =
-        "lecram's DLSS5 NR Setup installed NR in this game after DLSS 5 Master did, and keeps DLSS 5 Master's files as the originals " +
-        "it puts back. Remove it here (or with Remove NR in lecram's setup) first; then DLSS 5 Master can reinstall or restore.";
+    public static string SetupInstalledMessage(string name) =>
+        $"{name} was set up in this game by its own setup. Remove it here (or with Remove NR in that setup) before setting up " +
+        $"with DLSS 5 Master; or keep {name} as that setup installed it.";
 
-    /// <summary>lecram's setup install in one game, from its record: what removing it puts back and deletes.</summary>
+    public static string SetupAfterUsMessage(string name) =>
+        $"{name}'s own setup installed it in this game after DLSS 5 Master did, and keeps DLSS 5 Master's files as the originals " +
+        "it puts back. Remove it here (or with Remove NR in that setup) first; then DLSS 5 Master can reinstall or restore.";
+
+    /// <summary>DLSS5 NR's setup install in one game, from its record: what removing it puts back and deletes.</summary>
     public sealed class SetupInstall
     {
         public required string ExeDir { get; init; }
         public string? Version { get; set; }
-        /// <summary>Files it replaced: the game file, lecram's copy of the original, and that original's SHA-256.</summary>
+        /// <summary>The add-on's product name, from its metadata.</summary>
+        public string Name { get; set; } = "DLSS5 NR";
+        /// <summary>Files it replaced: the game file, nrDir's copy of the original, and that original's SHA-256.</summary>
         public List<(string Target, string Source, string Sha)> PutBack { get; } = new();
         /// <summary>Files it added.</summary>
         public List<string> Delete { get; } = new();
@@ -50,13 +55,13 @@ public static class LecramNr
     private static readonly string[] KeptSettings = { "ReShade.ini", "ReShadePreset.ini" };
 
     /// <summary>
-    /// Reads lecram's setup record in <paramref name="exeDir"/>: entries with no original_sha256 are files it added; the others
+    /// Reads DLSS5 NR's setup record in <paramref name="exeDir"/>: entries with no original_sha256 are files it added; the others
     /// it replaced, with the original in DLSS5-NR-setup\backup, or for "shared" ones (NVIDIA's runtime) in its shared store.
     /// Every original is checked against its SHA-256 here, so a removal never starts without all of them.
     /// </summary>
     public static SetupInstall ReadSetupInstall(string exeDir)
     {
-        var si = new SetupInstall { ExeDir = exeDir };
+        var si = new SetupInstall { ExeDir = exeDir, Name = SetupName(exeDir) };
         try
         {
             var root = Path.GetFullPath(exeDir).TrimEnd('\\', '/') + "\\";
@@ -66,7 +71,8 @@ public static class LecramNr
             static string? Str(System.Text.Json.JsonElement e, string name) =>
                 e.TryGetProperty(name, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String ? v.GetString() : null;
             si.Version = Str(r, "addon_version");
-            var shared = Str(r, "shared_runtime");
+            // DLSS5 NR's setup names the store of NVIDIA's runtime "runtime_store" (older records: "shared_runtime").
+            var shared = Str(r, "runtime_store") ?? Str(r, "shared_runtime");
             if (!r.TryGetProperty("entries", out var entries) || entries.ValueKind != System.Text.Json.JsonValueKind.Array)
                 throw new InvalidDataException("it lists no files");
             foreach (var entry in entries.EnumerateArray())
@@ -76,7 +82,7 @@ public static class LecramNr
                 var target = Path.GetFullPath(Path.Combine(exeDir, rel));
                 if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
                 {
-                    si.Problem = $"lecram's setup record names a file outside the game's folder ({rel}).";
+                    si.Problem = $"{si.Name}'s setup record names a file outside the game's folder ({rel}).";
                     continue;
                 }
                 var sha = Str(entry, "original_sha256");
@@ -87,34 +93,41 @@ public static class LecramNr
                     else si.Delete.Add(target);
                     continue;
                 }
+                // A folder entry: the folder was there before and its files are listed on their own; nothing to put back or delete.
+                if (sha.Equals("folder", StringComparison.OrdinalIgnoreCase)) continue;
                 bool isShared = entry.TryGetProperty("shared", out var s) && s.ValueKind == System.Text.Json.JsonValueKind.True;
-                var source = isShared ? shared : Path.Combine(backup, rel);
+                // The shared original is a file in the store (named like the game file) or, in older records, the file itself.
+                var source = isShared
+                    ? (shared is null ? null : Directory.Exists(shared) ? Path.Combine(shared, Path.GetFileName(rel)) : shared)
+                    : Path.Combine(backup, rel);
                 if (source is null || !File.Exists(source))
-                    si.Problem = $"lecram's setup has no copy of the original {rel}, so it cannot be put back.";
+                    si.Problem = $"{si.Name}'s setup has no copy of the original {rel}, so it cannot be put back.";
                 else if (!Components.Sha256(source).Equals(sha, StringComparison.OrdinalIgnoreCase))
-                    si.Problem = $"lecram's setup's copy of the original {rel} no longer matches its record.";
+                    si.Problem = $"{si.Name}'s setup copy of the original {rel} no longer matches its record.";
                 else si.PutBack.Add((target, source, sha));
             }
         }
         catch (Exception e) when (e is System.Text.Json.JsonException or IOException or UnauthorizedAccessException or InvalidDataException or InvalidOperationException)
         {
-            si.Problem = $"lecram's setup record could not be read ({e.Message}).";
+            si.Problem = $"{si.Name}'s setup record could not be read ({e.Message}).";
         }
         return si;
     }
 
     /// <summary>
-    /// Undoes lecram's setup install in the game, as its Remove NR would but keeping the player's ReShade settings: the
+    /// Undoes DLSS5 NR's setup install in the game, as its Remove NR would but keeping the player's ReShade settings: the
     /// originals go back (checked first, nothing changes on any problem), its added files go, and its record and backups move
     /// into _DLSS5Master_Backup\removed\&lt;time&gt; so nothing of it is lost. Returns that folder.
     /// </summary>
     public static Task<string> RemoveSetupInstallAsync(string gameDir, string exePath, Action<string> log) => Task.Run(() =>
     {
+        NeuralMasterProtection.Check(gameDir, exePath);
         Installers.AssertGameClosed(exePath);
         var exeDir = Path.GetDirectoryName(Path.GetFullPath(exePath))!;
-        if (!SetupInstalled(exeDir)) throw new InstallException("lecram's DLSS5 NR Setup has no install in this game. Nothing was changed.");
-        if (Journal.ReadManifest(gameDir) is not null && !Installers.LecramSetupAfterUs(gameDir))
-            throw new InstallException("DLSS 5 Master installed here after lecram's setup did: use Restore originals first. Nothing was changed.");
+        var name = SetupName(exeDir);
+        if (!SetupInstalled(exeDir)) throw new InstallException($"{name}'s setup has no install in this game. Nothing was changed.");
+        if (Journal.ReadManifest(gameDir) is not null && !Installers.NrSetupAfterUs(gameDir))
+            throw new InstallException($"DLSS 5 Master installed here after {name}'s setup did: use Restore originals first. Nothing was changed.");
         var si = ReadSetupInstall(exeDir);
         if (si.Problem is not null) throw new InstallException(si.Problem + " Nothing was changed.");
 
@@ -140,10 +153,10 @@ public static class LecramNr
         Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
         Directory.Move(setupDir, dest);
 
-        log($"Removed lecram's DLSS5 NR {si.Version}".TrimEnd() + $": {si.PutBack.Count} original file(s) put back, {deleted} added file(s) deleted.");
+        log($"Removed {si.Name} {si.Version}".TrimEnd() + $": {si.PutBack.Count} original file(s) put back, {deleted} added file(s) deleted.");
         if (si.Kept.Any(File.Exists)) log($"Kept your {string.Join(" and ", si.Kept.Where(File.Exists).Select(Path.GetFileName))}.");
-        log($"lecram's record and backups are in {Path.GetRelativePath(Path.GetFullPath(gameDir), dest)}.");
-        AppPaths.Log($"[{Path.GetFileName(Path.GetFullPath(gameDir).TrimEnd('\\'))}] removed lecram's setup install: {si.PutBack.Count} put back, {deleted} deleted -> {dest}");
+        log($"Its record and backups are in {Path.GetRelativePath(Path.GetFullPath(gameDir), dest)}.");
+        AppPaths.Log($"[{Path.GetFileName(Path.GetFullPath(gameDir).TrimEnd('\\'))}] removed DLSS5 NR's setup install: {si.PutBack.Count} put back, {deleted} deleted -> {dest}");
         return dest;
     });
 
@@ -214,7 +227,7 @@ public static class LecramNr
 
     /// <summary>
     /// What <see cref="DropFolder"/> holds instead of a usable copy, said for the Settings page: the zip not yet unzipped,
-    /// or lecram's setup program (which is not the add-on). Null when there is nothing to say.
+    /// or DLSS5 NR's setup program (which is not the add-on). Null when there is nothing to say.
     /// </summary>
     public static string? DropHint()
     {
@@ -226,7 +239,7 @@ public static class LecramNr
                 return $"{zip} is in DLSS 5 Master's folder: unzip it there (Extract All), then DLSS 5 Master finds it.";
             if (names.Any(n => n.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)))
                 return "DLSS 5 Master's folder holds a program, not the add-on: put the unzipped DLSS5 NR add-on there " +
-                       $"(the folder with {Addon64} and {HostFolder}), not lecram's setup.";
+                       $"(the folder with {Addon64} and {HostFolder}), not DLSS5 NR's setup.";
             return null;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
@@ -290,7 +303,7 @@ public static class LecramNr
     /// </summary>
     public static Staged Stage(string source, string gameDir, string exeDir, Manifest? manifest)
     {
-        var staged = new Staged(Path.Combine(Path.GetTempPath(), "DLSS5Master-lecram-nr", Guid.NewGuid().ToString("N")));
+        var staged = new Staged(Path.Combine(Path.GetTempPath(), "DLSS5Master-nr", Guid.NewGuid().ToString("N")));
         try
         {
             Copy(source, staged.Dir, gameDir, exeDir, manifest);
@@ -313,7 +326,7 @@ public static class LecramNr
             if (file is not null && File.Exists(file)) File.Copy(file, Path.Combine(staging, addon), true);
         }
         if (!File.Exists(Path.Combine(staging, Addon64)))
-            throw new InstallException($"lecram's DLSS5 NR ({Addon64}) is no longer in {source}.");
+            throw new InstallException($"DLSS5 NR ({Addon64}) is no longer in {source}.");
         var host = Path.Combine(source, HostFolder);
         if (!Directory.Exists(host)) return;
         foreach (var file in Directory.EnumerateFiles(host, "*", SearchOption.AllDirectories))

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -31,11 +32,6 @@ public static partial class Artwork
     /// <summary>A previously downloaded poster for this game, or null.</summary>
     public static string? Cached(GameEntry g) => File.Exists(CachedPath(g)) ? CachedPath(g) : null;
 
-    public static void ClearCached(GameEntry g)
-    {
-        try { File.Delete(CachedPath(g)); } catch { }
-    }
-
     /// <summary>The executable's product name ("Onimusha: Way of the Sword"), unless it is an engine's generic name.</summary>
     public static string? ExeProductName(string exe)
     {
@@ -55,27 +51,85 @@ public static partial class Artwork
         try
         {
             var appId = g.Launcher == "Steam" && !string.IsNullOrEmpty(g.Id) ? g.Id : await FindSteamAppIdAsync(g.Name, ct);
-            if (appId is null) return null;
-            foreach (var url in new[]
-                     {
-                         $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/library_600x900_2x.jpg",
-                         $"https://cdn.cloudflare.steamstatic.com/steam/apps/{appId}/library_600x900.jpg",
-                     })
+            if (!uint.TryParse(appId, NumberStyles.None, CultureInfo.InvariantCulture, out var id) || id == 0) return null;
+            var published = await FindPublishedPostersAsync(id, ct);
+            var legacy = $"https://cdn.cloudflare.steamstatic.com/steam/apps/{id}";
+            foreach (var url in published.Concat(new[] { legacy + "/library_600x900_2x.jpg", legacy + "/library_600x900.jpg" }))
             {
                 using var resp = await Http.GetAsync(url, ct);
                 if (!resp.IsSuccessStatusCode) continue;
                 var bytes = await resp.Content.ReadAsByteArrayAsync(ct);
-                if (bytes.Length < 2048) continue;
+                if (bytes.Length < 2048 || bytes[0] != 0xff || bytes[1] != 0xd8 || bytes[2] != 0xff) continue;
                 Directory.CreateDirectory(CacheDir);
                 var path = CachedPath(g);
-                await File.WriteAllBytesAsync(path + ".tmp", bytes, ct);
-                File.Move(path + ".tmp", path, true);
+                var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                try
+                {
+                    await File.WriteAllBytesAsync(temporary, bytes, ct);
+                    File.Move(temporary, path, true);
+                }
+                finally
+                {
+                    try { File.Delete(temporary); } catch (IOException) { }
+                }
                 return path;
             }
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception e) { AppPaths.Log($"Artwork for {g.Name}: {e.Message}"); }
         return null;
+    }
+
+    private static async Task<string[]> FindPublishedPostersAsync(uint appId, CancellationToken ct)
+    {
+        var request = JsonSerializer.Serialize(new
+        {
+            ids = new[] { new { appid = appId } },
+            context = new { language = "english", country_code = "US" },
+            data_request = new { include_assets = true },
+        });
+        var url = "https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json=" + Uri.EscapeDataString(request);
+        try
+        {
+            using var doc = JsonDocument.Parse(await Http.GetStringAsync(url, ct));
+            return PublishedPosterUrls(appId, doc.RootElement);
+        }
+        catch (Exception e) when (e is HttpRequestException or JsonException ||
+                                  e is OperationCanceledException && !ct.IsCancellationRequested)
+        {
+            return Array.Empty<string>();
+        }
+    }
+
+    [GeneratedRegex(@"\A(?:[a-z0-9_-]+/)*[a-z0-9_-]+\.jpe?g\z", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex RelativePosterFile();
+
+    /// <summary>Resolve Steam's portrait assets under the CDN path for this exact app.</summary>
+    internal static string[] PublishedPosterUrls(uint appId, JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object ||
+            !root.TryGetProperty("response", out var response) || response.ValueKind != JsonValueKind.Object ||
+            !response.TryGetProperty("store_items", out var items) || items.ValueKind != JsonValueKind.Array)
+            return Array.Empty<string>();
+
+        foreach (var item in items.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object ||
+                !item.TryGetProperty("appid", out var id) || id.ValueKind != JsonValueKind.Number ||
+                !id.TryGetUInt32(out var number) || number != appId ||
+                !item.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Object) continue;
+
+            var rootUrl = $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/";
+            var version = assets.TryGetProperty("last_modified", out var modified) && modified.ValueKind == JsonValueKind.Number &&
+                modified.TryGetUInt64(out var time) ? "?t=" + time.ToString(CultureInfo.InvariantCulture) : "";
+            var result = new List<string>();
+            foreach (var key in new[] { "library_capsule_2x", "library_capsule" })
+                if (assets.TryGetProperty(key, out var file) && file.ValueKind == JsonValueKind.String &&
+                    file.GetString() is { Length: > 0 and <= 240 } relative && RelativePosterFile().IsMatch(relative))
+                    result.Add(rootUrl + relative + version);
+            return result.ToArray();
+        }
+        return Array.Empty<string>();
     }
 
     [GeneratedRegex(@"\b(demo|soundtrack|ost|dlc|pack|outfit|upgrade|bundle|season pass|artbook|art book|expansion|costume|skin|playtest|bonus|wallpaper|deluxe edition upgrade)\b", RegexOptions.IgnoreCase)]

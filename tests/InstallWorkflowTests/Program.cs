@@ -2,6 +2,9 @@ using DLSS5Master.Core;
 using System.IO.Compression;
 using System.Text.Json;
 
+if (args is ["--nm-interrupted-restore", var fixtureRoot])
+    NeuralMasterFixtures.InterruptedRestoreChild(fixtureRoot);
+
 var root = Path.Combine(Path.GetTempPath(), "d5m-workflow-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(root);
 Environment.SetEnvironmentVariable("DLSS5MASTER_DATA", Path.Combine(root, "data"));
@@ -58,8 +61,34 @@ try
     var native = RouteProfiles.Load(game, exe, Route.Native, 64, false, null);
     Check("route profile saves tuning", native.Any(k => k.Rel.EndsWith("ReShade.ini") && System.Text.Encoding.UTF8.GetString(k.Bytes).Contains("42")));
     Check("route profiles isolate executable and architecture", RouteProfiles.Load(game, Path.Combine(game, "different.exe"), Route.Native, 64, false, null).Count == 0 && RouteProfiles.Load(game, exe, Route.Native, 32, false, null).Count == 0);
-    Check("route profiles isolate routes including native and private add-on", RouteProfiles.Load(game, exe, Route.LecramNr, 64, false, null).Count == 0);
+    Check("route profiles isolate routes including native and private add-on", RouteProfiles.Load(game, exe, Route.NrAddon, 64, false, null).Count == 0);
     Check("development route profiles are never saved or loaded", !RouteProfiles.Allowed("neuralmaster") && RouteProfiles.Load(game, exe, Route.NeuralMaster, 64, false, null).Count == 0);
+
+    var optiGame = Game("opti-profile-upgrade");
+    var optiExe = Put(optiGame, "bin/game.exe", "fixture");
+    var opti = Session.Begin(optiGame, optiExe, "optiscaler", "dxgi", 64, _ => { });
+    var optiIni = Journal.SafePath(optiGame, "bin/OptiScaler.ini");
+    opti.WriteTracked(optiIni, "[Menu]\nShortcutKey=auto\n");
+    void SaveOptiProfile(string id, string setting)
+    {
+        opti.Manifest.OptiScalerBuild = id;
+        File.WriteAllText(optiIni, setting);
+        RouteProfiles.Save(optiGame, opti.Manifest, _ => { });
+    }
+    const string bundledOpti = "0.9.95-shyvortex";
+    const string legacyTuning = "[Menu]\nShortcutKey=0x70\n";
+    const string acceptedUpdateTuning = "[Menu]\nShortcutKey=0x71\n";
+    const string bundledTuning = "[Menu]\nShortcutKey=0x72\n";
+    string OptiTuning(string id) => RouteProfiles.Load(optiGame, optiExe, Route.OptiScaler, 64, false, id)
+        .Where(setting => Path.GetFileName(setting.Rel) == "OptiScaler.ini")
+        .Select(setting => System.Text.Encoding.UTF8.GetString(setting.Bytes)).SingleOrDefault() ?? "";
+    SaveOptiProfile("0.9.90-shyvortex", legacyTuning);
+    Check("OptiScaler 0.9.95 can reuse earlier settings without exposing them to the RTX 40 legacy build",
+        OptiTuning(bundledOpti) == legacyTuning && OptiTuning("0.8.3-rtx40-mfg") == "");
+    SaveOptiProfile("0.9.95", acceptedUpdateTuning);
+    Check("OptiScaler 0.9.95 prefers tuning from the same downloaded build", OptiTuning(bundledOpti) == acceptedUpdateTuning);
+    SaveOptiProfile(bundledOpti, bundledTuning);
+    Check("OptiScaler 0.9.95 prefers tuning saved for the installed bundle", OptiTuning(bundledOpti) == bundledTuning);
 
     var install = Game("preview");
     var installExe = Path.Combine(install, "OfflineFixture.exe");
@@ -128,6 +157,10 @@ try
     Check("compatibility filters exclude hidden reports", CompatibilityReports.Filter(reports).Count == 2);
     Check("compatibility filters combine route GPU driver and result", CompatibilityReports.Filter(reports, "native", "RTX 4090", "600.1", "works").Single().Id == 1);
     Check("compatibility filters return no fabricated matches", CompatibilityReports.Filter(reports, driver: "missing").Count == 0);
+    await NeuralMasterFixtures.Run(root, Check);
+    await VulkanNrFixtures.Run(root, Check);
+    await FeederRendererFixtures.Run(root, Check);
+    await UpliftFixtures.Run(root, Check);
     Console.WriteLine($"{passed} passed; isolated fixtures only.");
 }
 finally

@@ -11,14 +11,14 @@ public sealed class BulkGame
     /// <summary>The choices saved on the game's page: its .exe, Rendering API and loading add-ons early.</summary>
     public GameOverride? Choices { get; init; }
     public bool FolderGone { get; init; }
-    /// <summary>lecram's own setup has NR installed beside the game's exe (<see cref="LecramNr.SetupInstalled"/>).</summary>
-    public bool LecramSetup { get; init; }
-    /// <summary>lecram's own setup installed NR after DLSS 5 Master did (<see cref="Installers.LecramSetupAfterUs"/>).</summary>
-    public bool LecramSetupAfterUs { get; init; }
-    /// <summary>lecram's DLSS5 NR add-on beside the exe: its version, "" when it has none; null when the add-on is not there.</summary>
-    public string? LecramAddon { get; init; }
-    /// <summary>The game holds a copy of lecram's DLSS5 NR to set up from (<see cref="LecramNr.InGame"/>).</summary>
-    public bool LecramInGame { get; init; }
+    /// <summary>DLSS5 NR's own setup has NR installed beside the game's exe (<see cref="NrAddon.SetupInstalled"/>).</summary>
+    public bool NrSetup { get; init; }
+    /// <summary>DLSS5 NR's own setup installed NR after DLSS 5 Master did (<see cref="Installers.NrSetupAfterUs"/>).</summary>
+    public bool NrSetupAfterUs { get; init; }
+    /// <summary>DLSS5 NR add-on beside the exe: its version, "" when it has none; null when the add-on is not there.</summary>
+    public string? NrAddon { get; init; }
+    /// <summary>The game holds a copy of DLSS5 NR to set up from (<see cref="NrAddon.InGame"/>).</summary>
+    public bool NrInGame { get; init; }
     /// <summary>The menu key in OptiScaler.ini beside the exe; null when there is none or it is "auto".</summary>
     public string? OptiMenuKey { get; init; }
     /// <summary>NVIDIA's neural runtime (nvngx_dlssnr.dll) is beside the exe.</summary>
@@ -32,22 +32,26 @@ public sealed class BulkGame
     public ReShadeState? ReShadeAfterRestore { get; init; }
     /// <summary>The bitness of <see cref="ReShadeAfterRestore"/>'s file; 0 when there is none or it cannot be read.</summary>
     public int ReShadeAfterRestoreBits { get; init; }
-    /// <summary>The game's own copy of lecram's DLSS5 NR has its dlss5-nr-host folder beside the exe.</summary>
-    public bool LecramInGameHasHost { get; init; }
+    /// <summary>The game's own copy of DLSS5 NR has its dlss5-nr-host folder beside the exe.</summary>
+    public bool NrInGameHasHost { get; init; }
+    /// <summary>Why the registered ReShade Vulkan layer cannot host DLSS5 NR for the selected executable.</summary>
+    public string? VulkanNrUnavailable { get; init; } = ReShadeVulkanLayer.NotAvailable;
+    /// <summary>Why the registered ReShade Vulkan layer cannot host Feeder for the selected executable.</summary>
+    public string? VulkanFeederUnavailable { get; init; } = ReShadeVulkanLayer.FeederNotAvailable;
 }
 
-/// <summary>What every game in the batch shares: the NVIDIA runtime and ReShade found, the player's lecram copy, the saved menu key.</summary>
-public sealed record BulkContext(bool NeuralRuntime, bool DlssRuntime, bool ReShade64, bool ReShade32, string? LecramCopy, string? SavedMenuKey,
-                                  bool LecramCopyHasHost = true, string? ReShade64Version = null, string? ReShade32Version = null)
+/// <summary>What every game in the batch shares: the NVIDIA runtime and ReShade found, the player's NR copy, the saved menu key.</summary>
+public sealed record BulkContext(bool NeuralRuntime, bool DlssRuntime, bool ReShade64, bool ReShade32, string? NrCopy, string? SavedMenuKey,
+                                  bool NrCopyHasHost = true, string? ReShade64Version = null, string? ReShade32Version = null)
 {
     /// <summary>Reads them once for the batch. Slow (file checks; a ReShade setup may be unpacked): call it off the UI thread.</summary>
     public static BulkContext Read(AppSettings settings, Components components)
     {
         var runtime = components.RuntimeFiles();
         string? reshade64 = components.ReShadeDll(64), reshade32 = components.ReShadeDll(32);
-        var copy = LecramNr.IsCopy(settings.LecramNrFolder) ? settings.LecramNrFolder : LecramNr.DropCopy();
+        var copy = NrAddon.IsCopy(settings.NrFolder) ? settings.NrFolder : NrAddon.DropCopy();
         bool host;
-        try { host = copy is not null && Directory.Exists(Path.Combine(copy, LecramNr.HostFolder)); }
+        try { host = copy is not null && Directory.Exists(Path.Combine(copy, NrAddon.HostFolder)); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { host = false; }
         return new(runtime.ContainsKey("nvngx_dlssnr.dll"), runtime.ContainsKey("nvngx_dlss.dll"), reshade64 is not null, reshade32 is not null,
                    copy, settings.OptiScalerMenuKey, host,
@@ -88,7 +92,7 @@ public sealed class BulkRow
 public static class BulkSetup
 {
     /// <summary>The routes offered, in the order a game's page offers them.</summary>
-    public static readonly Route[] Routes = { Route.Native, Route.Multipass, Route.Feeder, Route.OptiScaler, Route.LecramNr };
+    public static readonly Route[] Routes = { Route.Native, Route.Multipass, Route.Feeder, Route.Uplift, Route.OptiScaler, Route.NrAddon, Route.MfgOnly };
 
     /// <summary>The Rendering API choices on a game's page; a choice saved there is one of these names.</summary>
     public static readonly RenderApi[] ApiChoices =
@@ -116,19 +120,19 @@ public static class BulkSetup
         if (gone || scan?.Primary is not { } exe) return new BulkGame { Entry = entry, Scan = scan, Choices = choices, FolderGone = gone };
 
         var exeDir = Path.GetDirectoryName(exe.Path)!;
-        bool lecramSetup = false, lecramAfterUs = false, lecramInGame = false, runtimeHere = false, inGameHost = false;
-        string? lecramAddon = null, menuKey = null;
+        bool nrSetup = false, nrAfterUs = false, nrInGame = false, runtimeHere = false, inGameHost = false;
+        string? nrAddon = null, menuKey = null;
         var loaders = new List<LoaderFile>();
         ReShadeState? reshadeAfter = null;
         int reshadeBits = 0;
         try
         {
-            lecramSetup = LecramNr.SetupInstalled(exeDir);
-            lecramAfterUs = lecramSetup && Installers.LecramSetupAfterUs(scan.Dir);
-            if (new[] { LecramNr.Addon64, LecramNr.Addon32 }.Select(a => Path.Combine(exeDir, a)).FirstOrDefault(File.Exists) is { } addon)
-                lecramAddon = Pe.GetFileVersion(addon) ?? "";
-            lecramInGame = LecramNr.InGame(scan.Dir, exeDir, scan.Manifest) is not null;
-            inGameHost = Directory.Exists(Path.Combine(exeDir, LecramNr.HostFolder));
+            nrSetup = NrAddon.SetupInstalled(exeDir);
+            nrAfterUs = nrSetup && Installers.NrSetupAfterUs(scan.Dir);
+            if (new[] { NrAddon.Addon64, NrAddon.Addon32 }.Select(a => Path.Combine(exeDir, a)).FirstOrDefault(File.Exists) is { } addon)
+                nrAddon = Pe.GetFileVersion(addon) ?? "";
+            nrInGame = NrAddon.InGame(scan.Dir, exeDir, scan.Manifest) is not null;
+            inGameHost = Directory.Exists(Path.Combine(exeDir, NrAddon.HostFolder));
             runtimeHere = File.Exists(Path.Combine(exeDir, "nvngx_dlssnr.dll"));
 
             // The page reads the key the same way: "auto" or none means the one saved in the settings.
@@ -178,29 +182,34 @@ public static class BulkSetup
             }
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or InstallException) { reshadeAfter = null; }
+        var vulkanFeederUnavailable = EffectiveApi(exe, choices?.Api) == RenderApi.Vulkan && exe.Bitness is 32 or 64
+            ? ReShadeVulkanLayer.FeederUnavailableReason(exe.Path) : ReShadeVulkanLayer.FeederNotAvailable;
         return new BulkGame
         {
-            Entry = entry, Scan = scan, Choices = choices, LecramSetup = lecramSetup, LecramSetupAfterUs = lecramAfterUs,
-            LecramAddon = lecramAddon, LecramInGame = lecramInGame, OptiMenuKey = menuKey, NeuralRuntimeHere = runtimeHere, Loaders = loaders,
-            ReShadeAfterRestore = reshadeAfter, ReShadeAfterRestoreBits = reshadeBits, LecramInGameHasHost = inGameHost,
+            Entry = entry, Scan = scan, Choices = choices, NrSetup = nrSetup, NrSetupAfterUs = nrAfterUs,
+            NrAddon = nrAddon, NrInGame = nrInGame, OptiMenuKey = menuKey, NeuralRuntimeHere = runtimeHere, Loaders = loaders,
+            ReShadeAfterRestore = reshadeAfter, ReShadeAfterRestoreBits = reshadeBits, NrInGameHasHost = inGameHost,
+            VulkanNrUnavailable = exe.Bitness == 64 ? vulkanFeederUnavailable : ReShadeVulkanLayer.NotAvailable,
+            VulkanFeederUnavailable = vulkanFeederUnavailable,
         };
     }
 
     /// <summary>What stops <paramref name="o"/>'s route in every game, said once above the list; null when nothing does.</summary>
-    public static string? Blocker(BulkOptions o, BulkContext c)
+    public static string? Blocker(BulkOptions o, BulkContext c, bool usesVulkanLayer = false)
     {
         bool reshade = o.Route != Route.OptiScaler;
-        if (reshade && !c.NeuralRuntime) return NoNeuralRuntime;
+        if (reshade && o.Route != Route.MfgOnly && !c.NeuralRuntime) return NoNeuralRuntime;
         if (o.Route == Route.Feeder && !c.DlssRuntime) return NoDlssRuntime;
+        if (o.Route is (Route.NrAddon or Route.Feeder or Route.Uplift) && usesVulkanLayer) return null;
         if (reshade && !c.ReShade64 && !c.ReShade32) return NoReShade;
-        if (o.Route == Route.LecramNr && OlderThanLecramNeeds(c.ReShade64Version))
-            return $"lecram's DLSS5 NR needs ReShade 6.8 or newer, and the ReShade DLSS 5 Master installs is {c.ReShade64Version}. Pick ReShade 6.8 or newer in Settings.";
+        if (o.Route == Route.NrAddon && OlderThanNrNeeds(c.ReShade64Version))
+            return $"DLSS5 NR needs ReShade 6.8 or newer, and the ReShade DLSS 5 Master installs is {c.ReShade64Version}. Pick ReShade 6.8 or newer in Settings.";
         return null;
     }
 
-    /// <summary>lecram's DLSS5 NR does not start with a ReShade older than 6.8 (RunLecramNr says so after the setup).</summary>
+    /// <summary>DLSS5 NR does not start with a ReShade older than 6.8 (RunNrAddon says so after the setup).</summary>
     /// <remarks>Scanner's versions have three parts at least: "6.8" alone would not read as one.</remarks>
-    internal static bool OlderThanLecramNeeds(string? version) => Scanner.IsVersion(version) && Scanner.CompareVersions(version, "6.8.0") < 0;
+    internal static bool OlderThanNrNeeds(string? version) => Scanner.IsVersion(version) && Scanner.CompareVersions(version, "6.8.0") < 0;
 
     public static List<BulkRow> Plan(IEnumerable<BulkGame> games, BulkOptions o, BulkContext c) => games.Select(g => Plan(g, o, c)).ToList();
 
@@ -216,30 +225,35 @@ public static class BulkSetup
         if (g.FolderGone) return Out("Its folder is gone: the game was moved or uninstalled. Rescan the library to find it.");
         if (g.Scan is not { } scan) return Out("It could not be scanned.");
         if (scan.Primary is not { } exe) return Out("No game .exe was found in its folder.");
+        if (NeuralMasterProtection.Conflict(scan) is { } neuralMasterConflict) return Out(neuralMasterConflict);
         if (scan.AntiCheatName is { } antiCheat)
             return Out($"It has anti-cheat ({antiCheat}). Only its own page sets it up, after a warning.", antiCheat: true);
         if (scan.OtherAppBackup || scan.OtherAppRecord) return Out("Another app has an install in this game. Remove it on the game's page first.");
-        if (g.LecramSetup)
-            return Out(g.LecramSetupAfterUs
-                ? "lecram's own setup installed NR in this game after DLSS 5 Master. Remove it on the game's page first."
-                : "lecram's own setup has NR installed in this game. Remove it on the game's page first.");
+        if (g.NrSetup)
+            return Out(g.NrSetupAfterUs
+                ? "DLSS5 NR's own setup installed NR in this game after DLSS 5 Master. Remove it on the game's page first."
+                : "DLSS5 NR's own setup has NR installed in this game. Remove it on the game's page first.");
         var api = EffectiveApi(exe, g.Choices?.Api);
         if (api == RenderApi.Unknown) return Out("Its renderer could not be detected. Choose the Rendering API on its page.");
         int bits = exe.Bitness;
         if (bits is not (32 or 64)) return Out($"{Path.GetFileName(exe.Path)} could not be read as a 32- or 64-bit program.");
 
         var exeDir = Path.GetDirectoryName(exe.Path)!;
-        string? lecram = null;
-        if (o.Route == Route.LecramNr)
+        bool usesVulkanLayer = o.Route is (Route.Feeder or Route.NrAddon or Route.Uplift) && api == RenderApi.Vulkan;
+        string? nrDir = null;
+        if (o.Route == Route.NrAddon)
         {
-            // As LecramNr.Source: the copy picked in Settings or kept in DLSS 5 Master's folder, else the game's own.
-            lecram = c.LecramCopy ?? (g.LecramInGame ? exeDir : null);
-            if (lecram is null) return Out("There is no copy of lecram's DLSS5 NR for it. Add yours in Settings.");
+            // As NrAddon.Source: the copy picked in Settings or kept in DLSS 5 Master's folder, else the game's own.
+            nrDir = c.NrCopy ?? (g.NrInGame ? exeDir : null);
+            if (nrDir is null) return Out("There is no copy of DLSS5 NR for it. Add yours in Settings.");
         }
-        var option = Installers.RoutesFor(api, bits, scan.HasNativeDlss, scan.HasFrameGen, lecramCopy: o.Route == Route.LecramNr)
+        var option = Installers.RoutesFor(api, bits, scan.HasNativeDlss, scan.HasFrameGen, nrCopy: o.Route == Route.NrAddon,
+            vulkanNrUnavailable: g.VulkanNrUnavailable, vulkanFeederUnavailable: g.VulkanFeederUnavailable)
             .FirstOrDefault(r => r.Route == o.Route);
         if (option is null) return Out("This route is not offered for this game.");
         if (option.Unavailable is { } unavailable) return Out(unavailable);
+        if (o.Route == Route.MfgOnly && Installers.MfgOnlyConflict(scan.Dir, exe.Path, m) is { } mfgConflict)
+            return Out(mfgConflict);
         // The page only warns about these two; set up unattended they would do nothing.
         if (o.Route == Route.Feeder && Installers.FeederStandsAside(api, scan.HasNativeDlss) is { } aside) return Out(aside);
         if (o.Route == Route.OptiScaler && o.Build.NeuralRendering && !scan.HasNativeDlss)
@@ -247,32 +261,36 @@ public static class BulkSetup
 
         // What InstallAsync needs before it touches the game.
         bool reshade = o.Route != Route.OptiScaler;
-        if (reshade && !c.NeuralRuntime) return Out(NoNeuralRuntime);
+        if (reshade && o.Route != Route.MfgOnly && !c.NeuralRuntime) return Out(NoNeuralRuntime);
         if (!reshade && o.Build.NeuralRendering && !c.NeuralRuntime && !g.NeuralRuntimeHere)
             return Out("This OptiScaler build needs the NVIDIA neural runtime (nvngx_dlssnr.dll). Pick the NVIDIA runtime folder in Settings.");
         if (o.Route == Route.Feeder && !c.DlssRuntime) return Out(NoDlssRuntime);
-        if (reshade && !(bits == 64 ? c.ReShade64 : c.ReShade32))
+        if (reshade && !usesVulkanLayer && !(bits == 64 ? c.ReShade64 : c.ReShade32))
             return Out($"No {bits}-bit ReShade with add-on support was found. Pick a ReShade_Setup_*_Addon.exe in Settings.");
         if (o.Route == Route.Feeder && bits != 64 && !c.ReShade64)
             return Out("The Feeder's 64-bit helper needs a 64-bit ReShade with add-on support. Pick a ReShade_Setup_*_Addon.exe in Settings.");
-        // Another ReShade route sets lecram's add-on aside; the page asks first. Never set the player's own copy aside unseen.
-        if (reshade && o.Route != Route.LecramNr && g.LecramAddon is { } version)
-            return Out($"It has lecram's DLSS5 NR{(version == "" ? "" : " " + version)}, which this route would set aside. Pick lecram's NR, or set it up on its page.");
+        // Another ReShade route sets the NR add-on aside; the page asks first. Never set the player's own copy aside unseen.
+        if (reshade && o.Route is not (Route.NrAddon or Route.MfgOnly) && g.NrAddon is { } version)
+            return Out($"It has DLSS5 NR{(version == "" ? "" : " " + version)}, which this route would set aside. Pick DLSS5 NR, or set it up on its page.");
         var reshadeThen = g.ReShadeAfterRestore ?? scan.ReShade;
-        if (o.Route == Route.LecramNr)
+        if (o.Route == Route.NrAddon && !usesVulkanLayer)
         {
-            // RunLecramNr finishes these setups and only logs that NR will not start: set up unattended, they would do nothing.
-            bool host = c.LecramCopy is not null ? c.LecramCopyHasHost : g.LecramInGameHasHost;
+            // RunNrAddon finishes these setups and only logs that NR will not start: set up unattended, they would do nothing.
+            bool host = c.NrCopy is not null ? c.NrCopyHasHost : g.NrInGameHasHost;
             if (!host && (bits != 64 || api is RenderApi.DX9 or RenderApi.DX10 or RenderApi.OpenGL))
-                return Out($"Your copy of lecram's DLSS5 NR has no {LecramNr.HostFolder} folder, which NR needs in 32-bit, Direct3D 9 and 10 and OpenGL games. Pick the whole unzipped add-on folder in Settings.");
+                return Out($"Your copy of DLSS5 NR has no {NrAddon.HostFolder} folder, which NR needs in 32-bit, Direct3D 9 and 10 and OpenGL games. Pick the whole unzipped add-on folder in Settings.");
             // PlaceReShade keeps an add-on ReShade of the game's bitness (or an add-on ASI one), whatever its version.
             bool keeps = reshadeThen.Installed && reshadeThen.AddonSupport && (reshadeThen.IsAsi || g.ReShadeAfterRestoreBits == bits);
             var kept = keeps ? reshadeThen.Version : bits == 64 ? c.ReShade64Version : c.ReShade32Version;
-            if (OlderThanLecramNeeds(kept))
+            if (OlderThanNrNeeds(kept))
                 return Out(keeps
-                    ? $"lecram's DLSS5 NR needs ReShade 6.8 or newer, and this game would keep its ReShade {kept}. Remove that ReShade on the game's page first."
-                    : $"lecram's DLSS5 NR needs ReShade 6.8 or newer, and the {bits}-bit ReShade DLSS 5 Master installs is {kept}. Pick ReShade 6.8 or newer in Settings.");
+                    ? $"DLSS5 NR needs ReShade 6.8 or newer, and this game would keep its ReShade {kept}. Remove that ReShade on the game's page first."
+                    : $"DLSS5 NR needs ReShade 6.8 or newer, and the {bits}-bit ReShade DLSS 5 Master installs is {kept}. Pick ReShade 6.8 or newer in Settings.");
         }
+        if (o.Route == Route.Uplift && api == RenderApi.OpenGL &&
+            !(reshadeThen is { Installed: true, AddonSupport: true } && !OlderThanNrNeeds(reshadeThen.Version)) &&
+            OlderThanNrNeeds(bits == 64 ? c.ReShade64Version : c.ReShade32Version))
+            return Out("GITC Uplift on OpenGL needs ReShade 6.8 or newer with full add-on support.");
 
         // The page's defaults.
         var hook = m?.OptiScalerHook is { } recorded && Installers.OptiHookNames.Contains(recorded) ? recorded
@@ -281,7 +299,7 @@ public static class BulkSetup
         var key = Installers.MenuKeys.FirstOrDefault(k => string.Equals(k.Code, wantedKey, StringComparison.OrdinalIgnoreCase)).Code
                   ?? Installers.MenuKeys[0].Code;
         var proxy = string.Equals(m?.ReShadeHook, "d3d11.dll", StringComparison.OrdinalIgnoreCase) ? "d3d11.dll" : "dxgi.dll";
-        bool mfg = reshade && (m is not null ? m.MfgUnlock is not null : o.Mfg) && Installers.MfgUnavailable(api, bits, scan.HasFrameGen) is null;
+        bool mfg = (o.Route == Route.MfgOnly || (reshade && (m is not null ? m.MfgUnlock is not null : o.Mfg))) && Installers.MfgUnavailable(api, bits, scan.HasFrameGen) is null;
         var req = new InstallRequest
         {
             GameDir = scan.Dir, ExePath = exe.Path, Api = api, Bitness = bits, Route = o.Route,
@@ -289,13 +307,14 @@ public static class BulkSetup
             LoadAddonsEarly = g.Choices?.LoadAddonsEarly == true,
             // Never acknowledged here: InstallAsync still refuses a game whose anti-cheat shows up only now.
             AntiCheatAcknowledged = false,
-            LecramNrSource = lecram,
+            NrAddonSource = nrDir,
         };
         // These refusals would come after the setup had started changing the game: check them first.
         if (Conflict(req, reshadeThen, g.Loaders) is { } conflict) return Out(conflict);
 
         var notes = new List<string>();
         if (m is not null) notes.Add(ReinstallNote(m, scan.Dir, exeDir, o));
+        else if (usesVulkanLayer) notes.Add("Uses the registered ReShade Vulkan layer");
         else if (reshade && scan.ReShade.Installed) notes.Add($"ReShade {scan.ReShade.Version} that no app recorded is in it already");
         if (mfg) notes.Add("with the MFG unlock");
         var note = string.Join(" · ", notes);
@@ -310,18 +329,19 @@ public static class BulkSetup
     /// </summary>
     private static string ReinstallNote(Manifest m, string gameDir, string exeDir, BulkOptions o)
     {
+        if (o.Route == Route.MfgOnly) return "Installs MFG unlock and keeps the existing route";
         var was = Installers.RouteLabel(m.Route);
         // A setup first restores the record it finds, so a DLL swap is undone; other records keep no in-game settings.
         if (m.Route == "swap") return "Its swapped DLLs go back to the game's own first";
-        if (m.Route is not ("native" or "multipass" or "feeder" or "optiscaler" or "lecramnr")) return $"Set up over {was}: in-game settings start fresh";
+        if (m.Route is not ("native" or "multipass" or "feeder" or "optiscaler" or "nraddon" or "mfgonly" or "uplift")) return $"Set up over {was}: in-game settings start fresh";
         string? dirBefore = null;
         try { if (m.Exe.Length > 0) dirBefore = Path.GetDirectoryName(Journal.SafePath(gameDir, m.Exe)); }
         catch (InstallException) { }
         if (dirBefore is null || !dirBefore.Equals(Path.GetFullPath(exeDir).TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase))
             return "Set up again: its .exe is in another folder now, so in-game settings start fresh";
-        static string Family(string key) => key == "lecramnr" ? "native" : key;
+        static string Family(string key) => key == "nraddon" ? "native" : key;
         if (Family(m.Route) != Family(Installers.RouteKey(o.Route))) return $"Switches from {was}: in-game settings start fresh";
-        if (o.Route == Route.OptiScaler && m.OptiScalerBuild != o.Build.Id) return "Set up again with another OptiScaler build: in-game settings start fresh";
+        if (o.Route == Route.OptiScaler && Components.CurrentOptiBuildId(m.OptiScalerBuild) != o.Build.Id) return "Set up again with another OptiScaler build: in-game settings start fresh";
         return "Set up again: in-game settings are kept";
     }
 
@@ -333,6 +353,7 @@ public static class BulkSetup
     /// <param name="reshade">The ReShade the setup finds beside the exe then (<see cref="BulkGame.ReShadeAfterRestore"/>).</param>
     internal static string? Conflict(InstallRequest req, ReShadeState reshade, IReadOnlyList<LoaderFile> loaders)
     {
+        if (req is { Route: Route.NrAddon or Route.Feeder or Route.Uplift, Api: RenderApi.Vulkan }) return null;
         if (req.Route != Route.OptiScaler)
         {
             var hook = Installers.ReShadeHookFor(req);
@@ -344,6 +365,9 @@ public static class BulkSetup
                     return $"ReShade is loaded here as an ASI plugin ({reshade.File}) without add-on support. Replace it with the add-on build of ReShade, or remove it.";
                 return null;   // kept as it is
             }
+            if (req is { Route: Route.Feeder or Route.Uplift, Api: RenderApi.OpenGL } && reshade.Installed &&
+                !string.Equals(reshade.File, hook, StringComparison.OrdinalIgnoreCase))
+                return $"ReShade uses {reshade.File} here. Remove that setup before installing with {hook}.";
             // PlaceReShade refuses a file at the hook's name that is not ReShade, and OptiScaler under any of ReShade's names.
             static bool Blocks(LoaderFile f, string name) => ReShadeSlots.Contains(f.Name, StringComparer.OrdinalIgnoreCase) && !f.ReShade
                 && (f.Name.Equals(name, StringComparison.OrdinalIgnoreCase) || f.OptiScaler);

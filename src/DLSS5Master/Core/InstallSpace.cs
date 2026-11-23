@@ -6,7 +6,8 @@ public static partial class Installers
     // version checks may keep a runtime that is included here.
     private static long InstallSpaceNeeded(InstallRequest req, GameScan scan, Dictionary<string, string> runtime,
         string? reshade, string? reshade64, string? consumer, string? multipass,
-        Components.FeederPayload? feeder, string? opti, string? lecram, NativeMfgProviders? mfg, Action<InstallPreview>? preview = null)
+        Components.FeederPayload? feeder, Components.UpliftPayload? uplift, string? opti, string? nrDir,
+        NativeMfgProviders? mfg, Action<InstallPreview>? preview = null)
     {
         var exeDir = Path.GetDirectoryName(req.ExePath)!;
         var copies = new List<(string Source, string Target)>();
@@ -19,7 +20,16 @@ public static partial class Installers
                 Add(file, Path.Combine(target, Path.GetRelativePath(source, file)));
         }
 
-        if (req.Route != Route.OptiScaler)
+        string? upliftAddonDir = null;
+        if (req.Route == Route.Uplift && uplift is not null)
+        {
+            upliftAddonDir = UpliftAddonDirectory(scan.Dir, exeDir);
+            Beside(reshade, ReShadeHookFor(req));
+            Tree(uplift.AddonDirectory, upliftAddonDir);
+            Tree(uplift.ShaderDirectory, Path.Combine(exeDir, "reshade-shaders", "Shaders"));
+            Add(runtime.GetValueOrDefault(NeuralDll), Path.Combine(upliftAddonDir, UpliftRuntimeFolder, NeuralDll));
+        }
+        else if (req.Route != Route.OptiScaler)
         {
             Beside(reshade, ReShadeHookFor(req));
             foreach (var file in scan.Upscalers.Where(u => u.Kind is UpscalerKind.DlssSR or UpscalerKind.DlssNR))
@@ -44,7 +54,7 @@ public static partial class Installers
             {
                 Beside(runtime.GetValueOrDefault(NeuralDll), NeuralDll);
                 Beside(runtime.GetValueOrDefault(DlssDll), DlssDll);
-                if (req.Route == Route.LecramNr && lecram is not null) Tree(lecram, exeDir);
+                if (req.Route == Route.NrAddon && nrDir is not null) Tree(nrDir, exeDir);
                 else Beside(req.Route == Route.Multipass ? multipass : consumer,
                     req.Route == Route.Multipass ? MultipassAddon : ConsumerAddon);
                 if (req.Route == Route.Multipass)
@@ -79,6 +89,12 @@ public static partial class Installers
                     backups.Add(file);
         }
         LooseFiles(exeDir);
+        if (upliftAddonDir is not null)
+        {
+            if (!upliftAddonDir.Equals(exeDir, StringComparison.OrdinalIgnoreCase)) LooseFiles(upliftAddonDir);
+            var legacyHelper = Path.Combine(upliftAddonDir, "uplift-helper64.exe");
+            if (File.Exists(legacyHelper)) backups.Add(legacyHelper);
+        }
         if (req.Route == Route.Feeder && req.Bitness != 64) LooseFiles(Path.Combine(exeDir, "host64"));
         foreach (var replacement in scan.Manifest?.Replaced ?? new List<Replacement>())
             backups.Add(Journal.SafePath(scan.Dir, replacement.Rel));

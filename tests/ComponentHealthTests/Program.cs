@@ -15,8 +15,8 @@ void Check(string name, bool ok)
 string Hash(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 try
 {
-    Check("catalog has seven public component sets", ComponentHealth.Groups.Count == 7);
-    Check("catalog includes every payload pin plus MFG", ComponentHealth.Groups.Sum(g => g.Files.Count) == 51);
+    Check("catalog has eight public component sets", ComponentHealth.Groups.Count == 8);
+    Check("catalog includes every payload pin plus MFG", ComponentHealth.Groups.Sum(g => g.Files.Count) == 52);
     Check("catalog excludes private add-ons and NeuralMaster", ComponentHealth.Groups.All(g => g.Id is not ("own-addon" or "neuralmaster")) &&
         ComponentHealth.Groups.SelectMany(g => g.Files).All(p => !p.RelativePath.Contains("dlss5-nr", StringComparison.OrdinalIgnoreCase) && !p.RelativePath.Contains("neuralmaster", StringComparison.OrdinalIgnoreCase)));
     var bundle = Path.Combine(root, "bundle");

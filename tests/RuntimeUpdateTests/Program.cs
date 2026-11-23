@@ -56,7 +56,7 @@ try
     Check("unverified archive rejected", Pick(sr, Release(sr, "dlss-311.0.0", "nvngx_dlss_311.0.0.zip", "")) is null);
     Check("pre-release rejected", Pick(sr, Release(sr, "dlss-311.0.0", "nvngx_dlss_311.0.0.zip", sha, true)) is null);
     Check("wrong repository download rejected", Pick(sr, Release(sr, "dlss-311.0.0", "nvngx_dlss_311.0.0.zip", sha, url: "https://github.com/other/repo/releases/download/x/file.zip")) is null);
-    Check("community NR variant is not silently selected", Pick(nr, Release(nr, "dlssnr-310.8.Lecram", "nvngx_dlssnr_310.8.Lecram.zip", sha)) is null);
+    Check("community NR variant is not silently selected", Pick(nr, Release(nr, "dlssnr-310.8.community", "nvngx_dlssnr_310.8.community.zip", sha)) is null);
     Check("Streamline excludes ARM SDK", Pick(sl, Release(sl, "v2.14.16", "streamline-sdk-v2.14.16-aarch64.zip", sha)) is null);
     Check("Streamline stays on the approved 2.13 release", Pick(sl, Release(sl, "streamline-2.13.0.0", "streamline_2.13.0.0.zip", sha))?.Version == "2.13.0.0");
 

@@ -13,45 +13,49 @@ namespace DLSS5Master;
 /// </summary>
 public sealed partial class MainWindow
 {
-    private static readonly Route[] CardOrder = { Route.Native, Route.Multipass, Route.Feeder, Route.OptiScaler, Route.LecramNr };
+    private static readonly Route[] CardOrder = { Route.Native, Route.Multipass, Route.Feeder, Route.OptiScaler, Route.NrAddon, Route.Uplift };
 
     private static (string Glyph, string Title, string Line) CardText(Route r) => r switch
     {
         Route.Native => ("", "Native", "RenoDX DLSS5 add-on in ReShade"),
         Route.Multipass => ("", "Multipass", "RenoDX DLSS Tool, several neural passes"),
         Route.Feeder => ("", "Feeder", "For games without their own DLSS"),
+        Route.Uplift => ("\uE945", "GITC Uplift", "Neural rendering from the game's backbuffer"),
         Route.NeuralMaster => ("\uE713", "NeuralMaster", "View the latest native-input path"),
-        Route.LecramNr => ("", "DLSS5 NR", "Your locally supplied add-on, loaded through ReShade."),
+        Route.NrAddon => ("", "DLSS5 NR", "Your locally supplied add-on, loaded through ReShade."),
         _ => ("", "OptiScaler", "DLSS-NR through OptiScaler, no ReShade"),
     };
 
     private readonly Dictionary<Route, Button> _routeCards = new();
 
+    private Route? RecommendedGameRoute(List<RouteOption> routes, int bits)
+    {
+        if (_scan is null) return null;
+        if (SelectedApi != RenderApi.Vulkan) return Installers.RecommendedRoute(SelectedApi, bits, _scan.HasNativeDlss);
+        if (routes.Any(r => r.Route == Route.NrAddon && r.Unavailable is null)) return Route.NrAddon;
+        if (routes.Any(r => r.Route == Route.Feeder && r.Unavailable is null)) return Route.Feeder;
+        if (_scan.HasNativeDlss && routes.Any(r => r.Route == Route.OptiScaler && r.Unavailable is null)) return Route.OptiScaler;
+        return routes.Any(r => r.Route == Route.Uplift && r.Unavailable is null) ? Route.Uplift : null;
+    }
+
     /// <summary>Builds the cards when the available routes change; otherwise only updates which one looks selected.</summary>
     private void RenderRouteCards(List<RouteOption> routes, bool opti, int bits)
     {
         if (_scan is null) return;
-        var recommended = Installers.RecommendedRoute(SelectedApi, bits, _scan.HasNativeDlss);
-        Route? installed = _scan.Manifest?.Route switch
-        {
-            "native" => Route.Native, "multipass" => Route.Multipass, "feeder" => Route.Feeder, "optiscaler" => Route.OptiScaler, "lecramnr" => Route.LecramNr, _ => null,
-        };
-        var signature = string.Join("|", routes.Select(r => $"{r.Route}:{r.Label}:{r.Unavailable is null}")) + $"|{recommended}|{installed}";
+        var recommended = RecommendedGameRoute(routes, bits);
+        var installed = routes.FirstOrDefault(r => Installers.RouteKey(r.Route) == _scan.Manifest?.Route)?.Route;
+        var signature = string.Join("|", routes.Select(r => $"{r.Route}:{r.Label}:{r.Description}:{r.Unavailable}")) + $"|{recommended}|{installed}";
         if (!Equals(RouteCards.Tag, signature))
         {
             RouteCards.Children.Clear();
-            RouteCards.ColumnDefinitions.Clear();
             _routeCards.Clear();
-            int col = 0;
             foreach (var route in CardOrder)
             {
                 var option = routes.FirstOrDefault(o => o.Route == route);
                 if (option is null) continue;
-                RouteCards.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                var card = BuildRouteCard(option, route == recommended && option.Unavailable is null, route == installed);
-                Grid.SetColumn(card, col++);
-                RouteCards.Children.Add(card);
+                RouteCards.Children.Add(BuildRouteCard(option, route == recommended && option.Unavailable is null, route == installed));
             }
+            LayoutRouteCards(RouteCards.ActualWidth);
             RouteCards.Tag = signature;
         }
 
@@ -65,16 +69,56 @@ public sealed partial class MainWindow
         }
     }
 
+    private void RouteCards_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (e.NewSize.Width != e.PreviousSize.Width)
+            LayoutRouteCards(e.NewSize.Width);
+    }
+
+    private void LayoutRouteCards(double width)
+    {
+        var count = RouteCards.Children.Count;
+        if (count == 0) return;
+        const double minimumCardWidth = 166;
+        var spacing = RouteCards.ColumnSpacing;
+        var maxColumns = width > 0 ? Math.Max(1, (int)((width + spacing) / (minimumCardWidth + spacing))) : 5;
+        var rows = (count + maxColumns - 1) / maxColumns;
+        var columns = (count + rows - 1) / rows;
+        if (RouteCards.ColumnDefinitions.Count != columns)
+        {
+            RouteCards.ColumnDefinitions.Clear();
+            for (int i = 0; i < columns; i++)
+                RouteCards.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        }
+        if (RouteCards.RowDefinitions.Count != rows)
+        {
+            RouteCards.RowDefinitions.Clear();
+            for (int i = 0; i < rows; i++)
+                RouteCards.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        }
+        for (int i = 0; i < count; i++)
+        {
+            if (RouteCards.Children[i] is not FrameworkElement card) continue;
+            Grid.SetRow(card, i / columns);
+            Grid.SetColumn(card, i % columns);
+        }
+    }
+
     private FrameworkElement BuildRouteCard(RouteOption option, bool recommended, bool installed)
     {
         var (glyph, title, line) = CardText(option.Route);
-        if (option.Route == Route.LecramNr) title = option.Label;
+        if (option.Route == Route.NrAddon) title = option.Label;
         bool available = option.Route == Route.NeuralMaster || option.Unavailable is null;
 
         var content = new StackPanel { Spacing = 6 };
-        var head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        var head = new Grid { ColumnSpacing = 8 };
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         head.Children.Add(new FontIcon { Glyph = glyph, FontSize = 16, Foreground = available ? Res("AccentText") : Res("MutedText") });
-        head.Children.Add(new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, FontSize = 15 });
+        var heading = new TextBlock { Text = title, FontWeight = FontWeights.SemiBold, FontSize = 15,
+            TextWrapping = TextWrapping.Wrap, MaxLines = 2, TextTrimming = TextTrimming.CharacterEllipsis };
+        Grid.SetColumn(heading, 1);
+        head.Children.Add(heading);
         content.Children.Add(head);
         content.Children.Add(new TextBlock { Text = line, FontSize = 12, Foreground = Res("MutedText"), TextWrapping = TextWrapping.Wrap, MaxLines = 2 });
 

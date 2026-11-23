@@ -50,10 +50,13 @@ public sealed partial class MainWindow
                 var versions = _components.RuntimeFiles().Where(kv => kv.Key.StartsWith("nvngx", StringComparison.OrdinalIgnoreCase))
                     .OrderBy(kv => kv.Key).Select(kv => $"{kv.Key}: {Pe.GetFileVersion(kv.Value) ?? "unknown"}");
                 var reshade = _components.ReShadeDll(64);
-                return (Runtime: string.Join(" · ", versions), ReShade: reshade is null ? "Not found" : Pe.GetFileVersion(reshade) ?? "unknown");
+                var feederFolder = _settings.FeederFolder;
+                var feeder = string.IsNullOrWhiteSpace(feederFolder) ? null
+                    : FeederZipImport.DisplayName(feederFolder) is { } zip ? $"{zip} · Local ZIP" : "Selected ZIP unavailable";
+                return (Runtime: string.Join(" · ", versions), ReShade: reshade is null ? "Not found" : Pe.GetFileVersion(reshade) ?? "unknown", Feeder: feeder);
             });
             if (read != _componentRead) return;
-            var stamp = System.Text.Json.JsonSerializer.Serialize(new { SelectedRuntime = selected.Runtime, SelectedReShade = selected.ReShade, _settings.ReShadeSource, _settings.RuntimeFolder,
+            var stamp = System.Text.Json.JsonSerializer.Serialize(new { SelectedRuntime = selected.Runtime, SelectedReShade = selected.ReShade, SelectedFeeder = selected.Feeder, _settings.ReShadeSource, _settings.RuntimeFolder,
                 _componentVerifiedAt, _componentWorking, Reports = reports.Select(r => new { r.Group.Id, r.Missing, r.Different }),
                 Addons = Updates.Sources.Select(s => new { s.Id, Version = Updates.InUse(s).Version, Updated = Updates.InUse(s).Updated }) });
             if (_componentViewStamp == stamp) { await RefreshRuntimeUpdatesAsync(); return; }
@@ -69,6 +72,7 @@ public sealed partial class MainWindow
                     "runtime" => (string.IsNullOrWhiteSpace(_settings.RuntimeFolder) ? "Automatic" : "Custom folder requested") +
                         (selected.Runtime.Length == 0 ? " · No runtimes found" : " · " + selected.Runtime),
                     "reshade" => selected.ReShade + (string.IsNullOrWhiteSpace(_settings.ReShadeSource) ? " · Automatic" : " · Custom source requested"),
+                    "feeder" when selected.Feeder is not null => selected.Feeder,
                     _ when Updates.Sources.FirstOrDefault(s => s.Id == group.Id) is { } source =>
                         Updates.InUse(source).Version + (Updates.InUse(source).Updated ? " · Accepted update" : " · Included build"),
                     _ => group.Version,
