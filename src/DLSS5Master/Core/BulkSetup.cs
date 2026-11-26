@@ -240,13 +240,17 @@ public static class BulkSetup
 
         var exeDir = Path.GetDirectoryName(exe.Path)!;
         bool usesVulkanLayer = o.Route is (Route.Feeder or Route.NrAddon or Route.Uplift) && api == RenderApi.Vulkan;
+        var feederBackend = o.Route == Route.Feeder ? AppSettings.FeederBackendFor(g.Choices, m) : FeederBackend.RenoDx;
+        bool feederLecram = feederBackend == FeederBackend.Lecram;
         string? nrDir = null;
-        if (o.Route == Route.NrAddon)
+        if (o.Route == Route.NrAddon || feederLecram)
         {
             // As NrAddon.Source: the copy picked in Settings or kept in DLSS 5 Master's folder, else the game's own.
             nrDir = c.NrCopy ?? (g.NrInGame ? exeDir : null);
             if (nrDir is null) return Out("There is no copy of DLSS5 NR for it. Add yours in Settings.");
         }
+        if (feederLecram && Installers.FeederLecramUnavailable(api, bits, nrDir) is { } feederProblem)
+            return Out(feederProblem);
         var option = Installers.RoutesFor(api, bits, scan.HasNativeDlss, scan.HasFrameGen, nrCopy: o.Route == Route.NrAddon,
             vulkanNrUnavailable: g.VulkanNrUnavailable, vulkanFeederUnavailable: g.VulkanFeederUnavailable)
             .FirstOrDefault(r => r.Route == o.Route);
@@ -270,7 +274,7 @@ public static class BulkSetup
         if (o.Route == Route.Feeder && bits != 64 && !c.ReShade64)
             return Out("The Feeder's 64-bit helper needs a 64-bit ReShade with add-on support. Pick a ReShade_Setup_*_Addon.exe in Settings.");
         // Another ReShade route sets the NR add-on aside; the page asks first. Never set the player's own copy aside unseen.
-        if (reshade && o.Route is not (Route.NrAddon or Route.MfgOnly) && g.NrAddon is { } version)
+        if (reshade && !feederLecram && o.Route is not (Route.NrAddon or Route.MfgOnly) && g.NrAddon is { } version)
             return Out($"It has DLSS5 NR{(version == "" ? "" : " " + version)}, which this route would set aside. Pick DLSS5 NR, or set it up on its page.");
         var reshadeThen = g.ReShadeAfterRestore ?? scan.ReShade;
         if (o.Route == Route.NrAddon && !usesVulkanLayer)
@@ -303,6 +307,7 @@ public static class BulkSetup
         var req = new InstallRequest
         {
             GameDir = scan.Dir, ExePath = exe.Path, Api = api, Bitness = bits, Route = o.Route,
+            FeederBackend = feederBackend,
             OptiBuild = o.Build, OptiHook = hook, MenuKey = key, ReShadeProxy = proxy, MfgUnlock = mfg,
             LoadAddonsEarly = g.Choices?.LoadAddonsEarly == true,
             // Never acknowledged here: InstallAsync still refuses a game whose anti-cheat shows up only now.

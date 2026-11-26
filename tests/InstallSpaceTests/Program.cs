@@ -47,7 +47,7 @@ try
     scan.Upscalers.Add(new UpscalerFile(a, "a.dll", "nvngx_dlssnr.dll", UpscalerKind.DlssNR, null, 64));
     var request = new InstallRequest { GameDir = game, ExePath = Path.Combine(game, "game.exe"), Route = Route.Native, Bitness = 64, Api = RenderApi.DX12 };
     long Plan(InstallRequest req, Components.FeederPayload? feeder = null) => (long)planner.Invoke(null,
-        new object?[] { req, scan, runtime, null, null, null, null, feeder, null, null, null, null })!;
+        new object?[] { req, scan, runtime, null, null, null, null, feeder, null, null, null, null, null, null })!;
     Check("route planner includes runtime mirror and backups", Plan(request), 270 + 70 + 1024 * 1024);
     // 100 for each NR destination, plus the 70-byte existing destination backup.
     var feederRequest = new InstallRequest { GameDir = game, ExePath = request.ExePath, Route = Route.Feeder, Bitness = 32, Api = RenderApi.DX12 };

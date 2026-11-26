@@ -15,8 +15,11 @@ void Check(string name, bool ok)
 string Hash(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 try
 {
-    Check("catalog has eight public component sets", ComponentHealth.Groups.Count == 8);
-    Check("catalog includes every payload pin plus MFG", ComponentHealth.Groups.Sum(g => g.Files.Count) == 52);
+    Check("catalog has nine public component sets", ComponentHealth.Groups.Count == 9);
+    Check("catalog includes every payload pin plus MFG", ComponentHealth.Groups.Sum(g => g.Files.Count) == 58);
+    Check("catalog pins the NVIDIA signed model separately from the community build",
+        ComponentHealth.Groups.Single(g => g.Id == "nvidia-neural").Files.Single().RelativePath == "payload/nvidia-neural/nvngx_dlssnr.dll" &&
+        ComponentHealth.Groups.Single(g => g.Id == "runtime").Files.Any(p => p.RelativePath == "payload/runtime/nvngx_dlssnr.dll"));
     Check("catalog excludes private add-ons and NeuralMaster", ComponentHealth.Groups.All(g => g.Id is not ("own-addon" or "neuralmaster")) &&
         ComponentHealth.Groups.SelectMany(g => g.Files).All(p => !p.RelativePath.Contains("dlss5-nr", StringComparison.OrdinalIgnoreCase) && !p.RelativePath.Contains("neuralmaster", StringComparison.OrdinalIgnoreCase)));
     var bundle = Path.Combine(root, "bundle");

@@ -59,10 +59,10 @@ if ($Stage -in 'all', 'publish') {
     # Bundled third-party add-on: MFGAdaUnlock-RenoDx (MIT). Pinned URL + SHA-256, same pin as Core/Components.cs.
     $addons = Join-Path $root 'src\DLSS5Master\addons'
     $mfg = Join-Path $addons 'renodx-mfgunlock.addon64'
-    $mfgSha = 'f8c806fe99fa200614be0c04f0a7908dd9e2de6d28ed67bb309bcd9fb66d703b'
+    $mfgSha = 'f7cc86a84c05436409a1b7a59499ffb9d8d5cec51ed6fe0e8bb4e55885e62ebf'
     if (-not (Test-Path $mfg) -or (Get-FileHash $mfg -Algorithm SHA256).Hash.ToLower() -ne $mfgSha) {
         New-Item -ItemType Directory -Force $addons | Out-Null
-        Invoke-WebRequest 'https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/1.11.0/renodx-mfgunlock.addon64' -OutFile $mfg -UseBasicParsing
+        Invoke-WebRequest 'https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/1.12.0/renodx-mfgunlock.addon64' -OutFile $mfg -UseBasicParsing
         if ((Get-FileHash $mfg -Algorithm SHA256).Hash.ToLower() -ne $mfgSha) { Remove-Item $mfg; throw 'renodx-mfgunlock.addon64 failed its checksum' }
     }
 

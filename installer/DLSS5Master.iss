@@ -8,6 +8,9 @@
 #ifndef PublishDir
   #define PublishDir "..\publish"
 #endif
+#ifndef AppCompression
+  #define AppCompression "lzma2/ultra64"
+#endif
 
 [Setup]
 AppId={{6F1C2A9E-5D3B-4C8E-9A1F-D55A5E0C7B21}
@@ -29,7 +32,7 @@ OutputBaseFilename=DLSS5Master-Setup-{#AppVersion}
 SetupIconFile=..\src\DLSS5Master\Assets\DLSS5Master.ico
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName}
-Compression=lzma2/ultra64
+Compression={#AppCompression}
 SolidCompression=yes
 WizardStyle=modern dark
 WizardImageFile=WizardImage164.bmp,WizardImage192.bmp,WizardImage246.bmp,WizardImage273.bmp,WizardImage328.bmp,WizardImage355.bmp,WizardImage410.bmp
@@ -60,6 +63,9 @@ Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreve
 Source: "licenses\*"; DestDir: "{app}\licenses"; Excludes: "NeuralMaster-*.txt"; Flags: ignoreversion
 
 [InstallDelete]
+Type: files; Name: "{app}\payload\feeder\detroit\dlss5-feed-detroit.addon64"
+Type: files; Name: "{app}\payload\feeder\detroit\dlss5-feed-detroit-host64.exe"
+Type: files; Name: "{app}\payload\feeder\detroit\dlss5-feed-controls.addon64"
 ; Remove the retired renderer from an older app installation, never from games.
 Type: files; Name: "{app}\payload\neuralmaster\NeuralMaster.addon64"
 ; Shortcuts from versions named "DLSS5 Master" (without the space).
@@ -83,6 +89,7 @@ Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_9_85-shyvortex.zip"
 Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_9_86-shyvortex.zip"
 Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_9_90-shyvortex.zip"
 Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_9_91-shyvortex.zip"
+Type: files; Name: "{app}\payload\optiscaler\OptiScaler-0_9_95-shyvortex.zip"
 
 [UninstallDelete]
 ; The large caches in the app's data folder (about 1.2 GB on a used install): downloaded add-ons and OptiScaler builds,

@@ -6,7 +6,7 @@ public static partial class Installers
     // version checks may keep a runtime that is included here.
     private static long InstallSpaceNeeded(InstallRequest req, GameScan scan, Dictionary<string, string> runtime,
         string? reshade, string? reshade64, string? consumer, string? multipass,
-        Components.FeederPayload? feeder, Components.UpliftPayload? uplift, string? opti, string? nrDir,
+        Components.FeederPayload? feeder, Components.UpliftPayload? uplift, string? opti, string? feederOptiHook, string? nrDir,
         NativeMfgProviders? mfg, Action<InstallPreview>? preview = null)
     {
         var exeDir = Path.GetDirectoryName(req.ExePath)!;
@@ -38,16 +38,30 @@ public static partial class Installers
             {
                 Beside(req.Bitness == 64 ? feeder.Addon64 : feeder.Addon32,
                     req.Bitness == 64 ? "dlss5-feed.addon64" : "dlss5-feed.addon32");
+                Beside(feeder.DesktopPanel, FeederZipImport.DesktopPanelName);
                 Tree(feeder.ShaderRoot, Path.Combine(exeDir, "reshade-shaders"));
                 if (feeder.Verifier is not null) Beside(feeder.Verifier, Path.GetFileName(feeder.Verifier));
-                var host = req.Bitness == 64 ? exeDir : Path.Combine(exeDir, "host64");
+                Beside(feeder.InGameControls, Components.FeederControlPanel);
+                bool usesHelper = req.Bitness != 64;
+                var host = usesHelper ? Path.Combine(exeDir, "host64") : exeDir;
                 Add(consumer, Path.Combine(host, ConsumerAddon));
+                if (req.FeederBackend == FeederBackend.Lecram && nrDir is not null)
+                    Beside(Path.Combine(nrDir, NrAddon.Addon64), NrAddon.Addon64);
                 Add(runtime.GetValueOrDefault(NeuralDll), Path.Combine(host, NeuralDll));
                 Add(runtime.GetValueOrDefault(DlssDll), Path.Combine(host, DlssDll));
-                if (req.Bitness != 64)
+                if (usesHelper)
                 {
-                    Add(feeder.Host64, Path.Combine(host, "dlss5-feed-host64.exe"));
+                    Add(feeder.Host64, Path.Combine(host, FeederHost64));
                     Add(reshade64, Path.Combine(host, "dxgi.dll"));
+                }
+                if (opti is not null && feederOptiHook is not null)
+                {
+                    Beside(feeder.LiveOptiScalerLibrary, feederOptiHook);
+                    Tree(Path.Combine(opti, "OptiScaler"), Path.Combine(exeDir, "OptiScaler"));
+                    Tree(Path.Combine(opti, "Licenses"), Path.Combine(exeDir, "OptiScaler", "licenses"));
+                    var gpl = new[] { Path.Combine(opti, "LICENSE"), Path.Combine(opti, "OptiScaler-GPL-3.0.txt"),
+                        Path.Combine(Path.GetDirectoryName(opti)!, "OptiScaler-GPL-3.0.txt") }.FirstOrDefault(File.Exists);
+                    Add(gpl, Path.Combine(exeDir, "OptiScaler", "licenses", "LICENSE.GPL-3.0.txt"));
                 }
             }
             else
@@ -89,6 +103,8 @@ public static partial class Installers
                     backups.Add(file);
         }
         LooseFiles(exeDir);
+        if (req.Route == Route.NrAddon || req.Route == Route.Feeder && req.FeederBackend == FeederBackend.Lecram)
+            backups.UnionWith(RenoDxConsumerCopies(scan.Dir));
         if (upliftAddonDir is not null)
         {
             if (!upliftAddonDir.Equals(exeDir, StringComparison.OrdinalIgnoreCase)) LooseFiles(upliftAddonDir);
@@ -117,10 +133,16 @@ public static partial class Installers
         }
         bool sameDrive = string.Equals(Path.GetPathRoot(scan.Dir), Path.GetPathRoot(AppPaths.Root), StringComparison.OrdinalIgnoreCase);
         if (!sameDrive) AssertRoom(AppPaths.Root, Path.GetPathRoot(Path.GetFullPath(AppPaths.Root))!, null, rollback);
+        var settings = req.Route switch
+        {
+            Route.OptiScaler => new[] { "OptiScaler.ini" },
+            Route.Feeder when feederOptiHook is not null => new[] { "ReShade.ini", "ReShadePreset.ini", "dlss5-feed.cfg", "OptiScaler.ini" },
+            Route.Feeder => new[] { "ReShade.ini", "ReShadePreset.ini", "dlss5-feed.cfg" },
+            _ => new[] { "ReShade.ini", "ReShadePreset.ini" },
+        };
         preview?.Invoke(new InstallPreview(unique.Select(c => new PlannedCopy(Path.GetRelativePath(scan.Dir, c.Target),
             File.Exists(c.Target) ? Pe.GetFileVersion(c.Target) : null, Pe.GetFileVersion(c.Source), new FileInfo(c.Source).Length)).OrderBy(c => c.RelativePath).ToList(),
-            required, Math.Max(0, required - writes), req.Route == Route.OptiScaler ? new[] { "OptiScaler.ini" } :
-            req.Route == Route.Feeder ? new[] { "ReShade.ini", "ReShadePreset.ini", "dlss5-feed.cfg" } : new[] { "ReShade.ini", "ReShadePreset.ini" }, rollback));
+            required, Math.Max(0, required - writes), settings, rollback));
         return required + (sameDrive ? rollback : 0);
     }
 

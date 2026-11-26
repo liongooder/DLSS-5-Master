@@ -202,6 +202,7 @@ public static partial class Scanner
     // BattlEye's launcher is the game's own name with "_BE" (ArkAscended_BE.exe, DayZ_BE.exe).
     internal static bool IsHelperExe(string fileName) =>
         IgnoredExePrefixes.Any(p => fileName.StartsWith(p, StringComparison.OrdinalIgnoreCase))
+        || fileName.Equals(FeederZipImport.DesktopPanelName, StringComparison.OrdinalIgnoreCase)
         || fileName.EndsWith("_BE.exe", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>

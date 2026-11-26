@@ -52,6 +52,7 @@ public sealed class GameOverride
     public string? Poster { get; set; }
     /// <summary>Setups of this game have ReShade load the add-ons as soon as it starts (ReShade.ini LoadFromDllMain).</summary>
     public bool? LoadAddonsEarly { get; set; }
+    public FeederBackend? FeederBackend { get; set; }
     /// <summary>
     /// The launcher of the game these choices belong to ("Steam", "Epic Games", "GOG", "Ubisoft" or "Xbox"), so they follow
     /// it to another folder (<see cref="MovedGames"/>); null for a game added by hand or found in the user's own folders.
@@ -69,6 +70,7 @@ public sealed class GameOverride
         Api ??= other.Api;
         Poster ??= other.Poster;
         LoadAddonsEarly ??= other.LoadAddonsEarly;
+        FeederBackend ??= other.FeederBackend;
         // The game they belong to goes as a whole: never one game's launcher with another one's ID.
         if (Launcher is null) (Launcher, Id, Name) = (other.Launcher, other.Id, other.Name);
     }
@@ -82,12 +84,14 @@ public sealed class AppSettings
     public List<string> HiddenGames { get; set; } = new();
     /// <summary>Folder with nvngx_dlss*.dll / sl.*.dll. Empty = the copies bundled with the app.</summary>
     public string RuntimeFolder { get; set; } = "";
+    public NeuralModelChoice NeuralModel { get; set; } = NeuralModelChoice.Automatic;
     /// <summary>Folder or ReShade_Setup_*_Addon.exe providing ReShade32/64.dll. Empty = auto-detect.</summary>
     public string ReShadeSource { get; set; } = "";
     /// <summary>The player's copy of DLSS5 NR (the unzipped add-on folder). Empty = only games that already have it offer its route.</summary>
     public string NrFolder { get; set; } = "";
     /// <summary>A locally imported Feeder release. Empty = use the normal update and included component selection.</summary>
     public string FeederFolder { get; set; } = "";
+    public bool FeederLiveControls { get; set; } = true;
     public string OptiScalerMenuKey { get; set; } = "0x2D";
     public bool ShowCommunity { get; set; } = true;
     /// <summary>Overlay: neural style 0 Default, 1 Natural, 2 Cinematic.</summary>
@@ -171,5 +175,22 @@ public sealed class AppSettings
         if (o is null) Overrides[game.Dir] = o = new GameOverride();
         MovedGames.Stamp(o, game);
         return o;
+    }
+
+    internal static FeederBackend FeederBackendFor(GameOverride? choices, Manifest? installed) =>
+        choices?.FeederBackend switch
+        {
+            FeederBackend.Lecram => FeederBackend.Lecram,
+            FeederBackend.RenoDx => FeederBackend.RenoDx,
+            _ => installed is { Route: "feeder", FeederBackend: FeederBackend.Lecram }
+                ? FeederBackend.Lecram : FeederBackend.RenoDx,
+        };
+
+    internal bool TryRememberInstalledFeederBackend(GameEntry game, Manifest? installed)
+    {
+        if (OverrideOf(game)?.FeederBackend is FeederBackend.RenoDx or FeederBackend.Lecram ||
+            installed is not { Route: "feeder", FeederBackend: FeederBackend.Lecram }) return false;
+        OverrideFor(game).FeederBackend = FeederBackend.Lecram;
+        return true;
     }
 }

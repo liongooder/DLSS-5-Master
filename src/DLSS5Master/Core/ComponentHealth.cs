@@ -48,12 +48,14 @@ public static class ComponentHealth
         return new[]
         {
             Group("runtime", "NVIDIA runtimes and Streamline", "Included runtime set", p => p.RelativePath.StartsWith("payload/runtime/")),
+            Group("nvidia-neural", "NVIDIA signed neural model", "310.9.16.0", p => p.RelativePath.StartsWith("payload/nvidia-neural/")),
             Group("reshade", "ReShade with add-on support", "6.8.0", p => p.RelativePath.StartsWith("payload/reshade/")),
             Group("renodx-dlss5", "RenoDX DLSS5 add-on", VersionOf("renodx-dlss5"), p => p.RelativePath.EndsWith("/renodx-dlss5.addon64")),
             Group("renodx-dlss", "RenoDX DLSS Tool (multipass)", VersionOf("renodx-dlss"), p => p.RelativePath.EndsWith("/renodx-dlss.addon64")),
             new ComponentGroup("mfgunlock", "MFG Unlock", Components.MfgVersion,
                 new[] { new ComponentPin("addons/" + Components.MfgAddon, Components.MfgUrl, Components.MfgSha256) }),
-            Group("feeder", "DLSS5 Feeder", VersionOf("feeder"), p => p.RelativePath.StartsWith("payload/feeder/")),
+            Group("feeder", "DLSS5 Feeder", VersionOf("feeder"), p =>
+                p.RelativePath.StartsWith("payload/feeder/") || p.RelativePath.StartsWith("payload/feeder-original/")),
             Group("gitc-uplift", "GITC Uplift", Components.UpliftVersion, p => p.RelativePath.StartsWith("payload/gitc-uplift/")),
             Group("optiscaler-nr", "OptiScaler NR", VersionOf("optiscaler-nr"), p => p.RelativePath.StartsWith("payload/optiscaler/")),
         };
@@ -180,7 +182,9 @@ public static class ComponentHealth
             else if (pin.RelativePath.StartsWith("payload/feeder/")) source = FeederSource(pin.RelativePath["payload/feeder/".Length..]);
             else throw new InstallException("This file needs the app installer to repair it: " + pin.RelativePath);
         }
-        if (!new Uri(source).AbsolutePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
+        var sourcePath = new Uri(source).AbsolutePath;
+        if (!sourcePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+            Path.GetFileName(pin.RelativePath).Equals(Path.GetFileName(sourcePath), StringComparison.OrdinalIgnoreCase))
         {
             await Components.DownloadVerifiedAsync(source, pin.Sha256, target, null, ct);
             return;
@@ -210,6 +214,9 @@ public static class ComponentHealth
 
     private static string FeederSource(string relative) => relative switch
     {
+        "dlss5-feed.addon32" or "dlss5-feed.addon64" or "dlss5-feed-host64.exe" or
+        "controls/dlss5-feed-controls.addon64" =>
+            throw new InstallException("Rerun DLSS 5 Master setup to restore the included in-game Feeder panel."),
         "licenses/DLSS5-Feeder-LICENSE.txt" => "https://raw.githubusercontent.com/jlrouzies-fr/DLSS5-Feeder/v1.19.0/LICENSE",
         "licenses/VORT-LICENSE.txt" => "https://raw.githubusercontent.com/vortigern11/vort_Shaders/b410b9f0c0fbb83c8cb42164aaf1655fab386f4a/LICENSE",
         _ when relative.StartsWith("reshade-shaders/") =>

@@ -149,6 +149,119 @@ internal sealed partial class NeuralMasterSnapshots
             restoreCurrentHashes: restoreCurrentHashes, matchingHosts: matchingHosts);
     }
 
+
+    private sealed record SetupLayerRepair(string Manifest, string ManifestHash, string OriginalHost, string HostHash,
+        string ReplacedHostHash, IReadOnlyList<string> Hosts, string AddonHash, IReadOnlyList<string> Addons)
+    {
+        public string Fingerprint => string.Join("\n", new[] { Manifest, ManifestHash, OriginalHost, HostHash, ReplacedHostHash, AddonHash }
+            .Concat(Hosts.Order(PathComparer)).Concat(Addons.Order(PathComparer)));
+    }
+
+    private SetupLayerRepair? PlanExternalSetupLayer(GameContext ctx)
+    {
+        var exeDir = Path.GetDirectoryName(ctx.Exe)!;
+        if (!NrAddon.SetupInstalled(exeDir)) return null;
+        if (Journal.ReadManifest(ctx.Game) is not null && !Installers.NrSetupAfterUs(ctx.Game)) return null;
+        var record = GameFile(ctx, Path.GetRelativePath(ctx.Game, NrAddon.SetupRecord(exeDir)));
+        var recordHash = Components.Sha256(record);
+        var setup = NrAddon.ReadSetupInstall(exeDir);
+        if (setup.Problem is not null || setup.Dirs.Count != 0) return null;
+
+        var rootHost = Path.Combine(exeDir, HostName);
+        var rootAddon = Path.Combine(exeDir, NrAddon.Addon64);
+        var hostBackups = setup.PutBack.Where(item => PathComparer.Equals(item.Target, rootHost)).ToList();
+        if (hostBackups.Count != 1 || !setup.Delete.Contains(rootAddon, PathComparer)) return null;
+        // Only the x64 setup layout is recognized. Keep the shared runtime and the player's current INI files.
+        var preserved = new[] { SharedIni, "ReShadePreset.ini", "nvngx_dlssnr.dll" }
+            .Select(name => Path.Combine(exeDir, name)).ToHashSet(PathComparer);
+        if (setup.PutBack.Any(item => !PathComparer.Equals(item.Target, rootHost) && !preserved.Contains(item.Target))
+            || setup.Delete.Any(path => !PathComparer.Equals(path, rootAddon) && !preserved.Contains(path))) return null;
+
+        var backup = hostBackups[0];
+        var source = GameFile(ctx, Path.GetRelativePath(ctx.Game, backup.Source));
+        var backupRoot = Path.Combine(Path.GetDirectoryName(record)!, "backup");
+        if (!PathComparer.Equals(source, Path.Combine(backupRoot, HostName))) return null;
+        rootHost = GameFile(ctx, Path.GetRelativePath(ctx.Game, rootHost));
+        rootAddon = GameFile(ctx, Path.GetRelativePath(ctx.Game, rootAddon));
+        if (!File.Exists(rootHost) || !File.Exists(rootAddon)) return null;
+
+        var replacedHash = Components.Sha256(rootHost);
+        if (PathComparer.Equals(replacedHash, backup.Sha)) return null;
+        var layout = Discover(ctx.Game, ctx.Exe, strict: true);
+        var active = FindFiles(layout, IsNeuralMasterAddonName, strict: true).ToList();
+        var addonHash = Components.Sha256(rootAddon);
+        var installed = Identify(ctx, layout, active, Catalogue(ctx), out _, out _, includeReleases: true,
+            proposedHost: (path, actual, expected) =>
+                PathComparer.Equals(actual, replacedHash) && PathComparer.Equals(expected, backup.Sha)
+                && CanRepairHost(path));
+        if (installed is null) return null;
+        var hosts = installed.Where(file => file.Role == FileRole.Host)
+            .Select(file => GameFile(ctx, file.Path))
+            .Where(path => PathComparer.Equals(Components.Sha256(path), replacedHash)).ToList();
+        if (!hosts.Contains(rootHost, PathComparer)) return null;
+
+        var addons = FindFiles(layout, IsOtherNr, strict: true)
+            .Select(path => GameFile(ctx, Path.GetRelativePath(ctx.Game, path))).ToList();
+        var addonTargets = hosts.Select(path => Path.Combine(Path.GetDirectoryName(path)!, NrAddon.Addon64)).ToHashSet(PathComparer);
+        if (!addons.Contains(rootAddon, PathComparer) || addons.Any(path => !addonTargets.Contains(path)
+            || !PathComparer.Equals(Components.Sha256(path), addonHash))) return null;
+        RequireHash(source, backup.Sha);
+        RequireHash(record, recordHash);
+        return new(record, recordHash, source, backup.Sha, replacedHash, hosts, addonHash, addons);
+
+        bool CanRepairHost(string relativePath)
+        {
+            var fullPath = GameFile(ctx, relativePath);
+            return PathComparer.Equals(fullPath, rootHost) ||
+                new[] { ctx.Game, exeDir }.Any(dir => PathComparer.Equals(fullPath, Path.Combine(dir, "_storage_", HostName)));
+        }
+    }
+
+    internal void RemoveExternalSetupLayer(string gameDir, string exePath, string expectedFingerprint, Action<string>? log = null)
+    {
+        var ctx = Context(gameDir, exePath);
+        WithTransaction(ctx, () =>
+        {
+            var plan = PlanExternalSetupLayer(ctx);
+            if (plan is null || !StringComparer.Ordinal.Equals(plan.Fingerprint, expectedFingerprint))
+                throw new InstallException("The DLSS5 NR setup or backups changed after verification. Refresh the game and check again.");
+
+            var archive = Path.Combine(Journal.BackupRoot(ctx.Game), "removed", $"nr-setup-{Guid.NewGuid():N}");
+            foreach (var target in plan.Hosts.Concat(plan.Addons).Append(plan.Manifest))
+            {
+                AssertWritableTarget(target);
+                InstallTransaction.Capture(target);
+            }
+
+            foreach (var target in plan.Hosts)
+            {
+                var stage = Path.Combine(Path.GetDirectoryName(target)!, $".d5m-{Guid.NewGuid():N}.nm-stage");
+                InstallTransaction.Capture(stage);
+                CopyDurable(plan.OriginalHost, stage);
+                RequireHash(stage, plan.HostHash);
+                Archive(target, plan.ReplacedHostHash);
+                File.Move(stage, target);
+                afterChange?.Invoke(Path.GetRelativePath(ctx.Game, target));
+            }
+            foreach (var addon in plan.Addons) Archive(addon, plan.AddonHash);
+            Archive(plan.Manifest, plan.ManifestHash);
+            if (!BuildPlan(ctx).Status.CanUninstall)
+                throw new InstallException("The restored ReShade host failed NeuralMaster verification.");
+            return $"Removed the DLSS5 NR setup layer and restored the verified NeuralMaster host. Archived files: {archive}";
+
+            void Archive(string target, string hash)
+            {
+                RequireHash(target, hash);
+                var relative = Path.GetRelativePath(ctx.Game, target);
+                var destination = GameFile(ctx, Path.GetRelativePath(ctx.Game, Path.Combine(archive, relative)));
+                InstallTransaction.Capture(destination);
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                File.Move(target, destination);
+            }
+        }, log);
+    }
+
+
     internal void ImportBuild(string gameDir, string exePath, string addonFile, string hostFile, string name, Action<string>? log = null)
     {
         var ctx = Context(gameDir, exePath);
@@ -200,7 +313,7 @@ internal sealed partial class NeuralMasterSnapshots
 
     private static List<SnapshotEntry>? Identify(GameContext ctx, Layout layout, IReadOnlyList<string> addons,
         NeuralMasterKnownBuild[] catalogue, out NeuralMasterKnownBuild? identity, out List<string> conflicts,
-        bool includeReleases = false)
+        bool includeReleases = false, Func<string, string, string, bool>? proposedHost = null)
     {
         var files = new Dictionary<string, SnapshotEntry>(PathComparer);
         conflicts = [];
@@ -228,7 +341,7 @@ internal sealed partial class NeuralMasterSnapshots
             foreach (var host in present)
             {
                 var digest = Components.Sha256(GameFile(ctx, host));
-                if (!PathComparer.Equals(digest, known.HostSha256)) conflicts.Add(host);
+                if (!PathComparer.Equals(digest, known.HostSha256) && proposedHost?.Invoke(host, digest, known.HostSha256) != true) conflicts.Add(host);
                 else files[host] = new(host, FileRole.Host, digest);
             }
         }

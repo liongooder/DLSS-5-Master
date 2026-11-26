@@ -8,6 +8,7 @@ namespace DLSS5Master.Core;
 public enum Backend { ReShade, OptiScaler }
 
 public enum Route { Native, Multipass, Feeder, OptiScaler, NeuralMaster, NrAddon, MfgOnly, Uplift }
+public enum FeederBackend { Automatic, RenoDx, Lecram }
 
 public sealed class InstallRequest
 {
@@ -16,6 +17,7 @@ public sealed class InstallRequest
     public required RenderApi Api { get; init; }
     public required int Bitness { get; init; }
     public required Route Route { get; init; }
+    public FeederBackend FeederBackend { get; init; }
     public OptiBuild? OptiBuild { get; init; }
     public string OptiHook { get; init; } = "dxgi.dll";
     public string MenuKey { get; init; } = "0x2D";
@@ -26,7 +28,7 @@ public sealed class InstallRequest
     public bool LoadAddonsEarly { get; init; }
     public bool AntiCheatAcknowledged { get; init; }
 
-    /// <summary>For the DLSS5 NR route: the folder of the player's copy (<see cref="NrAddon.Source"/>).</summary>
+    /// <summary>The player's local DLSS5 NR copy, used by the standalone route and the Lecram Feeder backend.</summary>
     public string? NrAddonSource { get; init; }
 
     // Offline fixtures can supply registered layer candidates without changing the Windows registry.
@@ -54,6 +56,7 @@ public static partial class Installers
     private const string DlssDll = "nvngx_dlss.dll";
     private const string FrameGenDll = "nvngx_dlssg.dll";
     private const string ConsumerAddon = "renodx-dlss5.addon64";
+    private const string FeederHost64 = "dlss5-feed-host64.exe";
     private const string MultipassAddon = "renodx-dlss.addon64";
     private const string ForwarderDll = "nvngx.dll_dlssnr.dll";
     private const string UpliftRuntimeFolder = "GITC-Uplift";
@@ -109,6 +112,21 @@ public static partial class Installers
             "swap" => "DLL swap only",
             _ => key,
         };
+    }
+
+    internal static string InstalledRouteLabel(Manifest? manifest) => manifest switch
+    {
+        { Route: "feeder", FeederBackend: FeederBackend.Lecram } => "ReShade · DLSS5 Feeder · DLSS5 NR",
+        { Route: "feeder", OptiScalerBuild: not null } => "ReShade · DLSS5 Feeder · OptiScaler",
+        { Route: "feeder" } => "ReShade · DLSS5 Feeder · RenoDX",
+        _ => RouteLabel(manifest?.Route),
+    };
+
+    internal static string? FeederLecramUnavailable(RenderApi api, int bits, string? source)
+    {
+        if (bits != 64 || api is not (RenderApi.DX12 or RenderApi.Vulkan))
+            return "DLSS5 NR with Feeder needs a 64-bit DirectX 12 or Vulkan game.";
+        return source is null ? "Choose your local DLSS5 NR folder in Settings." : null;
     }
 
     // ------------------------------------------------------------------ route availability
@@ -246,6 +264,7 @@ public static partial class Installers
         public required Session S { get; init; }
         public required string ExeDir { get; init; }
         public required Dictionary<string, string> Runtime { get; init; }
+        public bool PreferNeuralModel { get; init; }
         public string? ReShade { get; init; }
         public string? ReShade64 { get; init; }
         public string? Consumer { get; init; }
@@ -278,6 +297,10 @@ public static partial class Installers
 
         // ---- 1. preconditions (nothing downloaded or changed yet)
         NeuralMasterProtection.Check(gameDir, exePath);
+        bool feederLecram = req.Route == Route.Feeder && req.FeederBackend == FeederBackend.Lecram;
+        bool liveFeederControls = CanUseFeederLiveControls(req) && components.UseFeederLiveControls;
+        if (feederLecram && FeederLecramUnavailable(req.Api, req.Bitness, req.NrAddonSource) is { } feederBackendProblem)
+            throw new InstallException(feederBackendProblem);
         bool vulkanNr = req.Route == Route.NrAddon && req.Api == RenderApi.Vulkan;
         bool vulkanLayer = req.Route is (Route.Feeder or Route.Uplift) && req.Api == RenderApi.Vulkan;
         if (vulkanNr && VulkanNrUnavailable(req, exePath) is { } layerProblem)
@@ -296,6 +319,7 @@ public static partial class Installers
             throw new InstallException("Another app has an install in this game. Remove it with that app first, then install with DLSS 5 Master.");
         if (NrAddon.SetupInstalled(exeDir)) throw new InstallException(NrAddon.SetupInstalledMessage(NrAddon.SetupName(exeDir)));
         AssertGameClosed(exePath);
+        if (!previewOnly) ReleaseDetroitFeederHelper(gameDir, exePath, Note);
         if (!previewOnly && InstallTransaction.Pending(gameDir))
         {
             InstallTransaction.Recover(gameDir);
@@ -311,7 +335,7 @@ public static partial class Installers
         if (scan.AntiCheatName is { } antiCheat && !req.AntiCheatAcknowledged)
             throw new InstallException(AntiCheatWarning(antiCheat) + " Tick the acknowledgement to continue anyway.");
 
-        if (req.Route == Route.NrAddon && !NrAddon.Has(req.NrAddonSource, gameDir, exeDir, Journal.ReadManifest(gameDir)))
+        if ((req.Route == Route.NrAddon || feederLecram) && !NrAddon.Has(req.NrAddonSource, gameDir, exeDir, Journal.ReadManifest(gameDir)))
             throw new InstallException($"Your copy of DLSS5 NR was not found{(req.NrAddonSource is null ? "" : " in " + req.NrAddonSource)}. " +
                 "Unzip it into DLSS 5 Master's folder for it (Settings → Open folder), or pick its folder in Settings.");
         var option = RoutesFor(req.Api, req.Bitness, scan.HasNativeDlss, scan.HasFrameGen, nrCopy: req.Route == Route.NrAddon,
@@ -329,16 +353,21 @@ public static partial class Installers
 
         bool reshadeRoute = req.Route != Route.OptiScaler;
         var build = req.OptiBuild ?? Components.OptiBuilds[0];
-        var runtime = components.RuntimeFiles();
+        var (runtime, preferNeuralModel) = await Task.Run(() =>
+        {
+            var files = components.RuntimeFiles(out var prefer, includeNvidiaModel: req.Route != Route.MfgOnly);
+            return (files, prefer);
+        }, ct);
         if (req.Route == Route.MfgOnly)
             runtime = runtime.Where(p => p.Key.Equals(FrameGenDll, StringComparison.OrdinalIgnoreCase))
                 .ToDictionary(p => p.Key, p => p.Value, StringComparer.OrdinalIgnoreCase);
 
         // Local prerequisites first, so we do not download anything that could not be used.
         if (reshadeRoute && req.Route != Route.MfgOnly && !runtime.ContainsKey(NeuralDll))
-            throw new InstallException($"The NVIDIA neural runtime ({NeuralDll}) was not found. Pick the NVIDIA runtime folder in Settings.");
-        if (req.Route == Route.OptiScaler && build.NeuralRendering && !runtime.ContainsKey(NeuralDll) && !File.Exists(Path.Combine(exeDir, NeuralDll)))
-            throw new InstallException($"This OptiScaler build needs the NVIDIA neural runtime ({NeuralDll}). Pick the NVIDIA runtime folder in Settings.");
+            throw new InstallException($"The selected neural model ({NeuralDll}) is unavailable. Check the neural model in Settings.");
+        if (req.Route == Route.OptiScaler && build.NeuralRendering && !runtime.ContainsKey(NeuralDll) &&
+            (preferNeuralModel || !File.Exists(Path.Combine(exeDir, NeuralDll))))
+            throw new InstallException($"This OptiScaler build needs a neural model ({NeuralDll}). Check the neural model in Settings.");
         if (req.Route == Route.Feeder && !runtime.ContainsKey(DlssDll))
             throw new InstallException($"The Feeder route needs {DlssDll} in the NVIDIA runtime folder. Pick it in Settings.");
         string? reshade = null, reshade64 = null;
@@ -369,8 +398,11 @@ public static partial class Installers
                 multipass = await components.MultipassAddonAsync(progress, ct);
                 break;
             case Route.Feeder:
-                feeder = await components.FeederAsync(progress, ct);
-                consumer = await components.RenoDxConsumerAsync(progress, ct);
+                feeder = liveFeederControls
+                    ? Components.FeederWithLiveControls()
+                    : await components.FeederAsync(progress, ct, requireDlss5NrBridge: feederLecram);
+                if (!feederLecram)
+                    consumer = await components.RenoDxConsumerAsync(progress, ct, requirePinned: liveFeederControls);
                 break;
             case Route.OptiScaler:
                 opti = await components.OptiScalerAsync(build, progress, ct);
@@ -387,15 +419,21 @@ public static partial class Installers
             : null;
         ct.ThrowIfCancellationRequested();
         // The player's copy of DLSS5 NR, put aside before the restore below changes the game folder.
-        using var nrDir = req.Route == Route.NrAddon
+        using var nrDir = req.Route == Route.NrAddon || feederLecram
             ? await Task.Run(() => NrAddon.Stage(req.NrAddonSource!, gameDir, exeDir, Journal.ReadManifest(gameDir)), ct)
             : null;
+        if (feederLecram && (Pe.GetBitness(Path.Combine(nrDir!.Dir, NrAddon.Addon64)) != 64 ||
+            AddonIdentity.Read(nrDir.Dir).Name.Contains("NeuralMaster", StringComparison.OrdinalIgnoreCase)))
+            throw new InstallException("Feeder needs your local x64 DLSS5 NR add-on.");
+        var optiProfile = req.Route == Route.OptiScaler ? build.Id : null;
         // Count destination copies and the originals the journal must back up.
         await Task.Run(() => AssertRoom(gameDir, exeDir, scan.Manifest,
             InstallSpaceNeeded(req, scan, runtime, reshade, reshade64, consumer, multipass,
-                feeder, uplift, opti, nrDir?.Dir, mfgProviders, preview)), ct);
+                feeder, uplift, opti, null, nrDir?.Dir, mfgProviders, preview)), ct);
         if (previewOnly) return;
 
+        AssertGameClosed(exePath);
+        ReleaseDetroitFeederHelper(gameDir, exePath, Note);
         using var transaction = InstallTransaction.Begin(gameDir);
         try
         {
@@ -432,13 +470,13 @@ public static partial class Installers
             RouteProfiles.Save(gameDir, old, Note);
             Note("Restoring the previous install by DLSS 5 Master first…");
             progress?.Report("Restoring the previous install…");
-            kept = await Task.Run(() => KeepSettings(gameDir, old, exeDir, req.Route, req.Bitness, wantMfg, build.Id, Note));
+            kept = await Task.Run(() => KeepSettings(gameDir, old, exeDir, req.Route, req.Bitness, wantMfg, optiProfile, Note));
             await Task.Run(() => RestoreForReinstall(gameDir, kept, log, Note));
         }
 
         if (old is null || old.Route != RouteKey(req.Route))
         {
-            var profile = RouteProfiles.Load(gameDir, exePath, req.Route, req.Bitness, wantMfg, build.Id);
+            var profile = RouteProfiles.Load(gameDir, exePath, req.Route, req.Bitness, wantMfg, optiProfile);
             var currentMfg = kept.Where(k => Path.GetFileName(k.Rel).StartsWith("MFGAdaUnlock", StringComparison.OrdinalIgnoreCase)).ToList();
             kept = profile.Where(k => !currentMfg.Any(m => m.Rel.Equals(k.Rel, StringComparison.OrdinalIgnoreCase))).Concat(currentMfg).ToList();
             if (profile.Count > 0) Note("Restoring this route's saved in-game settings.");
@@ -450,17 +488,19 @@ public static partial class Installers
         session.Manifest.RenderingApi = req.Api.ToString();
         // Recorded with the route, before any file is written: a setup that stops part-way still tells the next Reinstall
         // which OptiScaler build and which MFG unlock the settings it put back belong to.
-        if (req.Route == Route.OptiScaler)
+        if (optiProfile is not null)
         {
-            session.Manifest.OptiScalerBuild = build.Id;
+            session.Manifest.OptiScalerBuild = optiProfile;
             session.Manifest.OptiScalerHook = req.OptiHook;
         }
-        if (req.Route == Route.NrAddon)
+        if (req.Route == Route.NrAddon || feederLecram)
         {
             var identity = AddonIdentity.Read(nrDir?.Dir, req.Bitness);
             session.Manifest.AddonName = identity.Name;
             session.Manifest.AddonVersion = identity.Version;
         }
+        if (req.Route == Route.Feeder)
+            session.Manifest.FeederBackend = feederLecram ? FeederBackend.Lecram : FeederBackend.RenoDx;
         if (req.Route == Route.Uplift)
         {
             session.Manifest.AddonName = "GITC Uplift";
@@ -473,7 +513,7 @@ public static partial class Installers
             if (kept.Count > 0) PutBackSettings(session, exeDir, kept);
             var job = new Job
             {
-                Req = req, S = session, ExeDir = exeDir, Runtime = runtime,
+                Req = req, S = session, ExeDir = exeDir, Runtime = runtime, PreferNeuralModel = preferNeuralModel,
                 ReShade = reshade, ReShade64 = reshade64, Consumer = consumer, Multipass = multipass,
                 Feeder = feeder, Uplift = uplift, OptiFolder = opti, Build = build, MfgFile = mfgProviders?.BackendPath ?? mfg, MfgProviders = mfgProviders, NrAddon = nrDir?.Dir,
                 // Fresh look at the folder now that any earlier install is gone.
@@ -557,7 +597,11 @@ public static partial class Installers
                 && (preset.EndsWith(".ini", StringComparison.OrdinalIgnoreCase) || preset.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)))
                 candidates.Add(preset);
             if (route == Route.Feeder) candidates.Add(Path.Combine(dir, "dlss5-feed.cfg"));
-            if (route == Route.Feeder && bitness == 32) candidates.Add(Path.Combine(dir, "host64", "ReShade.ini"));
+            if (route == Route.Feeder && (bitness == 32 || IsDetroitExecutable(old.Exe) &&
+                    TracksFile(old, Path.GetRelativePath(root, Path.Combine(dir, "host64", FeederHost64)))))
+                candidates.Add(Path.Combine(dir, "host64", "ReShade.ini"));
+            if (route == Route.Feeder && optiBuild is not null && old.OptiScalerBuild == optiBuild)
+                candidates.Add(Path.Combine(dir, "OptiScaler.ini"));
         }
         // The player's choices (XeMFG or not, the per-game profiles), not the add-on's log or compatibility report.
         if (old.MfgUnlock is not null && mfg)
@@ -962,7 +1006,7 @@ public static partial class Installers
         job.Log($"Removed the game's outdated D3DCompiler_47.dll ({version}); Windows' own copy compiles the neural pass.");
     }
 
-    /// <summary>Put an NVIDIA runtime DLL in place without ever downgrading or mixing bitness.</summary>
+    /// <summary>Preserve newer runtimes unless a different neural model is requested.</summary>
     private static void PlaceRuntime(Job job, string src, string dest, int bitness)
     {
         int srcBits = Pe.GetBitness(src);
@@ -978,6 +1022,16 @@ public static partial class Installers
                 return;
             }
             var destVersion = Pe.GetFileVersion(dest);
+            if (Path.GetFileName(dest).Equals(NeuralDll, StringComparison.OrdinalIgnoreCase) &&
+                (job.PreferNeuralModel || Components.IsBundledNvidiaModel(dest)))
+            {
+                if (new FileInfo(src).Length != new FileInfo(dest).Length || !ComponentHealth.Matches(dest, Components.Sha256(src)))
+                {
+                    job.S.CopyTracked(src, dest, "runtime");
+                    job.Log($"Changed the neural model at {job.S.Rel(dest)} ({srcVersion ?? "unknown version"}).");
+                }
+                return;
+            }
             if (destVersion is not null && srcVersion is not null)
             {
                 int cmp = Scanner.CompareVersions(destVersion, srcVersion);
@@ -1160,13 +1214,18 @@ public static partial class Installers
     /// Sets aside the RenoDX DLSS5 add-on wherever else it is in the game: DLSS5 NR switches itself off when it finds one
     /// anywhere there ("two NR add-ons are loaded"), mirror folders included (Onimusha: Way of the Sword's _storage_).
     /// </summary>
+    private static IEnumerable<string> RenoDxConsumerCopies(string gameDir)
+    {
+        var backup = Journal.BackupRoot(gameDir) + Path.DirectorySeparatorChar;
+        var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, MatchCasing = MatchCasing.CaseInsensitive };
+        return Directory.EnumerateFiles(gameDir, "renodx-dlss5*.addon*", options)
+            .Where(f => !f.StartsWith(backup, StringComparison.OrdinalIgnoreCase));
+    }
+
     private static void SetAsideConsumerCopies(Job job)
     {
-        var backup = Journal.BackupRoot(job.S.GameDir) + Path.DirectorySeparatorChar;
-        var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, MatchCasing = MatchCasing.CaseInsensitive };
-        foreach (var f in Directory.EnumerateFiles(job.S.GameDir, "renodx-dlss5*.addon*", options).ToList())
+        foreach (var f in RenoDxConsumerCopies(job.S.GameDir).ToList())
         {
-            if (f.StartsWith(backup, StringComparison.OrdinalIgnoreCase)) continue;
             job.S.DeleteTracked(f, "addon");
             job.Log($"Set aside {job.S.Rel(f)}: DLSS5 NR switches itself off while the RenoDX DLSS5 add-on is anywhere in the game. Restore originals puts it back.");
         }
@@ -1240,11 +1299,20 @@ public static partial class Installers
         ("work_resolution", "100"), ("mv_scale_x", "1.000"), ("mv_scale_y", "1.000"), ("host_window", "0"), ("async_home", "1"),
     };
 
+    internal static bool CanUseFeederLiveControls(InstallRequest request) =>
+        request is { Route: Route.Feeder, Bitness: 64, Api: RenderApi.DX11 or RenderApi.DX12 or RenderApi.Vulkan or RenderApi.OpenGL } &&
+        request.FeederBackend != FeederBackend.Lecram;
+
+    private static bool IsDetroitExecutable(string exe) =>
+        Path.GetFileName(exe).Equals("DetroitBecomeHuman.exe", StringComparison.OrdinalIgnoreCase);
+
     private static void RunFeeder(Job job)
     {
         var req = job.Req;
         var payload = job.Feeder!;
         bool x64 = job.Bits == 64;
+        bool useHelper = !x64;
+        bool useLecram = req.FeederBackend == FeederBackend.Lecram;
         bool builtInMotion = req.Api == RenderApi.OpenGL;
         if (req.Api == RenderApi.Vulkan)
         {
@@ -1262,6 +1330,11 @@ public static partial class Installers
 
         var feedName = x64 ? "dlss5-feed.addon64" : "dlss5-feed.addon32";
         job.S.CopyTracked(x64 ? payload.Addon64 : payload.Addon32, Path.Combine(job.ExeDir, feedName), "addon");
+        if (payload.DesktopPanel is { } desktopPanel)
+        {
+            job.S.CopyTracked(desktopPanel, Path.Combine(job.ExeDir, FeederZipImport.DesktopPanelName), "tool");
+            job.Log("Added the custom Feeder desktop panel beside the Feeder add-on.");
+        }
         job.S.CopyTreeTracked(payload.ShaderRoot, Path.Combine(job.ExeDir, "reshade-shaders"), "shaders");
         if (payload.Verifier is not null)
             job.S.CopyTracked(payload.Verifier, Path.Combine(job.ExeDir, Path.GetFileName(payload.Verifier)), "tool");
@@ -1282,7 +1355,19 @@ public static partial class Installers
         ini = Ini.Set(ini, "GENERAL", "NoReloadOnInit", "0");
         ini = Ini.Set(ini, "GENERAL", "PreprocessorDefinitions", EnsureMvProvider(Ini.Get(ini, "GENERAL", "PreprocessorDefinitions"), builtInMotion));
         ini = Ini.Set(ini, "ADDON", "AddonPath", @".\");
-        if (x64) ini = ApplyConsumerSettings(ini, helper: false);
+        if (!useHelper && !useLecram)
+        {
+            // Reinstalling Detroit with the original Feeder moves RenoDX back into the game.
+            var helperIni = Path.Combine(job.ExeDir, "host64", "ReShade.ini");
+            if (IsDetroitExecutable(req.ExePath) && TracksFile(job.S.Manifest, job.S.Rel(helperIni)))
+            {
+                const string section = "RenoDX.DLSS5";
+                foreach (var (group, key, value, _) in Ini.Entries(Ini.ReadText(helperIni)))
+                    if (group.Equals(section, StringComparison.OrdinalIgnoreCase))
+                        ini = Ini.Set(ini, section, key, value);
+            }
+            ini = ApplyConsumerSettings(ini, helper: false);
+        }
 
         // Never edit a preset shared with other games: fall back to a local one.
         var presetFile = PresetInGame(job.S.GameDir, job.ExeDir, presetPath);
@@ -1304,19 +1389,30 @@ public static partial class Installers
         job.Log($"Configured ReShade.ini and {job.S.Rel(presetFile)} for the Feeder.");
 
         var cfgPath = Path.Combine(job.ExeDir, "dlss5-feed.cfg");
-        job.S.WriteTracked(cfgPath, BuildFeedCfg(File.Exists(cfgPath) ? Ini.ReadText(cfgPath) : ""));
+        job.S.WriteTracked(cfgPath, BuildFeedCfg(Ini.ReadText(cfgPath), payload.InGameControls is not null));
 
         // The neural consumer runs in a 64-bit process: the game itself, or the helper for 32-bit games.
-        var hostDir = x64 ? job.ExeDir : Path.Combine(job.ExeDir, "host64");
-        SetAsideOtherAddons(job.S, job.ExeDir, feedName, x64 ? ConsumerAddon : null, job.MfgFile is null ? null : Components.MfgAddon);
-        if (!x64) SetAsideOtherAddons(job.S, hostDir, ConsumerAddon);
-        job.S.CopyTracked(job.Consumer!, Path.Combine(hostDir, ConsumerAddon), "addon");
+        var hostDir = useHelper ? Path.Combine(job.ExeDir, "host64") : job.ExeDir;
+        var consumerName = useLecram ? NrAddon.Addon64 : ConsumerAddon;
+        var panelName = payload.InGameControls is null ? null : Components.FeederControlPanel;
+        SetAsideOtherAddons(job.S, job.ExeDir, feedName, panelName, useHelper ? null : consumerName,
+            job.MfgFile is null ? null : Components.MfgAddon);
+        if (useHelper) SetAsideOtherAddons(job.S, hostDir, ConsumerAddon);
+        if (useLecram)
+        {
+            SetAsideConsumerCopies(job);
+            job.S.CopyTracked(Path.Combine(job.NrAddon!, NrAddon.Addon64), Path.Combine(hostDir, NrAddon.Addon64), "addon");
+            var migrationBackup = Path.Combine(hostDir, "ReShade.ini.v12-backup");
+            if (!File.Exists(migrationBackup)) job.S.TrackBeforeWrite(migrationBackup, "reshade");
+            job.Log("Added your local DLSS5 NR as the Feeder backend. Open its panel for neural settings.");
+        }
+        else job.S.CopyTracked(job.Consumer!, Path.Combine(hostDir, ConsumerAddon), "addon");
         PlaceRuntime(job, job.Runtime[NeuralDll], Path.Combine(hostDir, NeuralDll), 64);
         PlaceRuntime(job, job.Runtime[DlssDll], Path.Combine(hostDir, DlssDll), 64);
 
-        if (!x64)
+        if (useHelper)
         {
-            job.S.CopyTracked(payload.Host64, Path.Combine(hostDir, "dlss5-feed-host64.exe"), "tool");
+            job.S.CopyTracked(payload.Host64, Path.Combine(hostDir, FeederHost64), "tool");
             job.S.TrackBeforeWrite(Path.Combine(hostDir, "ReShade.ini"), "reshade");
             job.S.TrackBeforeWrite(Path.Combine(hostDir, "ReShade.log"), "reshade");
             job.S.CopyTracked(job.ReShade64!, Path.Combine(hostDir, "dxgi.dll"), "reshade");
@@ -1328,8 +1424,19 @@ public static partial class Installers
         }
 
         EnableAddon(job, job.ExeDir, feedName);
-        EnableAddon(job, hostDir, ConsumerAddon);
-        job.Log(builtInMotion ? "OpenGL uses the Feeder's built-in motion vectors. Press Alt+C to open Feeder settings."
+        if (panelName is not null)
+        {
+            job.S.CopyTracked(payload.InGameControls!, Path.Combine(job.ExeDir, panelName), "addon");
+            EnableAddon(job, job.ExeDir, panelName, "DLSS 5 Feeder Controls");
+            job.Log("The original Feeder and RenoDX run inside the game. Open the live Feeder controls with End or your saved shortcut.");
+        }
+        if (consumerName is not null)
+            EnableAddon(job, hostDir, consumerName, useLecram ? job.S.Manifest.AddonName : null);
+        if (payload.DesktopPanel is not null)
+            job.Log("In game, use the Feeder shortcut to open its desktop panel.");
+        job.Log(builtInMotion ? payload.DesktopPanel is null
+                ? "OpenGL uses the Feeder's built-in motion vectors. Press Alt+C to open Feeder settings."
+                : "OpenGL uses the Feeder's built-in motion vectors."
             : "In the ReShade overlay, enable DLSS5_Feed and vort_MotionEffects.");
     }
 
@@ -1418,8 +1525,15 @@ public static partial class Installers
 
     private static string ToCrlf(string text) => text.Replace("\r\n", "\n").Replace("\n", "\r\n");
 
-    internal static string BuildFeedCfg(string existing)
+    internal static string BuildFeedCfg(string existing, bool liveControls = false)
     {
+        // Keep the original renderer and give the shortcut to exactly one panel.
+        var entries = Ini.Entries(existing);
+        var originalKey = entries.LastOrDefault(entry => entry.key.Equals("panel_key", StringComparison.OrdinalIgnoreCase)).value;
+        var liveKey = entries.LastOrDefault(entry => entry.key.Equals("live_panel_key", StringComparison.OrdinalIgnoreCase)).value;
+        var updatePanelKey = liveControls || liveKey is not null;
+        var shortcut = (originalKey == "0" ? liveKey ?? originalKey : originalKey) ?? "35";
+
         var known = FeedCfgDefaults.ToDictionary(d => d.Key, d => d.Value, StringComparer.OrdinalIgnoreCase);
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var lines = new List<string>();
@@ -1430,6 +1544,8 @@ public static partial class Installers
             if (eq > 0 && !t.StartsWith(';') && !t.StartsWith('#'))
             {
                 var key = raw[..eq].Trim();
+                if (updatePanelKey && (key.Equals("panel_key", StringComparison.OrdinalIgnoreCase) ||
+                    key.Equals("live_panel_key", StringComparison.OrdinalIgnoreCase))) continue;
                 if (known.ContainsKey(key))
                 {
                     lines.Add($"{key.ToLowerInvariant()}={raw[(eq + 1)..].Trim()}");
@@ -1442,6 +1558,11 @@ public static partial class Installers
         while (lines.Count > 0 && lines[^1].Trim().Length == 0) lines.RemoveAt(lines.Count - 1);
         foreach (var (key, value) in FeedCfgDefaults)
             if (!seen.Contains(key)) lines.Add($"{key}={value}");
+        if (updatePanelKey)
+        {
+            lines.Add($"panel_key={(liveControls ? "0" : shortcut)}");
+            if (liveControls) lines.Add($"live_panel_key={shortcut}");
+        }
         return string.Join("\r\n", lines) + "\r\n";
     }
 
@@ -1486,7 +1607,8 @@ public static partial class Installers
                 job.S.DeleteTracked(forwarder, "optiscaler");
                 job.Log($"Removed {ForwarderDll}: it would silently disable this build's neural pass.");
             }
-            job.S.CopyTracked(Path.Combine(pkg, "OptiScaler.dll"), Path.Combine(exeDir, hook), "optiscaler");
+            var library = Path.Combine(pkg, "OptiScaler.dll");
+            job.S.CopyTracked(library, Path.Combine(exeDir, hook), "optiscaler");
             if (build.Forwarded)
             {
                 var src = Path.Combine(pkg, ForwarderDll);
@@ -1515,9 +1637,12 @@ public static partial class Installers
             if (gpl is not null) job.S.CopyTracked(gpl, Path.Combine(licensesDir, "LICENSE.GPL-3.0.txt"), "license");
 
             var model = Path.Combine(exeDir, NeuralDll);
-            if (File.Exists(model))
+            if (job.Runtime.TryGetValue(NeuralDll, out var nr) &&
+                (job.PreferNeuralModel || Components.IsBundledNvidiaModel(model)))
+                PlaceRuntime(job, nr, model, job.Bits);
+            else if (File.Exists(model))
                 job.Log($"Keeping the {NeuralDll} already next to the game ({Pe.GetFileVersion(model)}).");
-            else if (job.Runtime.TryGetValue(NeuralDll, out var nr))
+            else if (nr is not null)
             {
                 job.S.CopyTracked(nr, model, "runtime");
                 job.Log($"Added {NeuralDll} {Pe.GetFileVersion(nr)}.");
@@ -1604,7 +1729,11 @@ public static partial class Installers
     public static Task RestoreAsync(string gameDir, string? exePath, Action<string> log) => Task.Run(() =>
     {
         NeuralMasterProtection.Check(gameDir, exePath);
-        if (!string.IsNullOrWhiteSpace(exePath)) AssertGameClosed(exePath);
+        if (!string.IsNullOrWhiteSpace(exePath))
+        {
+            AssertGameClosed(exePath);
+            ReleaseDetroitFeederHelper(gameDir, exePath, log);
+        }
         if (NrSetupAfterUs(gameDir))
             throw new InstallException(NrAddon.SetupAfterUsMessage(Journal.ReadManifest(gameDir) is { } m ? AddonIdentity.InstalledName(gameDir, m) : "DLSS5 NR"));
         if (InstallTransaction.Pending(gameDir)) InstallTransaction.Recover(gameDir);
@@ -1686,6 +1815,46 @@ public static partial class Installers
     [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
     private static extern bool GetDiskFreeSpaceEx(string directory, out ulong freeForCaller, out ulong total, out ulong totalFree);
 
+    private static bool TracksFile(Manifest record, string relativePath) =>
+        record.Added.Contains(relativePath, StringComparer.OrdinalIgnoreCase) ||
+        record.Replaced.Any(file => file.Rel.Equals(relativePath, StringComparison.OrdinalIgnoreCase));
+
+    private static void ReleaseDetroitFeederHelper(string gameDir, string exePath, Action<string> log)
+    {
+        if (!IsDetroitExecutable(exePath) || Journal.ReadManifest(gameDir) is not { Route: "feeder" } old) return;
+        var executable = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(exePath))!, "host64", FeederHost64);
+        var relative = Path.GetRelativePath(gameDir, executable);
+        if (!TracksFile(old, relative)) return;
+
+        foreach (var helper in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(FeederHost64)))
+        {
+            using (helper)
+            {
+                string? path;
+                try { path = helper.MainModule?.FileName; }
+                catch (Exception ex) when (ex is InvalidOperationException or Win32Exception) { continue; }
+                if (!string.Equals(path, executable, StringComparison.OrdinalIgnoreCase)) continue;
+                var pid = helper.Id;
+                try
+                {
+                    if (helper.WaitForExit(1200)) continue;
+
+                    // A helper from an older build can survive if Detroit closes during its startup.
+                    AssertGameClosed(exePath);
+                    helper.Kill();
+                    if (!helper.WaitForExit(4000))
+                        throw new InstallException($"Detroit's Feeder helper (PID {pid}) is still running. End it in Task Manager and retry.");
+                    log($"Closed the Feeder helper left running after Detroit exited (PID {pid}).");
+                }
+                catch (InvalidOperationException) { } // exited between checks
+                catch (Win32Exception ex)
+                {
+                    throw new InstallException($"Could not close Detroit's Feeder helper (PID {pid}). End it in Task Manager and retry. {ex.Message}");
+                }
+            }
+        }
+    }
+
     public static void AssertGameClosed(string exePath)
     {
         var full = Path.GetFullPath(exePath);
@@ -1754,7 +1923,7 @@ public static partial class Installers
     public static List<(string Path, string Version, string Source)> SwapCandidates(string name, Components components)
     {
         var all = new List<(string Path, string Version, string Source)>();
-        if (components.RuntimeFiles().TryGetValue(name, out var rt))
+        if (components.RuntimeFiles(includeNvidiaModel: name.Equals(NeuralDll, StringComparison.OrdinalIgnoreCase)).TryGetValue(name, out var rt))
             all.Add((rt, Pe.GetFileVersion(rt) ?? "unknown", "Runtime folder"));
         var libDir = Path.Combine(AppPaths.DllLibrary, name.ToLowerInvariant());
         try

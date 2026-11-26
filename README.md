@@ -55,10 +55,12 @@ DLSS 5 Master checks GitHub for newer RenoDX, MFG unlock, Feeder and OptiScaler 
 
 ## Features
 
+**Neural model** in **Settings → NVIDIA Runtime** defaults to Automatic. It uses the bundled NVIDIA-signed model on detected GeForce RTX 50-series systems and the bundled Community model otherwise. You can choose either model manually before setting up or reinstalling a game.
+
 - **Game library**: finds Steam, Epic, GOG, Ubisoft, Xbox and custom-folder games, with cover art, and detects each game's executable, DirectX/Vulkan version, 32/64-bit, and DLSS / FSR / XeSS / Streamline DLLs.
-- **ReShade + RenoDX routes**: *Native* (RenoDX DLSS5 add-on, through the game's own DLSS, DirectX 11 or 12), *Multipass* (RenoDX DLSS Tool) and *DLSS5 Feeder*. Feeder supports DirectX 11, DirectX 12, OpenGL and Vulkan games without native DLSS. Vulkan uses a full-add-on ReShade layer already registered for the selected executable and requires NVIDIA Smooth Motion to be off. If ReShade cannot start the add-ons in a game (error 1114 in its log), the game's page offers to have ReShade load them as soon as it starts.
+- **ReShade + RenoDX routes**: *Native* (RenoDX DLSS5 add-on, through the game's own DLSS, DirectX 11 or 12), *Multipass* (RenoDX DLSS Tool) and *DLSS5 Feeder*. Feeder includes the in-game **End** panel and RenoDX backend. For 64-bit Vulkan and DirectX 12 games, **Feeder backend** on the game page also accepts your local DLSS5 NR add-on. This choice uses the included Feeder build for DLSS5 NR compatibility. The End panel shows the settings the running backend exposes. Feeder supports DirectX 11, DirectX 12, OpenGL and Vulkan games without native DLSS. Vulkan uses a full-add-on ReShade layer already registered for the selected executable and requires NVIDIA Smooth Motion to be off. If ReShade cannot start the add-ons in a game (error 1114 in its log), the game's page offers to have ReShade load them as soon as it starts.
 - **GITC Uplift** runs neural rendering through ReShade in DirectX 9–12, OpenGL and Vulkan games. Vulkan uses a full-add-on ReShade layer registered for the game. In game, open ReShade with **Home** and select **Enable** in the **GITC Uplift** tab.
-- **OptiScaler** bundles OptiScaler NR pre-SR MFG 0.9.95. The NR 0.8.3 RTX 40 MFG build is available on first use. You choose the proxy DLL name (`dxgi`, `winmm`, `version`, …) and the in-game menu key.
+- **OptiScaler** bundles OptiScaler NR pre-SR MFG 0.9.96. The NR 0.8.3 RTX 40 MFG build is available on first use. You choose the proxy DLL name (`dxgi`, `winmm`, `version`, …) and the in-game menu key.
 - **DLSS 5 Neural Rendering (NR) add-on** - supplied separately. Select its folder or ZIP in Settings; the add-on is not included or downloaded by DLSS 5 Master. The route title uses the supplied add-on's product metadata.
 - **Several games at once**: *Bulk install* on the Games page sets one route up in every shown game it fits. Each game is ticked; untick any you want to leave as it is. Games the route does not fit, and games with anti-cheat, are left as they are and listed with the reason. Games already set up are set up again only if you ask.
 - **MFG unlock**: [MFGAdaUnlock-RenoDx](https://github.com/mavismmg/MFGAdaUnlock-RenoDx) as a tick box on every ReShade route: DLSS multi frame generation (3x/4x) on GeForce RTX 40, or its XeMFG mode (Intel XeSS frame generation, 2x–6x) on RTX 20, 30, 40 and 50.
@@ -105,13 +107,14 @@ powershell -ExecutionPolicy Bypass -File build-installer.ps1
 
 ## Third-party components
 
-The installer bundles these components, unmodified and checked against the pinned SHA-256 list in `installer/payload-manifest.csv`. They are not stored in this repository: `build-installer.ps1` downloads the open-source ones from their release pages and copies the rest from `-PayloadSource`. Other OptiScaler builds are downloaded from their release pages when first used.
+The installer checks its bundled components against the pinned SHA-256 list in `installer/payload-manifest.csv`. `build-installer.ps1` fetches published dependencies from their release pages and copies locally staged components, including the customized Feeder builds, from `-PayloadSource`. Other OptiScaler builds are downloaded from their release pages when first used.
 
 | Component | Source | Licence |
 |---|---|---|
-| OptiScaler NR pre-SR MFG 0.9.95 (bundled with dlssg_for_sm86 for overlay frame generation on RTX 20/30) | [ShyVortex/OptiScaler-NR-PreSR-MFG at v0.9.95](https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/tree/v0.9.95), [sdli1995/dlssg_for_sm86](https://github.com/sdli1995/dlssg_for_sm86) | GPL-3.0 |
+| OptiScaler NR pre-SR MFG 0.9.96 (bundled with dlssg_for_sm86 for overlay frame generation on RTX 20/30) | [ShyVortex/OptiScaler-NR-PreSR-MFG at v0.9.96](https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/tree/v0.9.96), [sdli1995/dlssg_for_sm86](https://github.com/sdli1995/dlssg_for_sm86) | GPL-3.0 |
 | OptiScaler NR pre-SR multipass 0.8.3 RTX 40 MFG (downloaded when chosen) | [wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass](https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass) | GPL-3.0 |
 | DLSS5-Feeder | [jlrouzies-fr/DLSS5-Feeder](https://github.com/jlrouzies-fr/DLSS5-Feeder) | MIT |
+| NVIDIA signed neural model 310.9.16.0 | [NVIDIA RTX Remix 1.6.1](https://github.com/NVIDIAGameWorks/rtx-remix/releases/tag/remix-1.6.1) | NVIDIA terms in `installer/licenses/RTX-Remix-1.6.1-THIRD-PARTY-NOTICES.txt` |
 | GITC Uplift 2.0.0 | by [ghostinthecamera](https://github.com/ghostinthecamera/GITC-Uplift), [release](https://github.com/ghostinthecamera/GITC-Uplift/releases/tag/v2.0.0) | MIT |
 | RenoDX DLSS5 add-on | Built on [RenoDX](https://github.com/clshortfuse/renodx) (MIT); builds via [RankFTW/rhi-repo](https://github.com/RankFTW/rhi-repo) | No licence published |
 | RenoDX DLSS Tool | by ShortFuse; builds via [RankFTW/rhi-repo](https://github.com/RankFTW/rhi-repo) | No licence published |

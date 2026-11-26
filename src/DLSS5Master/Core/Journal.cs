@@ -25,6 +25,7 @@ public sealed class Manifest
     public int Bitness { get; set; }
     public string? AddonName { get; set; }
     public string? AddonVersion { get; set; }
+    public FeederBackend? FeederBackend { get; set; }
     public string? ReShadeHook { get; set; }
     public string? OptiScalerBuild { get; set; }
     public string? OptiScalerHook { get; set; }
@@ -108,7 +109,7 @@ public static class Journal
     internal static readonly string[] RuntimeFiles =
     {
         "ReShade.ini.v*-backup", "RenoDX-DLSS5-crash.log", "RenoDX-DLSS5-crash-*.dmp", "RenoDX-DLSS5-edittrace.csv",
-        "dlss5-feed.log", "dlss5-feed-crash.dmp", "dlss5-feed-ngx-probe.tmp", "dlss5-feed-host.log", "dlss5-feed-host-crash.dmp",
+        "dlss5-feed.log", "dlss5-feed-crash.dmp", "dlss5-feed-ngx-probe.tmp", "dlss5-feed-host.log", "dlss5-feed-host-crash.dmp", "dlss5-feed-live.txt",
         "MFGAdaUnlock.ini", "MFGAdaUnlock.profiles.json", "MFGAdaUnlock-XeMFG.log", "MFGAdaUnlock-XeMFG-compatibility.json",
     };
 

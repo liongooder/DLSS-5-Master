@@ -28,6 +28,8 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         _components = new Components(_settings);
+        NeuralModelBox.SelectedIndex = Enum.IsDefined(_settings.NeuralModel) ? (int)_settings.NeuralModel : (int)NeuralModelChoice.Automatic;
+        NeuralModelBox.SelectionChanged += NeuralModelBox_SelectionChanged;
         SizeToScreen();
         var icon = Path.Combine(AppContext.BaseDirectory, "Assets", "TitleBar.ico");   // badge raised to line up with the title text
         if (File.Exists(icon)) AppWindow.SetIcon(icon);
@@ -381,7 +383,7 @@ public sealed partial class MainWindow : Window
         static string Where(string path) =>
             path.StartsWith(Components.BundledPayload, StringComparison.OrdinalIgnoreCase) ? "the copies included with DLSS 5 Master" : path;
 
-        var (rt, runtimeText, rs, reshadeText, libCount) = await Task.Run(() =>
+        var (rt, runtimeText, neuralModel, rs, reshadeText, libCount) = await Task.Run(() =>
         {
             var rt = _components.RuntimeDir;
             var files = _components.RuntimeFiles();
@@ -392,12 +394,13 @@ public sealed partial class MainWindow : Window
             var reshadeText = rs is null ? "Not found. Pick a ReShade_Setup_*_Addon.exe." : $"Using ReShade {Pe.GetFileVersion(rs)} ({Where(rs)})";
             int libCount = 0;
             try { libCount = Directory.Exists(AppPaths.DllLibrary) ? Directory.EnumerateFiles(AppPaths.DllLibrary, "*.dll", SearchOption.AllDirectories).Count() : 0; } catch { }
-            return (rt, runtimeText, rs, reshadeText, libCount);
+            return (rt, runtimeText, _components.NeuralModelStatus, rs, reshadeText, libCount);
         });
 
         if (read != _settingsRead) return;
         RuntimeStatus.Text = runtimeText;
         RuntimeStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[rt is null ? "WarnText" : "AccentText"];
+        NeuralModelStatus.Text = neuralModel;
         ReShadeStatus.Text = reshadeText;
         ReShadeStatus.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[rs is null ? "WarnText" : "AccentText"];
         DllLibraryStatus.Text = $"{libCount} DLL build(s) in {AppPaths.DllLibrary}";
@@ -485,6 +488,16 @@ public sealed partial class MainWindow : Window
     }
 
     private void ClearRuntime_Click(object sender, RoutedEventArgs e) { _settings.RuntimeFolder = ""; _settings.Save(); _ = RefreshSettingsPage(); }
+
+    private async void NeuralModelBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        var choice = (NeuralModelChoice)NeuralModelBox.SelectedIndex;
+        if (!Enum.IsDefined(choice) || choice == _settings.NeuralModel) return;
+        _settings.NeuralModel = choice;
+        _settings.Save();
+        NeuralModelStatus.Text = "Checking the selected model…";
+        await RefreshSettingsPage();
+    }
 
     private async void PickReShade_Click(object sender, RoutedEventArgs e)
     {
@@ -673,7 +686,7 @@ public sealed partial class MainWindow : Window
         "• GITC Uplift " + Components.UpliftVersion + " by ghostinthecamera (MIT) — github.com/ghostinthecamera/GITC-Uplift\n" +
         "• vort_Shaders — github.com/vortigern11/vort_Shaders (MIT)\n" +
         "• MFGAdaUnlock-RenoDx " + Components.MfgVersion + " — github.com/mavismmg/MFGAdaUnlock-RenoDx (MIT)\n" +
-        "• OptiScaler NR pre-SR MFG 0.9.95 — github.com/ShyVortex/OptiScaler-NR-PreSR-MFG (GPL-3.0; source code at tag v0.9.95)\n" +
+        "• OptiScaler NR pre-SR MFG " + Components.BundledOptiVersion + " — github.com/ShyVortex/OptiScaler-NR-PreSR-MFG (GPL-3.0; source code at tag v" + Components.BundledOptiVersion + ")\n" +
         "• The overlay helper (dlss5-overlay.exe) is built with the NVIDIA NGX SDK (github.com/NVIDIA/DLSS, NVIDIA RTX SDKs license) " +
         "and the NVIDIA Optical Flow SDK interface (BSD-3-Clause); its DLSS set-up follows DLSS5-Feeder's 64-bit helper (MIT). " +
         "It ships with the Microsoft Visual C++ runtime (msvcp140, vcruntime140), redistributed under the Visual Studio license\n" +

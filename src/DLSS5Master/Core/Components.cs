@@ -17,15 +17,21 @@ public sealed class Components
     /// <summary>OptiScaler builds offered in the app: updated ones first, then the built-in list.</summary>
     public static List<OptiBuild> AllOptiBuilds => Updates.OptiBuilds().Concat(OptiBuilds).ToList();
 
-    internal const string BundledOptiBuildId = "0.9.95-shyvortex";
+    internal const string BundledOptiVersion = "0.9.96";
+    internal const string BundledOptiBuildId = BundledOptiVersion + "-shyvortex";
+    internal const string FeederLiveOptiLibrarySha256 = "936a1f03ce549d72b887d2a4487702299686c03e08ba08f28eaf802a6476e2c9";
+    internal static readonly OptiBuild FeederLiveOptiScaler =
+        new("0.8.93-feeder-live", "Feeder OptiScaler NR 0.8.93 (D3D12 backend)",
+            "https://github.com/jlrouzies-fr/OptiScaler-DLSSNR-PreSR-Multipass/releases/download/v0.8.93/OptiScaler-NR-v0.8.93.zip",
+            "8003065d88813b342049b869e8c894f8771c58f3d1a630ddf42fabd5c9d2f5fc", null, null, false, true, WholeBackend: true);
     internal static readonly IReadOnlyList<string> PreviousOptiBuildIds =
-        ["0.9.95", "0.9.91-shyvortex", "0.9.91", "0.9.90-shyvortex"];
+        ["0.9.96", "0.9.95-shyvortex", "0.9.95", "0.9.91-shyvortex", "0.9.91", "0.9.90-shyvortex"];
 
     public static readonly OptiBuild[] OptiBuilds =
     {
-        new(BundledOptiBuildId, "OptiScaler NR 0.9.95 (recommended)",
-            "https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/releases/download/v0.9.95/OptiScaler-NR-v0.9.95.zip",
-            "2d25a701b1bc63e5aacb954fe44ec2842352149bb22a204f979fa61a827023c0", null, null, false, true, WholeBackend: true),
+        new(BundledOptiBuildId, "OptiScaler NR " + BundledOptiVersion + " (recommended)",
+            "https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/releases/download/v" + BundledOptiVersion + "/OptiScaler-NR-v" + BundledOptiVersion + ".zip",
+            "bc100c6e7092d569da7117e1861ed13024e4aa975a6134f0c39588975cb16381", null, null, false, true, WholeBackend: true),
         new("0.8.3-rtx40-mfg", "OptiScaler NR 0.8.3 · RTX 40 MFG (older)",
             "https://github.com/wilsjo2/OptiScaler-DLSSNR-PreSR-Multipass/releases/download/v0.8.3/OptiScaler-NR-v0.8.3-rtx40-mfg.zip",
             "aac7ea64d80604a5b79f686043ba28fbefefaf98818e861a377b78122cb24448", null, null, false, true),
@@ -44,9 +50,9 @@ public sealed class Components
     };
 
     public const string MfgAddon = "renodx-mfgunlock.addon64";
-    public const string MfgVersion = "1.11.0";
+    public const string MfgVersion = "1.12.0";
     public const string MfgUrl = "https://github.com/mavismmg/MFGAdaUnlock-RenoDx/releases/download/" + MfgVersion + "/" + MfgAddon;
-    public const string MfgSha256 = "f8c806fe99fa200614be0c04f0a7908dd9e2de6d28ed67bb309bcd9fb66d703b";
+    public const string MfgSha256 = "f7cc86a84c05436409a1b7a59499ffb9d8d5cec51ed6fe0e8bb4e55885e62ebf";
 
     public static readonly string[] OptiLibraries =
     {
@@ -158,6 +164,20 @@ public sealed class Components
     public static string BundledPayload { get; } = Path.Combine(AppContext.BaseDirectory, "payload");
 
     // ------------------------------------------------------------------ NVIDIA runtime
+    private const string NeuralRuntimeFile = "nvngx_dlssnr.dll";
+    private const string NvidiaNeuralRuntimePath = "payload/nvidia-neural/" + NeuralRuntimeFile;
+    private const string NvidiaNeuralRuntimeSha256 = "2bc19bc09a7b89dd44f73e2ac0108fcc586e2154bdd0830f242f4f040e28789f";
+
+    internal static bool IsBundledNvidiaModel(string path)
+    {
+        try
+        {
+            return File.Exists(path) && new FileInfo(path).Length == 266424944 &&
+                ComponentHealth.Matches(path, NvidiaNeuralRuntimeSha256);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
+    }
+
 
     public string? RuntimeDir
     {
@@ -177,10 +197,19 @@ public sealed class Components
         }
     }
 
-    public Dictionary<string, string> RuntimeFiles()
+    private bool IsCustomRuntime(string? dir) =>
+        !string.IsNullOrWhiteSpace(_settings.RuntimeFolder) && Directory.Exists(_settings.RuntimeFolder) && dir is not null &&
+        string.Equals(Path.GetFullPath(_settings.RuntimeFolder).TrimEnd('\\', '/'), dir.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
+
+    public Dictionary<string, string> RuntimeFiles(bool includeNvidiaModel = true) =>
+        RuntimeFiles(out _, includeNvidiaModel);
+
+    internal Dictionary<string, string> RuntimeFiles(out bool preferNeuralModel, bool includeNvidiaModel = true)
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var dir = RuntimeDir;
+        var preference = _settings.NeuralModel;
+        preferNeuralModel = false;
         try
         {
             if (dir is not null)
@@ -188,13 +217,44 @@ public sealed class Components
         }
         catch { }
         // An explicitly selected, usable runtime folder keeps control of its files.
-        bool custom = !string.IsNullOrWhiteSpace(_settings.RuntimeFolder) && Directory.Exists(_settings.RuntimeFolder) && dir is not null &&
-            string.Equals(Path.GetFullPath(_settings.RuntimeFolder).TrimEnd('\\', '/'), dir.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase);
-        if (!custom) RuntimeUpdates.ApplySelections(map);
+        if (IsCustomRuntime(dir)) return map;
+        RuntimeUpdates.ApplySelections(map);
+        if (!includeNvidiaModel) return map;
+
+        preferNeuralModel = preference is NeuralModelChoice.Nvidia or NeuralModelChoice.Community;
+        if (NeuralRuntimeSelection.Resolve(preference) == NeuralModelChoice.Nvidia)
+        {
+            var signed = ComponentHealth.IncludedFile(NvidiaNeuralRuntimePath);
+            if (IsBundledNvidiaModel(signed))
+            {
+                map[NeuralRuntimeFile] = signed;
+                preferNeuralModel = true;
+            }
+            else if (preference == NeuralModelChoice.Nvidia)
+            {
+                map.Remove(NeuralRuntimeFile);
+            }
+        }
         return map;
     }
 
-    public string? NeuralRuntime => RuntimeFiles().GetValueOrDefault("nvngx_dlssnr.dll");
+    public string? NeuralRuntime => RuntimeFiles().GetValueOrDefault(NeuralRuntimeFile);
+
+    public string NeuralModelStatus
+    {
+        get
+        {
+            if (IsCustomRuntime(RuntimeDir)) return "Using the custom runtime folder.";
+            var preference = _settings.NeuralModel;
+            if (NeuralRuntimeSelection.Resolve(preference) != NeuralModelChoice.Nvidia)
+                return "Selected model: Community.";
+            if (IsBundledNvidiaModel(ComponentHealth.IncludedFile(NvidiaNeuralRuntimePath)))
+                return "Selected model: NVIDIA signed (RTX 50 series).";
+            return preference == NeuralModelChoice.Nvidia
+                ? "NVIDIA signed model is missing or changed. Repair the included files."
+                : "NVIDIA signed model is unavailable. Automatic selected Community.";
+        }
+    }
 
     // ------------------------------------------------------------------ ReShade
 
@@ -283,8 +343,8 @@ public sealed class Components
         return target;
     }
 
-    public Task<string> RenoDxConsumerAsync(IProgress<string>? p, CancellationToken ct) =>
-        Updates.ActivePath("renodx-dlss5") is { } updated ? Task.FromResult(updated) : RenoDxAddonAsync(ConsumerPin, ComponentHealth.IncludedFile("payload/renodx/renodx-dlss5.addon64"), p, ct);
+    public Task<string> RenoDxConsumerAsync(IProgress<string>? p, CancellationToken ct, bool requirePinned = false) =>
+        !requirePinned && Updates.ActivePath("renodx-dlss5") is { } updated ? Task.FromResult(updated) : RenoDxAddonAsync(ConsumerPin, ComponentHealth.IncludedFile("payload/renodx/renodx-dlss5.addon64"), p, ct);
 
     public Task<string> MultipassAddonAsync(IProgress<string>? p, CancellationToken ct) =>
         Updates.ActivePath("renodx-dlss") is { } updated ? Task.FromResult(updated) : RenoDxAddonAsync(MultipassPin, ComponentHealth.IncludedFile("payload/renodx/renodx-dlss.addon64"), p, ct);
@@ -316,15 +376,33 @@ public sealed class Components
 
     // ------------------------------------------------------------------ Feeder
 
-    public sealed record FeederPayload(string Addon64, string Addon32, string Host64, string ShaderRoot, string? Verifier);
-
-    public async Task<FeederPayload> FeederAsync(IProgress<string>? p, CancellationToken ct)
+    public sealed record FeederPayload(string Addon64, string Addon32, string Host64, string ShaderRoot, string? Verifier)
     {
+        public string? InGameControls { get; init; }
+        public string? DesktopPanel { get; init; }
+        public string? LiveOptiScalerLibrary { get; init; }
+    }
+
+    internal bool UseFeederLiveControls => _settings.FeederLiveControls;
+
+    public async Task<FeederPayload> FeederAsync(IProgress<string>? p, CancellationToken ct, bool requireDlss5NrBridge = false)
+    {
+        // The older Feeder ZIPs can still feed DLAA but do not recognize the DLSS5 NR add-on.
+        // Use the qualified bundle for this backend so a previous ZIP selection cannot mask it.
+        if (requireDlss5NrBridge)
+        {
+            if (IncludedFeeder() is { } qualified) return qualified;
+            if (_settings.FeederFolder is { Length: > 0 } folder &&
+                FeederZipImport.ReadSelection(folder).Payload is { } imported &&
+                HashMatches(imported.Addon64, FeederHashes["dlss5-feed.addon64"]))
+                return imported;
+            throw new InstallException("DLSS5 NR requires the compatible Feeder bundle. Repair the DLSS 5 Master installation or import the matching Feeder ZIP.");
+        }
         if (_settings.FeederFolder is { Length: > 0 } selected)
             return FeederZipImport.ReadSelection(selected).Payload
-                   ?? throw new InstallException("The selected DLSS5 Feeder ZIP is no longer available. Choose the ZIP again or select Automatic in Settings.");
+                   ?? throw new InstallException("The selected DLSS5 Feeder ZIP is no longer available. Choose the ZIP again or select Use original in Settings.");
         if (Updates.ActivePath("feeder") is { } updated && FindFeederAny(updated) is { } fromUpdate) return fromUpdate;
-        if (FindFeeder(ComponentHealth.IncludedDirectory("feeder", "payload/feeder"), out _) is { } local) return local;
+        if (IncludedOriginalFeeder() is { } local) return local;
         var dir = Path.Combine(AppPaths.Components, FeederFolder);
         if (FindFeeder(dir, out _) is { } cached) return cached;
 
@@ -338,6 +416,37 @@ public sealed class Components
         }, ct);
         return FindFeeder(dir, out var why)
                ?? throw new InstallException($"The DLSS5-Feeder package is incomplete: {why}. Nothing was installed.");
+    }
+
+    internal const string FeederControlPanel = "dlss5-feed-controls.addon64";
+
+    internal static FeederPayload FeederWithLiveControls()
+    {
+        var original = IncludedOriginalFeeder()
+            ?? throw new InstallException("Repair DLSS 5 Master to restore the included Feeder.");
+        const string panel = "payload/feeder/controls/" + FeederControlPanel;
+        if (!ComponentHealth.Groups.Single(group => group.Id == "feeder").Files.Any(pin => pin.RelativePath == panel))
+            throw new InstallException("The Feeder live controls are missing from this installer.");
+        return original with { InGameControls = ComponentHealth.IncludedFile(panel) };
+    }
+
+    private static FeederPayload? IncludedOriginalFeeder()
+    {
+        if (IncludedFeeder() is not { } local) return null;
+        const string original = "payload/feeder-original/";
+        return local with
+        {
+            Addon64 = ComponentHealth.IncludedFile(original + "dlss5-feed.addon64"),
+            Addon32 = ComponentHealth.IncludedFile(original + "dlss5-feed.addon32"),
+            Host64 = ComponentHealth.IncludedFile(original + "dlss5-feed-host64.exe"),
+        };
+    }
+
+    private static FeederPayload? IncludedFeeder()
+    {
+        var group = ComponentHealth.Groups.FirstOrDefault(candidate => candidate.Id == "feeder");
+        return group is not null && ComponentHealth.Inspect(group).Ready
+            ? FindFeederAny(ComponentHealth.IncludedDirectory("feeder", "payload/feeder")) : null;
     }
 
     /// <summary>A complete, hash-verified Feeder payload under <paramref name="root"/>, or null with the reason.</summary>

@@ -1,8 +1,12 @@
-Third-party files in this folder (payload\feeder), shipped by DLSS 5 Master unmodified:
+Sources for the Feeder components in payload\feeder and payload\feeder-original:
+
+The original DLSS5-Feeder 2.0.0 ZIP and its unmodified binaries are included in
+payload\feeder-original. The ZIP is pinned to the v2.0.0 GitHub release asset.
 
 DLSS5-Feeder 2.0.0 (dlss5-feed.addon64, dlss5-feed.addon32, dlss5-feed-host64.exe,
   DLSS5_Feed.fx, Verify-DLSS5Feeder.ps1) - https://github.com/jlrouzies-fr/DLSS5-Feeder
-  MIT; licence text in DLSS5-Feeder-LICENSE.txt.
+  MIT; licence text in DLSS5-Feeder-LICENSE.txt. DLSS 5 Master builds the add-ons
+  and helper with its in-game End panel and Vulkan recovery patches.
 
 vort_Shaders, commit b410b9f0c0fbb83c8cb42164aaf1655fab386f4a (vort_Motion.fx, Includes\vort_*.fxh,
   Textures\vort_*.png) - https://github.com/vortigern11/vort_Shaders

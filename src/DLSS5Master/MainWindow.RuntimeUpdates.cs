@@ -10,6 +10,9 @@ public sealed partial class MainWindow
     private int _runtimeRead;
     private string? _runtimeViewStamp;
 
+    private static string RuntimeDisplayName(RuntimeSource source) =>
+        source.Id == "dlss-nr" ? "Neural Rendering model (Community)" : source.Name;
+
     private async Task RefreshRuntimeUpdatesAsync()
     {
         int read = ++_runtimeRead;
@@ -18,7 +21,7 @@ public sealed partial class MainWindow
             var inspection = _componentReports?.FirstOrDefault(r => r.Group.Id == "runtime");
             var rows = await Task.Run(() =>
             {
-                var files = _components.RuntimeFiles();
+                var files = _components.RuntimeFiles(includeNvidiaModel: false);
                 var included = ComponentHealth.Groups.FirstOrDefault(g => g.Id == "runtime");
                 return RuntimeUpdates.Sources.Select(source =>
                 {
@@ -41,8 +44,9 @@ public sealed partial class MainWindow
             foreach (var row in rows)
             {
                 var source = row.Source;
+                var name = RuntimeDisplayName(source);
                 var body = new StackPanel { Spacing = 3 };
-                body.Children.Add(new TextBlock { Text = source.Name, FontWeight = FontWeights.SemiBold });
+                body.Children.Add(new TextBlock { Text = name, FontWeight = FontWeights.SemiBold });
                 body.Children.Add(new TextBlock
                 {
                     Text = $"Included: {source.BundledVersion} · Selected: {row.Version ?? "Not found"}" +
@@ -88,7 +92,7 @@ public sealed partial class MainWindow
                         Content = "Update", IsEnabled = !_componentWorking && !custom,
                         Style = (Style)Application.Current.Resources["AccentButtonStyle"], HorizontalAlignment = HorizontalAlignment.Stretch
                     };
-                    Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(update, "Update " + source.Name);
+                    Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(update, "Update " + name);
                     update.Click += async (_, _) => await UpdateRuntimeAsync(source);
                     actions.Children.Add(update);
                 }
@@ -98,7 +102,7 @@ public sealed partial class MainWindow
                     revert.Click += async (_, _) => await RunRuntimeActionAsync(async () =>
                     {
                         await RuntimeUpdates.RevertAsync(source);
-                        return source.Name + " now uses the included build for new setups.";
+                        return name + " now uses the included build.";
                     });
                     actions.Children.Add(revert);
                 }
@@ -138,7 +142,7 @@ public sealed partial class MainWindow
         if (!string.IsNullOrWhiteSpace(_settings.RuntimeFolder)) return "Choose Automatic under NVIDIA runtime first; the custom folder was kept.";
         var progress = new Progress<string>(text => RuntimeUpdateStatus.Text = text);
         await Task.Run(() => RuntimeUpdates.ApplyAsync(source, progress));
-        return source.Name + " updated for new setups. Reinstall a game to give it this version.";
+        return RuntimeDisplayName(source) + " update saved.";
     });
 
     private async void UpdateAllRuntimes_Click(object sender, RoutedEventArgs e) => await RunRuntimeActionAsync(async () =>
@@ -148,12 +152,12 @@ public sealed partial class MainWindow
         var progress = new Progress<string>(text => RuntimeUpdateStatus.Text = text);
         foreach (var source in RuntimeUpdates.Sources)
         {
-            var files = await Task.Run(() => _components.RuntimeFiles());
+            var files = await Task.Run(() => _components.RuntimeFiles(includeNvidiaModel: false));
             if (RuntimeUpdates.Available(source, RuntimeUpdates.SelectedVersion(source, files) ?? source.BundledVersion) is null) continue;
             await Task.Run(() => RuntimeUpdates.ApplyAsync(source, progress));
             done++;
         }
-        return $"{done} runtime update(s) selected for new setups. Existing games were kept unchanged.";
+        return $"Saved {done} runtime update(s).";
     });
 
     private async Task RunRuntimeActionAsync(Func<Task<string>> work)

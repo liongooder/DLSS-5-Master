@@ -452,7 +452,7 @@
             </StackPanel>
             <TextBlock x:Name="ComponentHealthStatus" Text="Not checked yet." FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource MutedText}" />
             <TextBlock Text="NVIDIA runtime updates" FontWeight="SemiBold" Margin="0,6,0,0" />
-            <TextBlock Text="SR, RR, FG and NR use the DLSS release mirror. Streamline comes from RankFTW/rhi-repo and stays pinned to 2.13.0.0 until 2.14 neural rendering compatibility is tested. Updates are selected for new setups; existing games keep their files until reinstalled." FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource MutedText}" />
+            <TextBlock Text="SR, RR, FG and the Community neural model use the DLSS release mirror. Streamline comes from RankFTW/rhi-repo and stays pinned to 2.13.0.0 until 2.14 neural rendering compatibility is tested. Updates apply the next time you set up or reinstall a game." FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource MutedText}" />
             <StackPanel Orientation="Horizontal" Spacing="10">
               <Button x:Name="CheckRuntimeUpdatesButton" Content="Check runtime updates" Click="CheckRuntimeUpdates_Click" />
               <Button x:Name="UpdateAllRuntimesButton" Content="Update available runtimes" Click="UpdateAllRuntimes_Click" IsEnabled="False" />
@@ -481,12 +481,13 @@
         <Border Style="{StaticResource Card}">
           <StackPanel Spacing="10">
             <TextBlock Text="DLSS5 Feeder" Style="{StaticResource SectionTitle}" />
-            <TextBlock Text="Choose a DLSS5 Feeder release ZIP for new setups and reinstalls." TextWrapping="Wrap" Foreground="{StaticResource MutedText}" />
+            <TextBlock Text="RenoDX uses the original Feeder by default. DLSS5 NR uses its included compatible build." TextWrapping="Wrap" Foreground="{StaticResource MutedText}" />
             <StackPanel Orientation="Horizontal" Spacing="8">
               <Button x:Name="ChooseFeederZipButton" Content="Choose ZIP…" Click="ChooseFeederZip_Click" />
-              <Button x:Name="AutomaticFeederButton" Content="Use automatic" Click="AutomaticFeeder_Click" IsEnabled="False" />
+              <Button x:Name="AutomaticFeederButton" Content="Use original" Click="AutomaticFeeder_Click" IsEnabled="False" />
             </StackPanel>
             <TextBlock x:Name="FeederZipStatus" FontSize="12" Foreground="{StaticResource MutedText}" TextWrapping="Wrap" />
+            <CheckBox x:Name="FeederLiveControlsBox" Content="Use live Feeder controls with RenoDX" Click="FeederLiveControls_Click" />
           </StackPanel>
         </Border>
         <Border Style="{StaticResource Card}">
@@ -500,6 +501,14 @@
               <Button Grid.Column="2" Content="Automatic" Click="ClearRuntime_Click" />
             </Grid>
             <TextBlock x:Name="RuntimeStatus" FontSize="12" TextWrapping="Wrap" />
+            <ComboBox x:Name="NeuralModelBox" Header="Neural Model" HorizontalAlignment="Left">
+              <ComboBoxItem Content="Automatic" />
+              <ComboBoxItem Content="Community" />
+              <ComboBoxItem Content="NVIDIA signed (RTX 50 series)" />
+            </ComboBox>
+            <TextBlock x:Name="NeuralModelStatus" FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource MutedText}" />
+            <TextBlock Text="A custom runtime folder takes priority. This choice applies the next time you set up or reinstall a game."
+                       FontSize="12" TextWrapping="Wrap" Foreground="{StaticResource MutedText}" />
           </StackPanel>
         </Border>
         <Border Style="{StaticResource Card}">
@@ -723,6 +732,15 @@
                   <ComboBox x:Name="OptiBuildBox" HorizontalAlignment="Stretch" SelectionChanged="OptiBuildBox_SelectionChanged" />
                 </StackPanel>
                 <TextBlock x:Name="RouteDescription" TextWrapping="Wrap" Foreground="{StaticResource MutedText}" />
+                <StackPanel x:Name="FeederBackendPanel" Spacing="4" Visibility="Collapsed">
+                  <TextBlock Text="Feeder backend" Style="{StaticResource FieldLabel}" />
+                  <ComboBox x:Name="FeederBackendBox" SelectedIndex="0" HorizontalAlignment="Left"
+                            SelectionChanged="FeederBackendBox_SelectionChanged">
+                    <ComboBoxItem Content="RenoDX (included)" />
+                    <ComboBoxItem Content="DLSS5 NR" />
+                  </ComboBox>
+                  <TextBlock x:Name="FeederBackendNote" TextWrapping="Wrap" Foreground="{StaticResource MutedText}" />
+                </StackPanel>
                 <InfoBar x:Name="RouteWarning" IsClosable="False" Severity="Warning" />
                 <Border x:Name="NeuralMasterGameBar" Visibility="Collapsed" Background="#FF403316"
                         BorderBrush="#FF6B5426" BorderThickness="1" CornerRadius="6" Padding="14,10">

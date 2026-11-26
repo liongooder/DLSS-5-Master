@@ -12,6 +12,7 @@ internal sealed record NeuralMasterSnapshotStatus(
     IReadOnlyList<string> UninstallPaths, IReadOnlyList<string> RestorePaths, IReadOnlyList<string> ConflictPaths,
     string Message, bool CanUninstall, bool CanRestore, bool CanSwitch, bool CanRecover, string Fingerprint)
 {
+    public string? ExternalSetupRepairFingerprint { get; init; }
     public IReadOnlyList<string> VerifiedHostPaths { get; init; } = [];
 }
 
@@ -28,6 +29,8 @@ internal sealed partial class NeuralMasterSnapshots(
     private static readonly StringComparer PathComparer = StringComparer.OrdinalIgnoreCase;
     private readonly NeuralMasterKnownBuild[] _builds = builds?.ToArray() ??
     [
+        new("T129", "f7d3b6f1dcc9ee8e1ce626a1b2c60e8d211ef10e4e34944b2636758ed42f4b99",
+            "61c1a5258b9c2ce4250f4ac3462e052b87f8d16896b785a5298d7b580288d316"),
         new("T84", "4bc92834c047e9077112e67740644279e188d5846548a2613e8341cfd04a0bac",
             "7a05cbc16412f61c9cb718a9f69105d4f38fec5471d81727590e2fcaab4b86d2"),
         new("T83", "f579b8be4465d0f09df7d232efdda16bbebc9163184f2250b379c5f5a7efd611",
@@ -37,6 +40,8 @@ internal sealed partial class NeuralMasterSnapshots(
     ];
     private readonly NeuralMasterKnownBuild[] _alternates = alternates?.ToArray() ??
     [
+        new("DLSS5 NR 15.1.0", "26f140748abac30237107e76c57521632d1f79ad7c7c7762e7c0ac25a782264b",
+            "61c1a5258b9c2ce4250f4ac3462e052b87f8d16896b785a5298d7b580288d316"),
         new("DLSS5 NR 14.0.0 Dev3", "56c5303448fbb03f36b7af926529cc5416e83082f830aa02cfaa2b7c89eed1e4",
             "0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7"),
     ];
@@ -119,7 +124,18 @@ internal sealed partial class NeuralMasterSnapshots(
                     : "A game setup operation is pending. Recover it from the game's setup before changing NeuralMaster.",
                     canRecover: ours);
             }
-            return BuildPlan(ctx).Status;
+            var status = BuildPlan(ctx).Status;
+            if (status.State != NeuralMasterSnapshotState.NeedsAttention) return status;
+            try
+            {
+                var repair = PlanExternalSetupLayer(ctx);
+                return repair is null ? status : status with
+                {
+                    ExternalSetupRepairFingerprint = repair.Fingerprint,
+                    Message = "DLSS5 NR's setup replaced the ReShade host. Remove that setup to put back NeuralMaster's verified host.",
+                };
+            }
+            catch (Exception ex) when (Expected(ex)) { return status; }
         }
         catch (Exception ex) when (Expected(ex))
         {

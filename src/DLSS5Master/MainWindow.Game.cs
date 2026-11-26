@@ -323,6 +323,25 @@ public sealed partial class MainWindow
             // Description + warnings for the current choice.
             var chosen = opti ? routes.First(r => r.Route == Route.OptiScaler) : routes.FirstOrDefault(r => (RouteBox.SelectedItem as ComboBoxItem)?.Tag is Route rt && r.Route == rt);
             RouteDescription.Text = chosen?.Description ?? "";
+            bool feeder = chosen?.Route == Route.Feeder;
+            FeederBackendPanel.Visibility = feeder ? Visibility.Visible : Visibility.Collapsed;
+            if (selectFromManifest && _game is { } game)
+            {
+                var preferred = AppSettings.FeederBackendFor(_settings.OverrideOf(game.Entry), _scan.Manifest);
+                FeederBackendBox.SelectedIndex = preferred == FeederBackend.Lecram ? 1 : 0;
+                if (_settings.TryRememberInstalledFeederBackend(game.Entry, _scan.Manifest))
+                {
+                    try { _settings.Save(); }
+                    catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                    { AppPaths.Log($"Could not save the installed Feeder backend for {game.Name}: {e.Message}"); }
+                }
+            }
+            var feederProblem = feeder && SelectedFeederBackend == FeederBackend.Lecram
+                ? Installers.FeederLecramUnavailable(SelectedApi, bits, nrSource) : null;
+            FeederBackendNote.Text = feederProblem ?? (SelectedFeederBackend == FeederBackend.Lecram
+                ? "Uses the included Feeder with your local DLSS5 NR add-on. Open the add-on panel for extra neural settings."
+                : "");
+            FeederBackendNote.Visibility = FeederBackendNote.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             // The library was read before the game moved (Steam's Move install folder) or was uninstalled: nothing else here
             // means anything until the library is read again.
             string? warning = _folderGone && _game is not null
@@ -381,7 +400,8 @@ public sealed partial class MainWindow
                 : nrSetup ? _removeNrButton
                 : loadEarly ? _loadEarlyButton : null;
             RefreshGameRouteWarning();
-            _canInstall = _neuralMasterConflict is null && SelectedExe is not null && (opti ? chosen?.Unavailable is null : RouteBox.SelectedItem is not null);
+            _canInstall = _neuralMasterConflict is null && feederProblem is null && SelectedExe is not null &&
+                (opti ? chosen?.Unavailable is null : RouteBox.SelectedItem is not null);
             InstallButton.IsEnabled = !_busy && _canInstall;
             RestoreButton.IsEnabled = !_busy && _scan.Manifest is not null && _neuralMasterConflict is null;
             InstallButton.Content = _scan.Manifest?.Route is null or "mfgonly" ? "Set up DLSS 5" : "Reinstall";
@@ -396,9 +416,16 @@ public sealed partial class MainWindow
         var conflict = !_neuralMasterReading && _neuralMasterStatus is null ? _neuralMasterConflict : null;
         bool showUnrecordedReShade = CanReviewUnrecordedReShade();
         var warning = conflict ?? (showUnrecordedReShade ? _unrecordedReShadeWarning : _gameRouteWarning);
+        bool externalSetupRepair = _neuralMasterStatus?.ExternalSetupRepairFingerprint is not null &&
+            !_neuralMasterReading && !_neuralMasterWorking && _scan is { OtherAppBackup: false, OtherAppRecord: false };
+        if (externalSetupRepair)
+            warning = "DLSS5 NR's setup replaced NeuralMaster's ReShade host. Remove DLSS5 NR to restore the verified host.";
+        else if (_neuralMasterConflict is not null && SelectedExe is { } exe && NrAddon.SetupInstalled(Path.GetDirectoryName(exe.Path)!))
+            warning = "DLSS5 NR's own setup record is present. Use Remove NR in that setup if DLSS 5 Master cannot verify the files needed for recovery.";
         RouteWarning.Message = warning ?? "";
         RouteWarning.IsOpen = warning is not null;
-        RouteWarning.ActionButton = showUnrecordedReShade ? (_busy ? null : _removeReShadeButton) : _gameRouteWarningAction;
+        RouteWarning.ActionButton = externalSetupRepair ? (_busy ? null : _removeNrButton)
+            : showUnrecordedReShade ? (_busy ? null : _removeReShadeButton) : _gameRouteWarningAction;
     }
 
     private bool CanReviewUnrecordedReShade() =>
@@ -460,7 +487,7 @@ public sealed partial class MainWindow
         AddRow(StatusRows, "Architecture", exe is null ? "—" : exe.Bitness == 0 ? "unknown" : $"{exe.Bitness}-bit");
         AddRow(StatusRows, "Rendering API", Scanner.Label(SelectedApi), SelectedApi == RenderApi.Unknown ? "WarnText" : "AccentText");
         var m = _scan.Manifest;
-        AddRow(StatusRows, "Installed backend (this app)", Installers.RouteLabel(m?.Route), m is null ? null : "AccentText");
+        AddRow(StatusRows, "Installed backend (this app)", Installers.InstalledRouteLabel(m), m is null ? null : "AccentText");
         if (m is not null)
             AddRow(StatusRows, "Installed on", m.Date.ToLocalTime().ToString("d MMM yyyy, h:mm tt", CultureInfo.InvariantCulture) + $"  ·  {m.Added.Count} added, {m.Replaced.Count} replaced");
         if (_scan.OtherAppBackup || _scan.OtherAppRecord)
@@ -626,6 +653,32 @@ public sealed partial class MainWindow
     private string? NrSource => _scan is null || SelectedExe is null ? null
         : NrAddon.Source(_settings.NrFolder, _scan.Dir, Path.GetDirectoryName(SelectedExe.Path)!, _scan.Manifest);
 
+    private FeederBackend SelectedFeederBackend => FeederBackendBox.SelectedIndex == 1 ? FeederBackend.Lecram : FeederBackend.RenoDx;
+
+    private void FeederBackendBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_populating || _game is null || _scan is null || FeederBackendBox.SelectedIndex is not (0 or 1)) return;
+        var choices = _settings.OverrideFor(_game.Entry);
+        var previous = choices.FeederBackend;
+        if (previous != SelectedFeederBackend)
+        {
+            choices.FeederBackend = SelectedFeederBackend;
+            try { _settings.Save(); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                choices.FeederBackend = previous;
+                _populating = true;
+                try { FeederBackendBox.SelectedIndex = AppSettings.FeederBackendFor(choices, _scan.Manifest) == FeederBackend.Lecram ? 1 : 0; }
+                finally { _populating = false; }
+                RefreshRoutes();
+                FeederBackendNote.Text = "Could not save the Feeder backend. " + ex.Message;
+                FeederBackendNote.Visibility = Visibility.Visible;
+                return;
+            }
+        }
+        RefreshRoutes();
+    }
+
     /// <summary>
     /// DLSS5 NR is in the game and another ReShade route is chosen: next to it, NR switches itself off or runs a second
     /// neural pass. Asks whether to use NR's own route instead or set NR aside. The route to set up, or null for Cancel.
@@ -699,7 +752,7 @@ public sealed partial class MainWindow
             if (blocked == ContentDialogResult.Primary) RemoveNrSetup_Click(this, new RoutedEventArgs());
             return;
         }
-        if (!opti && !mfgOnly)
+        if (!opti && !mfgOnly && !(route == Route.Feeder && SelectedFeederBackend == FeederBackend.Lecram))
         {
             if (await AskAboutNrAddonAsync(route, Path.GetDirectoryName(SelectedExe.Path)!) is not { } chosen) return;
             if (chosen != route) { route = chosen; PickRoute(route); }
@@ -737,7 +790,8 @@ public sealed partial class MainWindow
             MfgUnlock = route == Route.MfgOnly || (MfgBox.IsEnabled && MfgBox.IsChecked == true),
             LoadAddonsEarly = EarlyAddonsBox.IsChecked == true,
             AntiCheatAcknowledged = AntiCheatBox.IsChecked == true,
-            NrAddonSource = route == Route.NrAddon ? NrSource : null,
+            FeederBackend = route == Route.Feeder ? SelectedFeederBackend : FeederBackend.Automatic,
+            NrAddonSource = route == Route.NrAddon || route == Route.Feeder && SelectedFeederBackend == FeederBackend.Lecram ? NrSource : null,
         };
         if (opti) { _settings.OptiScalerMenuKey = req.MenuKey; _settings.Save(); }
 
@@ -891,6 +945,36 @@ public sealed partial class MainWindow
         if (_scan is null || _busy || SelectedExe is null) return;
         var dir = _scan.Dir;
         var exe = SelectedExe.Path;
+        if (_neuralMasterStatus?.ExternalSetupRepairFingerprint is { } fingerprint)
+        {
+            if (_neuralMasterReading || _neuralMasterWorking || _bulkRunning || _appUpdating) return;
+            var confirm = new ContentDialog
+            {
+                XamlRoot = Root.XamlRoot,
+                Title = "Remove DLSS5 NR and recover NeuralMaster?",
+                Content = new TextBlock
+                {
+                    TextWrapping = TextWrapping.Wrap,
+                    Text = "The matching ReShade host will be restored from DLSS5 NR's backup. " +
+                           "The removed add-on and replaced host are archived in _DLSS5Master_Backup. " +
+                           "Your current settings, NVIDIA runtime, and NeuralMaster backups stay in place."
+                },
+                PrimaryButtonText = "Remove DLSS5 NR",
+                CloseButtonText = "Cancel",
+                DefaultButton = ContentDialogButton.Close,
+            };
+            if (await confirm.ShowAsync() != ContentDialogResult.Primary || _busy || _bulkRunning || _appUpdating ||
+                _scan?.Dir != dir || SelectedExe?.Path != exe) return;
+            LogBox.Text = "";
+            SetBusy(true, "Restoring NeuralMaster's ReShade host…");
+            var messages = new List<string>();
+            try { await Task.Run(() => _neuralMasterSnapshots.RemoveExternalSetupLayer(dir, exe, fingerprint, messages.Add)); }
+            catch (Exception ex) { messages.Add("✖ " + ex.Message); }
+            finally { SetBusy(false); }
+            await RescanAsync();
+            foreach (var message in messages) Log(message);
+            return;
+        }
         var exeDir = Path.GetDirectoryName(exe)!;
         LogBox.Text = "";
         SetBusy(true, "Checking the backups…");

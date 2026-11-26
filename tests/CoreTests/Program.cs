@@ -1297,11 +1297,11 @@ ReinstallSettingsRaceTests.Run(Check);
     Check("routekey", Installers.RouteKey(Route.Feeder) == "feeder" && Installers.RouteKey(Route.OptiScaler) == "optiscaler");
     Check("apikey", Installers.ApiKey(RenderApi.DX12) == "dxgi" && Installers.ApiKey(RenderApi.DX11) == "dxgi" && Installers.ApiKey(RenderApi.Unknown) == "unknown" && Installers.ApiKey(RenderApi.OpenGL) == "opengl");
     Check("menukeys", Installers.MenuKeys.Length == 21 && Installers.MenuKeys[0] == ("Insert", "0x2D") && Installers.MenuKeys[17] == ("F12", "0x7B") && Installers.MenuKeys[^1] == ("Scroll Lock", "0x91"));
-    Check("opti builds", Components.OptiBuilds.Length == 2 && Components.OptiBuilds[0].Id == "0.9.95-shyvortex" && Components.OptiBuilds.All(b => b.Url is not null && b.Sha256 is { Length: 64 }));
-    Check("opti 0.9.95 whole backend", Components.OptiBuilds.Single(b => b.Id == "0.9.95-shyvortex") is { WholeBackend: true, NeuralRendering: true, Forwarded: false, Sha256.Length: 64 });
-    Check("opti compatible bundled and downloaded build IDs resolve to 0.9.95",
-        new[] { "0.9.90-shyvortex", "0.9.91", "0.9.91-shyvortex", "0.9.95" }
-            .All(id => Components.CurrentOptiBuildId(id) == "0.9.95-shyvortex")
+    Check("opti builds", Components.OptiBuilds.Length == 2 && Components.OptiBuilds[0].Id == "0.9.96-shyvortex" && Components.OptiBuilds.All(b => b.Url is not null && b.Sha256 is { Length: 64 }));
+    Check("opti 0.9.96 whole backend", Components.OptiBuilds.Single(b => b.Id == "0.9.96-shyvortex") is { WholeBackend: true, NeuralRendering: true, Forwarded: false, Sha256.Length: 64 });
+    Check("opti compatible bundled and downloaded build IDs resolve to 0.9.96",
+        new[] { "0.9.90-shyvortex", "0.9.91", "0.9.91-shyvortex", "0.9.95", "0.9.95-shyvortex", "0.9.96" }
+            .All(id => Components.CurrentOptiBuildId(id) == "0.9.96-shyvortex")
         && Components.CurrentOptiBuildId("0.8.3-rtx40-mfg") == "0.8.3-rtx40-mfg");
 
     // Feeder helpers

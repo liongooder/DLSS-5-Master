@@ -18,12 +18,30 @@ internal static class RouteProfiles
             m.MfgUnlock is not null, m.OptiScalerBuild, _ => { });
         if (settings.Sum(s => (long)s.Bytes.Length) > 8 * 1024 * 1024) throw new InstallException("Route settings exceed the 8 MB profile limit; nothing was changed.");
         foreach (var s in settings) InstallTransaction.CheckPath(game, Journal.SafePath(game, s.Rel));
-        var file = FileFor(game, exe, m.Route, m.Route == "optiscaler" ? m.OptiScalerBuild : null);
-        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-        File.WriteAllText(file + ".tmp", JsonSerializer.Serialize(new Profile(m.Bitness, settings)));
-        File.Move(file + ".tmp", file, true);
+        if (m.Route == "feeder" && m.OptiScalerBuild is not null)
+        {
+            var optiSettings = settings.Where(IsOptiSetting).ToList();
+            if (optiSettings.Count > 0)
+                Write(FileFor(game, exe, m.Route, m.OptiScalerBuild), m.Bitness, optiSettings);
+            settings.RemoveAll(IsOptiSetting);
+        }
+        Write(FileFor(game, exe, m.Route, m.Route == "optiscaler" ? m.OptiScalerBuild : null), m.Bitness, settings);
         log("Saved this route's in-game settings locally.");
     }
+
+    private static bool IsOptiSetting(KeptSetting s) =>
+        Path.GetFileName(s.Rel).Equals("OptiScaler.ini", StringComparison.OrdinalIgnoreCase);
+
+    private static void Write(string file, int bits, List<KeptSetting> settings)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file + ".tmp", JsonSerializer.Serialize(new Profile(bits, settings)));
+        File.Move(file + ".tmp", file, true);
+    }
+
+    internal static List<KeptSetting> LoadFeederOptiSettings(string game, string exe, int bits, string build) =>
+        LoadFile(FileFor(game, exe, "feeder", build), game, exe, bits).Where(IsOptiSetting).ToList();
+
     internal static List<KeptSetting> Load(string game, string exe, Route route, int bits, bool mfg, string? build)
     {
         var key = Installers.RouteKey(route);
@@ -40,6 +58,14 @@ internal static class RouteProfiles
                 if (File.Exists(candidate)) { file = candidate; break; }
             }
         }
+        var settings = LoadFile(file, game, exe, bits);
+        if (route == Route.Feeder && build is not null)
+            settings.AddRange(LoadFeederOptiSettings(game, exe, bits, build));
+        return settings.Where(s => mfg || !Path.GetFileName(s.Rel).StartsWith("MFGAdaUnlock", StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+
+    private static List<KeptSetting> LoadFile(string file, string game, string exe, int bits)
+    {
         if (!File.Exists(file)) return new();
         if (new FileInfo(file).Length > 12 * 1024 * 1024) throw new InstallException("Saved route settings are too large.");
         var p = JsonSerializer.Deserialize<Profile>(File.ReadAllText(file));
@@ -55,6 +81,6 @@ internal static class RouteProfiles
                 || Path.GetExtension(path).ToLowerInvariant() is not (".ini" or ".cfg" or ".json" or ".txt"))
                 throw new InstallException("Saved route settings contain an unsupported path.");
         }
-        return p.Settings.Where(s => mfg || !Path.GetFileName(s.Rel).StartsWith("MFGAdaUnlock", StringComparison.OrdinalIgnoreCase)).ToList();
+        return p.Settings;
     }
 }

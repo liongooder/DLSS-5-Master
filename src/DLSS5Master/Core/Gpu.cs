@@ -18,8 +18,9 @@ public static partial class Gpu
     [GeneratedRegex(@"RTX\s*(20|30)\d{2}|RTX\s*A\d{3,4}\b|Quadro\s*RTX", RegexOptions.IgnoreCase)]
     private static partial Regex Rtx20or30();
 
-    private static readonly Lazy<List<(string Name, string Driver)>> _adapters = new(Read);
+    private static readonly Lazy<List<(string Name, string Driver, bool Present)>> _adapters = new(Read);
     public static IReadOnlyList<string> Names => _adapters.Value.Select(a => a.Name).ToList();
+    internal static IEnumerable<string> PresentNames => _adapters.Value.Where(a => a.Present).Select(a => a.Name);
 
     /// <summary>MFGAdaUnlock's default DLSS-G mode targets GeForce RTX 40-series (Ada) cards.</summary>
     public static bool HasRtx40 => Names.Any(n => Rtx40().IsMatch(n));
@@ -56,9 +57,9 @@ public static partial class Gpu
         return int.Parse(digits[..3], NumberStyles.None, CultureInfo.InvariantCulture).ToString(CultureInfo.InvariantCulture) + "." + digits[3..];
     }
 
-    private static List<(string Name, string Driver)> Read()
+    private static List<(string Name, string Driver, bool Present)> Read()
     {
-        var list = new List<(string Name, string Driver)>();
+        var list = new List<(string Name, string Driver, bool Present)>();
         try
         {
             using var cls = Registry.LocalMachine.OpenSubKey(DisplayClass);
@@ -71,7 +72,7 @@ public static partial class Gpu
             {
                 using var k = cls.OpenSubKey(sub);
                 if (k?.GetValue("DriverDesc") is string name && !list.Any(a => a.Name == name))
-                    list.Add((name, k.GetValue("DriverVersion") as string ?? ""));
+                    list.Add((name, k.GetValue("DriverVersion") as string ?? "", present?.Contains(sub) == true));
             }
         }
         catch { }

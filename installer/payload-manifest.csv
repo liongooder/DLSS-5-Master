@@ -1,4 +1,5 @@
 dest,source,sha256
+nvidia-neural\nvngx_dlssnr.dll,https://github.com/NVIDIAGameWorks/rtx-remix/releases/download/remix-1.6.1/rtx-remix-for-x64-games-release-remix-1.6.1.zip,2bc19bc09a7b89dd44f73e2ac0108fcc586e2154bdd0830f242f4f040e28789f
 runtime\nis.license.txt,streamline\nis.license.txt,f80ecfbce8a84a5b4c1c59dc5a9f0ee9cf5a989c9fba3a9486ee874f7595a454
 runtime\nvngx_dlss.dll,https://github.com/RankFTW/rhi-repo/releases/download/dlss-310.9.16/nvngx_dlss_310.9.16.zip,858ccff96360c3098db9264cd6f13d04a027e09b6ce7ad5bbc297570e824b4f2
 runtime\nvngx_dlss.license.txt,streamline\nvngx_dlss.license.txt,b6f4b4b6f582c9523ed4dfe89a4fae4cfc9c61f9c57e335e00ccee5f9b2b2e4b
@@ -18,9 +19,9 @@ reshade\ReShade32.dll,reshade-vulkan\ReShade32.dll,da430e0a9c6eecefa0d1b27d05e16
 reshade\ReShade64.dll,reshade-vulkan\ReShade64.dll,0cee63f9c9f13f3ac909c5b4903f4dbb4b719a7ab3b4f13b0deaf83c814b94f7
 renodx\renodx-dlss5.addon64,https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss5-10.8.0/renodx-dlss5_10.8.0.zip,79871879324053d49931a9f8c1865fcb83e8146df4a56b146d7a8a14cc7e70fe
 renodx\renodx-dlss.addon64,https://github.com/RankFTW/rhi-repo/releases/download/renodx-dlss-SF-26.1025.0009/renodx-dlss_SF_26.1025.0009.zip,dd5ed7ba6773a6168390f3a53e757f09b563ecdf1a9f4fcdec6dd3129d93bace
-feeder\dlss5-feed-host64.exe,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v2.0.0/DLSS5-Feeder-2.0.0.zip,7d360bf6d7b21d2d180346a40d74eafea45581802374225e6d30737fb97bc48f
-feeder\dlss5-feed.addon32,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v2.0.0/DLSS5-Feeder-2.0.0.zip,7ec337e0023652655fbf0f40f815bc1b4cd95eec43e1216a681a9ac0bcef2793
-feeder\dlss5-feed.addon64,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v2.0.0/DLSS5-Feeder-2.0.0.zip,d2b940c7617f8bc418ee0b02d3aed28cfd58e44e6095f0f862b6ff96a4388ffa
+feeder\dlss5-feed-host64.exe,feeder\dlss5-feed-host64.exe,24bcd636106fff8394743a4d079fef96b8c195e4504bf68b03c9717af92ad00c
+feeder\dlss5-feed.addon32,feeder\dlss5-feed.addon32,7299cdc1d0185b1e460d1d24cc1b546596a59c7b9ec4e9f8a1be4727a0f64475
+feeder\dlss5-feed.addon64,feeder\dlss5-feed.addon64,d02ed253281ea3db9dcd1e3eb8ded8d76c656ea8118ed516bff06ec12d863c15
 feeder\Verify-DLSS5Feeder.ps1,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v2.0.0/DLSS5-Feeder-2.0.0.zip,a3b1a4aea238508fb8971d07cb40ece0b37ec512d89b49421a2a0ae3e31f948c
 feeder\licenses\DLSS5-Feeder-LICENSE.txt,feeder\licenses\DLSS5-Feeder-LICENSE.txt,6562d5a5e3d7534711e34f4b34335f23f067acc839ae5274c1250bf5f4654b8b
 feeder\licenses\VORT-LICENSE.txt,feeder\licenses\VORT-LICENSE.txt,800bacb0f9db4df8203f0dad1f99947109a44f4097380807e0483bd62dee0d41
@@ -48,5 +49,10 @@ feeder\reshade-shaders\Shaders\Includes\vort_TAA.fxh,feeder\reshade-shaders\Shad
 feeder\reshade-shaders\Shaders\Includes\vort_Tonemap.fxh,feeder\reshade-shaders\Shaders\Includes\vort_Tonemap.fxh,9413eef6190303e920356310bc3aa2a270c052a1bcfde44f024f0a8986095f30
 feeder\reshade-shaders\Textures\vort_BlueNoise.png,feeder\reshade-shaders\Textures\vort_BlueNoise.png,050d26db9283fbaece3b6883e300d22403631d83a12a5f2f79dc8b789b860305
 feeder\reshade-shaders\Textures\vort_MLUT.png,feeder\reshade-shaders\Textures\vort_MLUT.png,acb25ed926e7e847aeb0ef521745287d4ddda3c7f22e472ee42d61bb3064bbd7
-optiscaler\OptiScaler-0_9_95-shyvortex.zip,https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/releases/download/v0.9.95/OptiScaler-NR-v0.9.95.zip,2d25a701b1bc63e5aacb954fe44ec2842352149bb22a204f979fa61a827023c0
+optiscaler\OptiScaler-0_9_96-shyvortex.zip,https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/releases/download/v0.9.96/OptiScaler-NR-v0.9.96.zip,bc100c6e7092d569da7117e1861ed13024e4aa975a6134f0c39588975cb16381
 gitc-uplift\GITC-Uplift-2.0.0.zip,https://github.com/ghostinthecamera/GITC-Uplift/releases/download/v2.0.0/GITC-Uplift-2.0.0.zip,1eac38a62339e993cc98fd4f4773dd8a327b098b47c4d21fc070a9d3d6aac255
+feeder-original\dlss5-feed-host64.exe,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v2.0.0/DLSS5-Feeder-2.0.0.zip,7d360bf6d7b21d2d180346a40d74eafea45581802374225e6d30737fb97bc48f
+feeder-original\dlss5-feed.addon32,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v2.0.0/DLSS5-Feeder-2.0.0.zip,7ec337e0023652655fbf0f40f815bc1b4cd95eec43e1216a681a9ac0bcef2793
+feeder-original\dlss5-feed.addon64,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v2.0.0/DLSS5-Feeder-2.0.0.zip,d2b940c7617f8bc418ee0b02d3aed28cfd58e44e6095f0f862b6ff96a4388ffa
+feeder-original\DLSS5-Feeder-2.0.0.zip,https://github.com/jlrouzies-fr/DLSS5-Feeder/releases/download/v2.0.0/DLSS5-Feeder-2.0.0.zip,fa41fe2c5d3da803688775b802dc373a922daab0e721c8154a17066fcdd62584
+feeder\controls\dlss5-feed-controls.addon64,feeder\controls\dlss5-feed-controls.addon64,17ac1325b0632b92aa3dd3bbfb4187c02dd09077648905068c3657abea3d3dda

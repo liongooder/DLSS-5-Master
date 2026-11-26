@@ -56,7 +56,7 @@ public sealed partial class MainWindow
         bool customFeeder = !string.IsNullOrWhiteSpace(_settings.FeederFolder);
         var feederZip = customFeeder ? FeederZipImport.DisplayName(_settings.FeederFolder) : null;
         if (!_feederZipWorking) RefreshFeederZipStatus(customFeeder, feederZip);
-        var stamp = System.Text.Json.JsonSerializer.Serialize(new { Updates.State, _updating, _componentWorking, customFeeder, feederZip });
+        var stamp = System.Text.Json.JsonSerializer.Serialize(new { Updates.State, _updating, _componentWorking, customFeeder, feederZip, _settings.FeederLiveControls });
         if (_updatesViewStamp == stamp) return;
         _updatesViewStamp = stamp;
         AutoCheckBox.IsChecked = Updates.State.AutoCheck;
@@ -68,7 +68,7 @@ public sealed partial class MainWindow
             var available = Updates.Available(src);
             var custom = src.Id == "feeder" && customFeeder;
             var current = custom
-                ? feederZip is null ? "Selected ZIP unavailable" : $"In use: {feederZip} (local ZIP)"
+                ? feederZip is null ? "Selected ZIP unavailable" : $"Selected ZIP: {feederZip}"
                 : $"In use: {version}{(updated ? " (updated)" : " (included)")}";
 
             var grid = new Grid { Padding = new Thickness(18, 10, 14, 10), ColumnSpacing = 10, BorderBrush = Res("RowBorder"),
@@ -121,11 +121,17 @@ public sealed partial class MainWindow
     private void RefreshFeederZipStatus(bool custom, string? zip)
     {
         ChooseFeederZipButton.IsEnabled = true;
-        AutomaticFeederButton.IsEnabled = custom;
         var (version, _, updated) = Updates.InUse(Updates.Sources.First(source => source.Id == "feeder"));
+        AutomaticFeederButton.IsEnabled = custom || updated;
+        FeederLiveControlsBox.IsEnabled = true;
+        FeederLiveControlsBox.IsChecked = _settings.FeederLiveControls;
         FeederZipStatus.Text = custom
-            ? zip is null ? "Selected ZIP unavailable. Choose it again or use automatic." : $"Using {zip}."
-            : $"Automatic · {version} ({(updated ? "accepted update" : "included")})";
+            ? zip is null ? "Selected ZIP unavailable. Choose it again or use the original." : $"Selected ZIP · {zip}"
+            : updated ? $"Feeder {version} (accepted update)." : $"Original Feeder {version} (included).";
+        if (_settings.FeederLiveControls)
+            FeederZipStatus.Text += custom
+                ? "\n64-bit Feeder installs with RenoDX use the included build while live controls are enabled."
+                : "\nInstall or reinstall a 64-bit Feeder game with RenoDX to use live controls.";
         FeederZipStatus.Foreground = Res(custom && zip is null ? "WarnText" : "MutedText");
     }
 
@@ -133,7 +139,7 @@ public sealed partial class MainWindow
     {
         if (_feederZipWorking || _busy || _bulkRunning || _appUpdating || _componentWorking) return;
         _feederZipWorking = true;
-        ChooseFeederZipButton.IsEnabled = AutomaticFeederButton.IsEnabled = false;
+        ChooseFeederZipButton.IsEnabled = AutomaticFeederButton.IsEnabled = FeederLiveControlsBox.IsEnabled = false;
         string? error = null;
         try
         {
@@ -161,19 +167,43 @@ public sealed partial class MainWindow
         try
         {
             SaveFeederSelection("");
+            var source = Updates.Sources.First(source => source.Id == "feeder");
+            if (Updates.ActivePath(source.Id) is not null) Updates.Revert(source);
             RefreshUpdatesPanel();
         }
         catch (Exception ex) { ShowFeederZipError($"Could not save the Feeder selection. {ex.Message}"); }
     }
 
-    private void SaveFeederSelection(string folder)
+    private void FeederLiveControls_Click(object sender, RoutedEventArgs e)
+    {
+        if (_feederZipWorking || _busy || _bulkRunning || _appUpdating || _componentWorking)
+        {
+            RefreshUpdatesPanel();
+            return;
+        }
+        try
+        {
+            SaveFeederSelection(_settings.FeederFolder, FeederLiveControlsBox.IsChecked == true);
+            RefreshUpdatesPanel();
+        }
+        catch (Exception ex)
+        {
+            RefreshUpdatesPanel();
+            ShowFeederZipError($"Could not save the Feeder selection. {ex.Message}");
+        }
+    }
+
+    private void SaveFeederSelection(string folder, bool? liveControls = null)
     {
         var previous = _settings.FeederFolder;
+        var priorLiveControls = _settings.FeederLiveControls;
         _settings.FeederFolder = folder;
+        if (liveControls.HasValue) _settings.FeederLiveControls = liveControls.Value;
         try { _settings.Save(); }
         catch
         {
             _settings.FeederFolder = previous;
+            _settings.FeederLiveControls = priorLiveControls;
             throw;
         }
         _ = RefreshComponentsAsync();
@@ -318,7 +348,7 @@ public sealed partial class MainWindow
             RefreshUpdatesPanel();
             await RefreshComponentsAsync();
             UpdateStatus.Text = src.Id == "feeder" && !string.IsNullOrWhiteSpace(_settings.FeederFolder)
-                ? $"Feeder {Updates.InUse(src).Version} is ready for automatic setup. Select Use automatic in DLSS5 Feeder to switch."
+                ? $"Feeder {Updates.InUse(src).Version} is available for automatic setup. Your custom ZIP is still selected."
                 : $"{src.Name} updated to {Updates.InUse(src).Version}. Reinstall a game to give it the new version.";
         }
         catch (Exception ex) { UpdateStatus.Text = $"✖ {src.Name}: {ex.Message}"; }

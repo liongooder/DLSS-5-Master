@@ -75,7 +75,7 @@ try
         File.WriteAllText(optiIni, setting);
         RouteProfiles.Save(optiGame, opti.Manifest, _ => { });
     }
-    const string bundledOpti = "0.9.95-shyvortex";
+    const string bundledOpti = "0.9.96-shyvortex";
     const string legacyTuning = "[Menu]\nShortcutKey=0x70\n";
     const string acceptedUpdateTuning = "[Menu]\nShortcutKey=0x71\n";
     const string bundledTuning = "[Menu]\nShortcutKey=0x72\n";
@@ -83,12 +83,14 @@ try
         .Where(setting => Path.GetFileName(setting.Rel) == "OptiScaler.ini")
         .Select(setting => System.Text.Encoding.UTF8.GetString(setting.Bytes)).SingleOrDefault() ?? "";
     SaveOptiProfile("0.9.90-shyvortex", legacyTuning);
-    Check("OptiScaler 0.9.95 can reuse earlier settings without exposing them to the RTX 40 legacy build",
+    Check("OptiScaler 0.9.96 can reuse earlier settings without exposing them to the RTX 40 legacy build",
         OptiTuning(bundledOpti) == legacyTuning && OptiTuning("0.8.3-rtx40-mfg") == "");
-    SaveOptiProfile("0.9.95", acceptedUpdateTuning);
-    Check("OptiScaler 0.9.95 prefers tuning from the same downloaded build", OptiTuning(bundledOpti) == acceptedUpdateTuning);
+    SaveOptiProfile("0.9.95-shyvortex", bundledTuning);
+    Check("OptiScaler 0.9.96 recovers the previous bundle's tuning", OptiTuning(bundledOpti) == bundledTuning);
+    SaveOptiProfile("0.9.96", acceptedUpdateTuning);
+    Check("OptiScaler 0.9.96 prefers tuning from the same downloaded build", OptiTuning(bundledOpti) == acceptedUpdateTuning);
     SaveOptiProfile(bundledOpti, bundledTuning);
-    Check("OptiScaler 0.9.95 prefers tuning saved for the installed bundle", OptiTuning(bundledOpti) == bundledTuning);
+    Check("OptiScaler 0.9.96 prefers tuning saved for the installed bundle", OptiTuning(bundledOpti) == bundledTuning);
 
     var install = Game("preview");
     var installExe = Path.Combine(install, "OfflineFixture.exe");
